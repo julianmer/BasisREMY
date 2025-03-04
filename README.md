@@ -61,7 +61,7 @@ pip install -r requirements.txt
 ## Running BasisREMY
 With all dependencies installed and your basisREMY virtual environment activated, run the application:
 ```bash
-python basisREMY.py
+python main.py
 ```
 This will launch the BasisREMY GUI.
 
