@@ -1,0 +1,6 @@
+[submodule "fidA"]
+	path = fidA
+	url = https://github.com/CIC-methods/FID-A.git
+[submodule "remy"]
+	path = remy
+	url = https://github.com/agudmundson/mrs_in_mrs
