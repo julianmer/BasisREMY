@@ -35,20 +35,24 @@ Before installing BasisREMY, ensure that the following are installed on your sys
 
 ## Setting Up the Python Environment
 
-It is recommended to use a virtual environment to isolate project dependencies. For BasisREMY, we suggest naming your virtual environment **basisREMY**.
+It is recommended to use a virtual environment to isolate project dependencies. Start by cloning the repository.
+```bash
+git clone --recurse-submodules https://github.com/julianmer/BasisREMY.git
+cd BasisREMY
+```
 
 ### Create and Activate the Virtual Environment
 
 **Windows:**
 ```bash
-python -m venv basisREMY
-basisREMY\Scripts\activate
+python -m venv --prompt basisREMY .venv
+.venv\Scripts\activate
 ```
 
 **macOS/Linux:**
 ```bash
-python3 -m venv basisREMY
-source basisREMY/bin/activate
+python3 -m venv --prompt basisREMY .venv
+source .venv/bin/activate
 ```
 
 ### Install Required Python Packages
@@ -59,10 +63,7 @@ pip install -r requirements.txt
 ```
 
 ## Running BasisREMY
-With all dependencies installed and your basisREMY virtual environment activated, clone the repository and run the application:
-```bash
-git clone --recurse-submodules https://github.com/julianmer/BasisREMY.git
-```
+With all dependencies installed and your basisREMY virtual environment activated, and run the application:
 ```bash
 python main.py
 ```
