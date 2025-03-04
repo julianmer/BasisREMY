@@ -3,8 +3,6 @@ matplotlib==3.7.1
 numpy==1.24.3
 oct2py==5.8.0
 pandas==2.0.1
-Pillow==9.4.0
-Pillow==11.1.0
 plotly==5.14.1
 pyMapVBVD==0.5.2
 spec2nii==0.6.8
