@@ -71,7 +71,7 @@ class Application(TkinterDnD.Tk):
 
     def create_widgets(self):
         # load and display the header image
-        header_image = Image.open("basisremy_header.png")
+        header_image = Image.open("imgs/basisremy_header.png")
         header_image = header_image.resize((1000, 50))
         header_photo = ImageTk.PhotoImage(header_image)
         header_label = tk.Label(self, image=header_photo, bg="#f0f0f0")
