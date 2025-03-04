@@ -59,7 +59,10 @@ pip install -r requirements.txt
 ```
 
 ## Running BasisREMY
-With all dependencies installed and your basisREMY virtual environment activated, run the application:
+With all dependencies installed and your basisREMY virtual environment activated, clone the repository and run the application:
+```bash
+git clone --recurse-submodules https://github.com/julianmer/BasisREMY.git
+```
 ```bash
 python main.py
 ```
