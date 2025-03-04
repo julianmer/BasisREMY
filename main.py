@@ -45,9 +45,9 @@ from remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 #                                           Application                                            #
 #**************************************************************************************************#
 #                                                                                                  #
-# The GUI application for the BasisREMY tool. Each tab is a different step in process, starting    #
-# with the data selection and REMY extraction, continuing with the parameter configuration, and    #
-# ending with the basis set simulation.                                                            #
+# The GUI application for the BasisREMY tool. Each tab is a different step in the process,         #
+# starting with the data selection and REMY extraction, continuing with the parameter              #
+# configuration, and ending with the basis set simulation.                                         #
 #                                                                                                  #
 #**************************************************************************************************#
 class Application(TkinterDnD.Tk):
@@ -671,7 +671,6 @@ class BasisREMY:
         return MRSinMRS
 
     def parseREMY(self, MRSinMRS):
-
         # extract as much information as possible from the MRSinMRS dict
         mandatory = {
             'Sequence': None,  # TODO: find a way to get this from REMY
@@ -689,7 +688,6 @@ class BasisREMY:
             'Center Freq': MRSinMRS.get('synthesizer_frequency', None),
         }
         return mandatory, optional
-
 
     def parse2fidA(self, params):
         # change the parameters to the format used by fidA
@@ -764,6 +762,7 @@ class BasisREMY:
 
 
 def initialize_octave():
+    # initialize an Octave session with needed paths
     octave = Oct2Py()
     octave.eval("warning('off', 'all');")
     octave.addpath('./fidA/inputOutput/')
@@ -772,10 +771,11 @@ def initialize_octave():
     return octave
 
 def sim_lcmrawbasis_mp(n, sw, Bfield, lb, metab, tau1, tau2, addref, makeraw, seq, out_path):
+    # run the simulation in a separate Octave session for multiprocessing
     octave = initialize_octave()
     result = octave.feval('sim_lcmrawbasis', n, sw, Bfield, lb, metab,
                           tau1, tau2, addref, makeraw, seq, out_path)
-    octave.exit()  # Ensure the Octave session is properly closed
+    octave.exit()  # ensure the Octave session is properly closed
     return metab, result[:, 0] + 1j * result[:, 1]
 
 
