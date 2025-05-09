@@ -51,22 +51,47 @@ from remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 #                                                                                                  #
 #**************************************************************************************************#
 class Application(TkinterDnD.Tk):
+
     def __init__(self):
         super().__init__()
 
-        # base class
+        # initialize data backend
         self.BasisREMY = BasisREMY()
 
-        # colors
-        self.main_color = "#607389"
-        self.bg_1_color = "#f0f0f0"
-        self.bg_2_color = "#e0e0e0"
-        self.text_color = "black"
+        # define a fixed color palette
+        self.main_color = "#607389"   # primary buttons and highlights
+        self.bg_1_color = "#f0f0f0"   # window and frame background
+        self.bg_2_color = "#e0e0e0"   # secondary panels
+        self.bg_3_color = "#f0f0f0"   # other levels
+        self.text_color = "#000000"   # always black text
 
-        # setup the window
+        # set overall widget foreground/background
+        self.option_add("*Foreground", self.text_color)
+        self.option_add("*Background", self.bg_1_color)
+        self.option_add("*Entry.InsertBackground", self.text_color)   # for entry cursor
+        self.option_add("*Checkbutton.SelectColor", self.bg_3_color)   # for checkbutton
+
+        # configure ttk theme to a fixed one
+        style = ttk.Style(self)
+        style.theme_use('clam')  # a neutral, simple theme
+
+        # override ttk widget styling
+        style.configure('.', background=self.bg_1_color, foreground=self.text_color)
+        style.configure('TFrame', background=self.bg_1_color)
+        style.configure('TLabel', background=self.bg_1_color, foreground=self.text_color)
+        style.configure('TButton', background=self.main_color, foreground=self.text_color)
+        style.configure('TCheckbutton', background=self.bg_1_color, foreground=self.text_color)
+        style.configure('TEntry', fieldbackground=self.bg_2_color, foreground=self.text_color)
+        style.configure('TCombobox', fieldbackground=self.bg_2_color, foreground=self.text_color)
+        style.configure('TNotebook', background=self.bg_1_color)
+        style.configure('TNotebook.Tab', font=("Arial", 12, "normal"), background=self.bg_2_color, foreground=self.text_color)
+
+        # setup window
         self.title("BasisREMY")
-        self.geometry("1000x700")  # set window size
-        self.configure(bg=self.bg_1_color)  # set background color
+        self.geometry("1000x700")
+        self.configure(bg=self.bg_1_color)
+
+        # create UI elements
         self.create_widgets()
 
     def create_widgets(self):
@@ -152,12 +177,12 @@ class Application(TkinterDnD.Tk):
 
         # function to update mandatory_params when an Entry or Combobox changes
         def update_param(key, var):
-            self.BasisREMY.mandatory_params[key] = var.get()
+            self.BasisREMY.backend.mandatory_params[key] = var.get()
             self.validate_inputs()
 
         # populate the parameters frame
         row = 0
-        for key, value in self.BasisREMY.mandatory_params.items():
+        for key, value in self.BasisREMY.backend.mandatory_params.items():
             if key == 'Output Path':
                 # label for output directory
                 label = tk.Label(params_frame, text=f"{key}:", font=("Arial", 12, "bold"))
@@ -174,10 +199,10 @@ class Application(TkinterDnD.Tk):
                     directory = filedialog.askdirectory()
                     if directory:
                         self.out_path_var.set(directory)
-                        self.BasisREMY.mandatory_params['Output Path'] = directory
+                        self.BasisREMY.backend.mandatory_params['Output Path'] = directory
                     else:
                         self.out_path_var.set("missing input")
-                        self.BasisREMY.mandatory_params['Output Path'] = None
+                        self.BasisREMY.backend.mandatory_params['Output Path'] = None
                     self.validate_inputs()
 
                 button = tk.Button(params_frame, text="Browse", command=select_directory)
@@ -194,9 +219,9 @@ class Application(TkinterDnD.Tk):
                 self.metab_vars = {}
                 row = 1
                 col = 0
-                for metab in self.BasisREMY.metabs:
+                for metab in self.BasisREMY.backend.metabs:
                     # create checkbox for each metabolite
-                    var = tk.BooleanVar(value=metab in self.BasisREMY.mandatory_params.get('Metabolites', []))
+                    var = tk.BooleanVar(value=metab in self.BasisREMY.backend.mandatory_params.get('Metabolites', []))
                     checkbutton = tk.Checkbutton(metabs_frame, text=metab, variable=var)
                     checkbutton.grid(row=row, column=col, sticky="w", padx=5, pady=2)
                     self.metab_vars[metab] = var
@@ -210,14 +235,14 @@ class Application(TkinterDnD.Tk):
                 # update mandatory_params with selected metabolites
                 def update_metabs(*args):
                     selected_metabs = [metab for metab, var in self.metab_vars.items() if var.get()]
-                    self.BasisREMY.mandatory_params['Metabolites'] = selected_metabs
+                    self.BasisREMY.backend.mandatory_params['Metabolites'] = selected_metabs
                     self.validate_inputs()
 
                 # trace variable changes to update the list
                 for var in self.metab_vars.values():
                     var.trace_add('write', update_metabs)
 
-            elif key in self.BasisREMY.dropdown:
+            elif key in self.BasisREMY.backend.dropdown:
                 # label for dropdown parameters
                 label = tk.Label(params_frame, text=f"{key}:", font=("Arial", 12, "bold"))
                 label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
@@ -226,7 +251,7 @@ class Application(TkinterDnD.Tk):
                 var = tk.StringVar(value=str(value) if value is not None else "missing input")
 
                 # Combobox for dropdown parameters
-                combobox = ttk.Combobox(params_frame, textvariable=var, values=self.BasisREMY.dropdown[key],
+                combobox = ttk.Combobox(params_frame, textvariable=var, values=self.BasisREMY.backend.dropdown[key],
                                         font=("Arial", 12))
                 combobox.grid(row=row, column=1, padx=0, pady=5, sticky="ew")
 
@@ -344,8 +369,8 @@ class Application(TkinterDnD.Tk):
             params, opt = self.BasisREMY.parseREMY(MRSinMRS)
 
             # update the mandatory parameters
-            self.BasisREMY.mandatory_params.update(params)
-            self.BasisREMY.optional_params.update(opt)
+            self.BasisREMY.backend.mandatory_params.update(params)
+            self.BasisREMY.backend.optional_params.update(opt)
 
             # update the parameter configuration tab
             self.tab2_widgets()
@@ -365,8 +390,8 @@ class Application(TkinterDnD.Tk):
     def validate_inputs(self):
         # check if all mandatory parameters are filled
         all_params_filled = all(
-            self.BasisREMY.mandatory_params[key] not in (None, "", "missing input")
-            for key in self.BasisREMY.mandatory_params
+            self.BasisREMY.backend.mandatory_params[key] not in (None, "", "missing input")
+            for key in self.BasisREMY.backend.mandatory_params
             if key != 'Metabolites'
         )
 
@@ -385,12 +410,12 @@ class Application(TkinterDnD.Tk):
         self.notebook.select(2)
 
         print("Simulating basis set with the following parameters:")
-        for key, value in self.BasisREMY.mandatory_params.items():
+        for key, value in self.BasisREMY.backend.mandatory_params.items():
             print(f"{key}: {value}")
 
         # initialize the progress bar
         self.progress["value"] = 0
-        self.progress["maximum"] = len(self.BasisREMY.mandatory_params['Metabolites'])
+        self.progress["maximum"] = len(self.BasisREMY.backend.mandatory_params['Metabolites'])
 
         # run the simulation in a separate thread to keep the GUI responsive
         threading.Thread(target=self.run_simulation_with_progress, args=(self.on_simulation_complete,)).start()
@@ -405,7 +430,7 @@ class Application(TkinterDnD.Tk):
             self.update_idletasks()
 
         # run the simulation with the progress callback
-        basis = self.BasisREMY.run_simulation_with_progress(self.BasisREMY.mandatory_params, progress_callback)
+        basis = self.BasisREMY.backend.run_simulation_with_progress(self.BasisREMY.backend.mandatory_params, progress_callback)
         self.after(0, callback, basis)
 
     def on_simulation_complete(self, basis):
@@ -495,9 +520,9 @@ class Application(TkinterDnD.Tk):
         self.ax.set_yticklabels([])
 
         # compute ppm axis using cf
-        cf = self.BasisREMY.optional_params['Center Freq']
-        bw = self.BasisREMY.mandatory_params['Bandwidth']
-        points = self.BasisREMY.mandatory_params['Samples']
+        cf = self.BasisREMY.backend.optional_params['Center Freq']
+        bw = self.BasisREMY.backend.mandatory_params['Bandwidth']
+        points = self.BasisREMY.backend.mandatory_params['Samples']
         ppm_axis = 1e6 * np.linspace(-bw/2 / cf, bw/2 / cf, points)
         ppm_axis = np.flip(ppm_axis) + 4.65   # TODO: make this more general
 
@@ -529,78 +554,7 @@ class BasisREMY:
         self.DRead = DataReaders()
         self.Table = Table()
 
-        # init fidA
-        self.octave = Oct2Py()
-        self.octave.eval("warning('off', 'all');")
-        self.octave.addpath('./fidA/inputOutput/')
-        self.octave.addpath('./fidA/processingTools/')
-        self.octave.addpath('./fidA/simulationTools/')
-
-        # define possible metabolites
-        self.metabs = {
-            'Ala': False,
-            'Asc': True,
-            'Asp': False,
-            'Ch': False,
-            'Cit': False,
-            'Cr': True,
-            'EtOH': False,
-            'GABA': True,
-            'GPC': True,
-            'GSH': True,
-            'Glc': True,
-            'Gln': True,
-            'Glu': True,
-            'Gly': True,
-            'H2O': False,
-            'Ins': True,
-            'Lac': True,
-            'Lip': False,
-            'NAA': True,
-            'NAAG': True,
-            'PCh': True,
-            'PCr': True,
-            'PE': True,
-            'Phenyl': False,
-            'Ref0ppm': False,
-            'Scyllo': True,
-            'Ser': False,
-            'Tau': True,
-            'Tyros': False,
-            'bHB': False,
-            'bHG': False,
-            'hTau': False,
-        }
-
-        # dropdown options
-        self.dropdown = {
-            'Sequence': ['Spin Echo', 'PRESS', 'STEAM', 'LASER'],  # 'se' for Spin Echo, 'p' for Press, 'st' for Steam, or 'l' for LASER
-            'Add Ref.': ['Yes', 'No'],
-            'Make .raw': ['Yes', 'No'],
-        }
-
-        # define dictionary of mandatory parameters
-        self.mandatory_params = {
-            'Sequence': None,
-            'Samples': None,
-            'Bandwidth': None,
-            'Bfield': None,
-            'Linewidth': 1,
-            'TE1': None,
-            'TE2': None,
-            'Add Ref.': 'No',  # default to 'No'
-            'Make .raw': 'Yes',   # default to 'Yes' (need for .m script to run properly)
-            'Output Path': None,
-            'Metabolites': [key for key, value in self.metabs.items() if value]
-        }
-
-        # define dictionary of optional parameters
-        self.optional_params = {
-            'Nucleus': None,
-            'TR': None,
-            'Center Freq': None,
-        }
-
+        self.backend = LCModelBackend()
 
     def run(self, import_fpath, export_fpath=None, method=None, userParams={}, optionalParams={}):
         # run REMY on the selected file
@@ -609,15 +563,15 @@ class BasisREMY:
         params['Output Path'] = export_fpath if export_fpath is not None else './'
 
         # update the mandatory parameters
-        self.mandatory_params.update(params)
-        self.mandatory_params.update(userParams)
+        self.backend.mandatory_params.update(params)
+        self.backend.mandatory_params.update(userParams)
 
         # update the optional parameters
-        self.optional_params.update(opt)
-        self.optional_params.update(optionalParams)
+        self.backend.optional_params.update(opt)
+        self.backend.optional_params.update(optionalParams)
 
         # run fidA simulation
-        basis = self.run_simulation(self.mandatory_params)
+        basis = self.backend.run_simulation(self.mandatory_params)
 
         # plot the basis set
         import matplotlib.pyplot as plt
@@ -694,6 +648,145 @@ class BasisREMY:
         }
         return mandatory, optional
 
+    def run_gui(self):
+        app = Application()
+        app.mainloop()
+
+
+def initialize_octave():
+    # initialize an Octave session with needed paths
+    octave = Oct2Py()
+    octave.eval("warning('off', 'all');")
+    octave.addpath('./fidA/inputOutput/')
+    octave.addpath('./fidA/processingTools/')
+    octave.addpath('./fidA/simulationTools/')
+    return octave
+
+def sim_lcmrawbasis_mp(n, sw, Bfield, lb, metab, tau1, tau2, addref, makeraw, seq, out_path):
+    # run the simulation in a separate Octave session for multiprocessing
+    octave = initialize_octave()
+    result = octave.feval('sim_lcmrawbasis', n, sw, Bfield, lb, metab,
+                          tau1, tau2, addref, makeraw, seq, out_path)
+    octave.exit()  # ensure the Octave session is properly closed
+    return metab, result[:, 0] + 1j * result[:, 1]
+
+
+
+#**************************************************************************************************#
+#                                             Backend                                              #
+#**************************************************************************************************#
+#                                                                                                  #
+# Defines the backend structure for the simulations. Inherit from this class to create a new       #
+# simulation backend with all mandatory attributes and methods.                                    #
+#                                                                                                  #
+#**************************************************************************************************#
+class Backend:
+    def __init__(self):
+        # define possible metabolites
+        self.metabs = {}
+
+        # dropdown options
+        self.dropdown = {}
+
+        # define dictionary of mandatory parameters
+        self.mandatory_params = {}
+
+        # define dictionary of optional parameters
+        self.optional_params = {}
+
+    def run_simulation(self, params):
+        raise NotImplementedError("This method should be overridden by subclasses.")
+
+    def run_simulation_with_progress(self, params, progress_callback):
+        raise NotImplementedError("This method should be overridden by subclasses.")
+
+
+
+#**************************************************************************************************#
+#                                          LCModelBackend                                          #
+#**************************************************************************************************#
+#                                                                                                  #
+# Implements the basis set simulation backend using the FID-A sim_lcmrawbasis.m function. A very   #
+# simplified simulation for SE, PRESS, STEAM, and LASER sequences.                                 #
+#                                                                                                  #
+#**************************************************************************************************#
+class LCModelBackend(Backend):
+    def __init__(self):
+
+
+        # init fidA
+        self.octave = Oct2Py()
+        self.octave.eval("warning('off', 'all');")
+        self.octave.addpath('./fidA/inputOutput/')
+        self.octave.addpath('./fidA/processingTools/')
+        self.octave.addpath('./fidA/simulationTools/')
+
+        # define possible metabolites
+        self.metabs = {
+            'Ala': False,
+            'Asc': True,
+            'Asp': False,
+            'Ch': False,
+            'Cit': False,
+            'Cr': True,
+            'EtOH': False,
+            'GABA': True,
+            'GPC': True,
+            'GSH': True,
+            'Glc': True,
+            'Gln': True,
+            'Glu': True,
+            'Gly': True,
+            'H2O': False,
+            'Ins': True,
+            'Lac': True,
+            'Lip': False,
+            'NAA': True,
+            'NAAG': True,
+            'PCh': True,
+            'PCr': True,
+            'PE': True,
+            'Phenyl': False,
+            'Ref0ppm': False,
+            'Scyllo': True,
+            'Ser': False,
+            'Tau': True,
+            'Tyros': False,
+            'bHB': False,
+            'bHG': False,
+            'hTau': False,
+        }
+
+        # dropdown options
+        self.dropdown = {
+            'Sequence': ['Spin Echo', 'PRESS', 'STEAM', 'LASER'],
+            # 'se' for Spin Echo, 'p' for Press, 'st' for Steam, or 'l' for LASER
+            'Add Ref.': ['Yes', 'No'],
+            'Make .raw': ['Yes', 'No'],
+        }
+
+        # define dictionary of mandatory parameters
+        self.mandatory_params = {
+            'Sequence': None,
+            'Samples': None,
+            'Bandwidth': None,
+            'Bfield': None,
+            'Linewidth': 1,
+            'TE1': None,
+            'TE2': None,
+            'Add Ref.': 'No',  # default to 'No'
+            'Make .raw': 'Yes',  # default to 'Yes' (need for .m script to run properly)
+            'Output Path': None,
+            'Metabolites': [key for key, value in self.metabs.items() if value]
+        }
+
+        # define dictionary of optional parameters
+        self.optional_params = {
+            'Nucleus': None,
+            'TR': None,
+            'Center Freq': None,
+        }
+
     def parse2fidA(self, params):
         # change the parameters to the format used by fidA
         if params['Sequence'] == 'Spin Echo': params['Sequence'] = 'se'
@@ -760,28 +853,6 @@ class BasisREMY:
             basis_set[metab] = data
             progress_callback(i + 1, total_steps)   # update the progress bar
         return basis_set
-
-    def run_gui(self):
-        app = Application()
-        app.mainloop()
-
-
-def initialize_octave():
-    # initialize an Octave session with needed paths
-    octave = Oct2Py()
-    octave.eval("warning('off', 'all');")
-    octave.addpath('./fidA/inputOutput/')
-    octave.addpath('./fidA/processingTools/')
-    octave.addpath('./fidA/simulationTools/')
-    return octave
-
-def sim_lcmrawbasis_mp(n, sw, Bfield, lb, metab, tau1, tau2, addref, makeraw, seq, out_path):
-    # run the simulation in a separate Octave session for multiprocessing
-    octave = initialize_octave()
-    result = octave.feval('sim_lcmrawbasis', n, sw, Bfield, lb, metab,
-                          tau1, tau2, addref, makeraw, seq, out_path)
-    octave.exit()  # ensure the Octave session is properly closed
-    return metab, result[:, 0] + 1j * result[:, 1]
 
 
 
