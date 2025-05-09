@@ -158,6 +158,28 @@ class Application(TkinterDnD.Tk):
         # clear existing widgets in tab2 (and 3 for returns)
         self.reset_tab(self.tab2)
 
+        # backend toggle
+        backend_frame = tk.Frame(self.tab2)
+        backend_frame.pack(fill=tk.X, padx=10, pady=(10, 0))
+
+        tk.Label(backend_frame, text="Select Backend:", font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+
+        self.backend_var = tk.StringVar(value=self.BasisREMY.backend.name)  # assuming .name identifies the backend
+        backend_options = self.BasisREMY.available_backends
+
+        backend_combo = ttk.Combobox(
+            backend_frame, textvariable=self.backend_var, values=backend_options, font=("Arial", 12), state="readonly"
+        )
+        backend_combo.pack(side=tk.LEFT)
+
+        def switch_backend(event=None):
+            selected_backend = self.backend_var.get()
+            if selected_backend != self.BasisREMY.backend.name:
+                self.BasisREMY.set_backend(selected_backend)  # you must define this method
+                self.tab2_widgets()  # redraw tab2 widgets for the new backend
+
+        backend_combo.bind("<<ComboboxSelected>>", switch_backend)
+
         # create a container frame to hold both parameter and metabolite sections
         container = tk.Frame(self.tab2)
         container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -550,9 +572,15 @@ class Application(TkinterDnD.Tk):
 #                                                                                                  #
 #**************************************************************************************************#
 class BasisREMY:
-    def __init__(self):
+    def __init__(self, backend='LCModel'):
         self.DRead = DataReaders()
         self.Table = Table()
+
+        self.backends = {
+            'LCModel': LCModelBackend,
+        }
+        self.backend = self.backends[backend]
+        self.available_backends = list(self.backends.keys())
 
         self.backend = LCModelBackend()
 
@@ -682,6 +710,8 @@ def sim_lcmrawbasis_mp(n, sw, Bfield, lb, metab, tau1, tau2, addref, makeraw, se
 #**************************************************************************************************#
 class Backend:
     def __init__(self):
+        self.name = None
+
         # define possible metabolites
         self.metabs = {}
 
@@ -712,7 +742,8 @@ class Backend:
 #**************************************************************************************************#
 class LCModelBackend(Backend):
     def __init__(self):
-
+        super().__init__()
+        self.name = 'LCModel'
 
         # init fidA
         self.octave = Oct2Py()
@@ -859,3 +890,4 @@ class LCModelBackend(Backend):
 if __name__ == "__main__":
     # BasisREMY().run('./example_data/BigGABA_P1P_S01/S01_PRESS_35_act.SPAR', './output/')
     BasisREMY().run_gui()
+    
