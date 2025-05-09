@@ -319,7 +319,12 @@ class Application(TkinterDnD.Tk):
         # files are selected using the file dialog
         file_path = filedialog.askopenfilename(
             title="Select MRS Data File",
-            filetypes=[("MRS Data Files", "*.7;*.ima;*.rda;*.dat;*.spar;*.method;*.nii")]
+            filetypes=[
+                ("MRS Data Files", (
+                    "*.7", "*.ima", "*.rda", "*.dat",
+                    "*.spar", "*.method", "*.nii"
+                ))
+            ]
         )
         if file_path:
             self.file_label.config(text=f"Selected File: {file_path}")
