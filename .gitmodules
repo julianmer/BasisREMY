@@ -4,3 +4,6 @@
 [submodule "fidA"]
 	path = fidA
 	url = https://github.com/julianmer/FID-A-Fork.git
+[submodule "jbss"]
+	path = jbss
+	url = https://github.com/arcj-hub/BasisSetSimulation.git
