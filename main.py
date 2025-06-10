@@ -708,14 +708,14 @@ class BasisREMY:
     def parseREMY(self, MRSinMRS):
         # extract as much information as possible from the MRSinMRS dict
         mandatory = {
-            'Sequence': None,  # TODO: find a way to get this from REMY
+            # 'Sequence': None,  # TODO: find a way to get this from REMY
             'Samples': MRSinMRS.get('samples', None),
             'Bandwidth': MRSinMRS.get('sample_frequency', None),
             'Bfield': MRSinMRS.get('FieldStrength', None),
-            'Linewidth': 1,   # TODO: find how to get from REMY
+            # 'Linewidth': 1,   # TODO: find how to get from REMY
             'TE': MRSinMRS.get('EchoTime', None),
-            'TE2': 0,   # attention! - only holds for SpinEcho or STEAM
-                        # TODO: find sound solution!
+            # 'TE2': 0,   # attention! - only holds for SpinEcho or STEAM
+            #             # TODO: find sound solution!
             'Center Freq': MRSinMRS.get('synthesizer_frequency', None),
         }
         optional = {
@@ -1023,7 +1023,7 @@ class LCModelBackend(Backend):
             'Bfield': None,
             'Linewidth': 1,
             'TE': None,
-            'TE2': None,
+            'TE2': 0,
             'Add Ref.': 'No',  # default to 'No'
             'Make .raw': 'Yes',  # default to 'Yes' (need for .m script to run properly)
             'Output Path': None,
