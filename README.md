@@ -84,5 +84,5 @@ This will launch the BasisREMY GUI.
 ## Related References
 The project will build upon the methodologies used in existing tools. Some references include:
 - [FID-A](https://github.com/CIC-methods/FID-A) and related literature ([mrm.26091](https://doi.org/10.1002/mrm.26091))
-- [REMY](https://github.com/agudmundson/mrs_in_mrs) and related literature ([arXiv:2403.19594](https://arxiv.org/abs/2403.19594))
+- [REMY](https://github.com/agudmundson/mrs_in_mrs) and related literature ([nbm.70039](https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/nbm.70039))
 - [BasisSetSimulation](https://github.com/arcj-hub/BasisSetSimulation/tree/main)
