@@ -84,7 +84,8 @@ class Application(TkinterDnD.Tk):
         style.configure('TEntry', fieldbackground=self.bg_2_color, foreground=self.text_color)
         style.configure('TCombobox', fieldbackground=self.bg_2_color, foreground=self.text_color)
         style.configure('TNotebook', background=self.bg_1_color)
-        style.configure('TNotebook.Tab', font=("Arial", 12, "normal"), background=self.bg_2_color, foreground=self.text_color)
+        style.configure('TNotebook.Tab', font=("Arial", 12, "normal"), background=self.bg_2_color,
+                        foreground=self.text_color)
 
         # setup window
         self.title("BasisREMY")
@@ -106,7 +107,8 @@ class Application(TkinterDnD.Tk):
         # header text
         header_label = tk.Label(self, text="BasisREMY", font=("Arial bold", 20), bg="#f0f0f0")
         header_label.pack(pady=10)
-        header_label = tk.Label(self, text="A tool for generating study-specific basis sets directly from raw MRS data.",
+        header_label = tk.Label(self, text="A tool for generating study-specific basis "
+                                           "sets directly from raw MRS data.",
                                 font=("Arial", 16), bg=self.bg_1_color)
         header_label.pack(pady=1)
 
@@ -131,27 +133,34 @@ class Application(TkinterDnD.Tk):
         style.configure("TNotebook.Tab",
                         font=("Arial", 12))  # set the font size and style for the tabs
 
+        self.update()
+        self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
+
     def tab1_widgets(self):
         # drag and drop area
         drag_area = tk.Label(self.tab1, text="Select File!\n\nDrag and Drop Files Here...",
-                             relief="solid", width=50, height=12, bg=self.bg_2_color, font=("Arial bold", 12))
+                             relief="solid", width=50, height=12, bg=self.bg_2_color,
+                             font=("Arial bold", 12))
         drag_area.pack(padx=1, pady=1, expand=True)
         drag_area.drop_target_register(DND_FILES)
         drag_area.dnd_bind('<<Drop>>', self.on_drop)
         drag_area.bind("<Button-1>", self.select_file)  # bind left-click to select_file
 
         # file label
-        self.file_label = tk.Label(self.tab1, text="No file selected.", bg=self.bg_1_color, font=("Arial italic", 12))
+        self.file_label = tk.Label(self.tab1, text="No file selected.", bg=self.bg_1_color,
+                                   font=("Arial italic", 12))
         self.file_label.pack(pady=5)
 
         # process button
-        self.process_button = tk.Button(self.tab1, text="Process File", command=self.process_file, state=tk.DISABLED,
-                                        bg=self.main_color, fg=self.text_color, font=("Arial", 12, "bold"))
+        self.process_button = tk.Button(self.tab1, text="Process File", command=self.process_file,
+                                        state=tk.DISABLED, bg=self.main_color, fg=self.text_color,
+                                        font=("Arial", 12, "bold"))
         self.process_button.pack(pady=5)
 
         # skip button
-        self.skip_button = tk.Button(self.tab1, text="Skip", command=self.skip_file, state=tk.NORMAL,
-                                     bg=self.main_color, fg=self.text_color, font=("Arial", 12, "bold"))
+        self.skip_button = tk.Button(self.tab1, text="Skip", command=self.skip_file,
+                                     state=tk.NORMAL, bg=self.main_color, fg=self.text_color,
+                                     font=("Arial", 12, "bold"))
         self.skip_button.pack(pady=5)
 
     def tab2_widgets(self):
@@ -162,14 +171,14 @@ class Application(TkinterDnD.Tk):
         backend_frame = tk.Frame(self.tab2)
         backend_frame.pack(fill=tk.X, padx=10, pady=(10, 0))
 
-        tk.Label(backend_frame, text="Select Backend:", font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Label(backend_frame, text="Select Backend:",
+                 font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 10))
 
-        self.backend_var = tk.StringVar(value=self.BasisREMY.backend.name)  # assuming .name identifies the backend
+        self.backend_var = tk.StringVar(value=self.BasisREMY.backend.name)
         backend_options = self.BasisREMY.available_backends
 
-        backend_combo = ttk.Combobox(
-            backend_frame, textvariable=self.backend_var, values=backend_options, font=("Arial", 12), state="readonly"
-        )
+        backend_combo = ttk.Combobox(backend_frame, textvariable=self.backend_var,
+                                     values=backend_options, font=("Arial", 12), state="readonly")
         backend_combo.pack(side=tk.LEFT)
 
         def switch_backend(event=None):
@@ -205,7 +214,36 @@ class Application(TkinterDnD.Tk):
         # populate the parameters frame
         row = 0
         for key, value in self.BasisREMY.backend.mandatory_params.items():
-            if key == 'Output Path':
+            if key in self.BasisREMY.backend.file_selection:
+                # label for the path (file)
+                label = tk.Label(params_frame, text=f"{key}:", font=("Arial", 12, "bold"))
+                label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
+
+                # stringVar for the selected path
+                self.file_var = tk.StringVar(value="missing input")
+
+                entry = tk.Entry(params_frame, textvariable=self.file_var, font=("Arial", 12))
+                entry.grid(row=row, column=1, padx=0, pady=5, sticky="ew")
+
+                def select_path():
+                    # select a file (you could also switch to askdirectory if needed per key)
+                    file_path = filedialog.askopenfilename()
+                    if file_path:
+                        self.file_var.set(file_path)
+                        self.BasisREMY.backend.mandatory_params[key] = file_path
+                    else:
+                        self.file_var.set("missing input")
+                        self.BasisREMY.backend.mandatory_params[key] = None
+                    self.validate_inputs()
+
+                button = tk.Button(params_frame, text="Browse", command=select_path)
+                button.grid(row=row, column=2, padx=0, pady=5)
+
+                # automatically update backend dict on any entry edit
+                self.file_var.trace_add('write', lambda *args, key=key,
+                                                        var=self.file_var: update_param(key, var))
+
+            elif key == 'Output Path':
                 # label for output directory
                 label = tk.Label(params_frame, text=f"{key}:", font=("Arial", 12, "bold"))
                 label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
@@ -231,7 +269,8 @@ class Application(TkinterDnD.Tk):
                 button.grid(row=row, column=2, padx=0, pady=5)
 
                 # trace changes to the StringVar
-                self.out_path_var.trace_add('write', lambda *args, key=key, var=self.out_path_var: update_param(key, var))
+                self.out_path_var.trace_add('write', lambda *args, key=key,
+                                                            var=self.out_path_var: update_param(key, var))
 
             elif key == 'Metabolites':
                 # populate the metabolites frame
@@ -542,7 +581,7 @@ class Application(TkinterDnD.Tk):
         self.ax.set_yticklabels([])
 
         # compute ppm axis using cf
-        cf = self.BasisREMY.backend.optional_params['Center Freq']
+        cf = self.BasisREMY.backend.mandatory_params['Center Freq']
         bw = self.BasisREMY.backend.mandatory_params['Bandwidth']
         points = self.BasisREMY.backend.mandatory_params['Samples']
         ppm_axis = 1e6 * np.linspace(-bw/2 / cf, bw/2 / cf, points)
@@ -572,17 +611,26 @@ class Application(TkinterDnD.Tk):
 #                                                                                                  #
 #**************************************************************************************************#
 class BasisREMY:
-    def __init__(self, backend='LCModel'):
+    def __init__(self, backend='sLaserSim'):
         self.DRead = DataReaders()
         self.Table = Table()
 
         self.backends = {
-            'LCModel': LCModelBackend,
+            'LCModel': LCModelBackend(),
+            'sLaserSim': sLaserBackend(),
         }
         self.backend = self.backends[backend]
         self.available_backends = list(self.backends.keys())
 
-        self.backend = LCModelBackend()
+    def set_backend(self, backend):
+        # set the backend to the selected one
+        if backend in self.backends:
+            old_backend = self.backend
+            self.backend = self.backends[backend]
+            self.backend.update_from_backend(old_backend)  # update parameters
+            print(f"Backend set to: {self.backend.name}")
+        else:
+            raise ValueError(f"Unknown backend: {backend}. Available backends: {self.available_backends}")
 
     def run(self, import_fpath, export_fpath=None, method=None, userParams={}, optionalParams={}):
         # run REMY on the selected file
@@ -665,14 +713,14 @@ class BasisREMY:
             'Bandwidth': MRSinMRS.get('sample_frequency', None),
             'Bfield': MRSinMRS.get('FieldStrength', None),
             'Linewidth': 1,   # TODO: find how to get from REMY
-            'TE1': MRSinMRS.get('EchoTime', None),
+            'TE': MRSinMRS.get('EchoTime', None),
             'TE2': 0,   # attention! - only holds for SpinEcho or STEAM
                         # TODO: find sound solution!
+            'Center Freq': MRSinMRS.get('synthesizer_frequency', None),
         }
         optional = {
             'Nucleus': MRSinMRS.get('Nucleus', None),
             'TR': MRSinMRS.get('RepetitionTime', None),
-            'Center Freq': MRSinMRS.get('synthesizer_frequency', None),
         }
         return mandatory, optional
 
@@ -718,17 +766,191 @@ class Backend:
         # dropdown options
         self.dropdown = {}
 
+        # add file selection fields
+        self.file_selection = []
+
         # define dictionary of mandatory parameters
         self.mandatory_params = {}
 
         # define dictionary of optional parameters
         self.optional_params = {}
 
+    def update_from_backend(self, backend):
+        # update the backend parameters from another backend instance
+        # TODO: make sure some parameters are reset (see e.g. Sequence in dropdown)
+        self.metabs.update({k: v for k, v in backend.metabs.items() if k in self.metabs})
+        self.mandatory_params.update({k: v for k, v in backend.mandatory_params.items()
+                                      if k in self.mandatory_params})
+        self.optional_params.update({k: v for k, v in backend.optional_params.items()
+                                     if k in self.optional_params})
+        # note: for now no dropdown options are updated, as they are too specific to the backend
+        #       at this point
+
     def run_simulation(self, params):
         raise NotImplementedError("This method should be overridden by subclasses.")
 
     def run_simulation_with_progress(self, params, progress_callback):
         raise NotImplementedError("This method should be overridden by subclasses.")
+
+
+
+#**************************************************************************************************#
+#                                          sLaserBackend                                           #
+#**************************************************************************************************#
+#                                                                                                  #
+# Implements the basis set simulation backend for the sLASER sequence.                             #
+#                                                                                                  #
+#**************************************************************************************************#
+class sLaserBackend(Backend):
+    def __init__(self):
+        super().__init__()
+        self.name = 'sLaserSim'
+
+        # init fidA
+        self.octave = Oct2Py()
+        self.octave.eval("warning('off', 'all');")
+        self.octave.addpath('./fidA/inputOutput/')
+        self.octave.addpath('./fidA/processingTools/')
+        self.octave.addpath('./fidA/simulationTools/')
+
+        self.octave.addpath('./jbss/dependencies/')
+        self.octave.addpath('./jbss/')
+
+        # define possible metabolites
+        self.metabs = {
+            'Ala': False,
+            'Asc': True,
+            'Asp': False,
+            'Bet': False,
+            'Ch': False,
+            'Cit': False,
+            'Cr': True,
+            'EtOH': False,
+            'GABA': True,
+            'GABA_gov': False,
+            'GABA_govind': False,
+            'GPC': True,
+            'GSH': True,
+            'GSH_v2': False,
+            'Glc': True,
+            'Gln': True,
+            'Glu': True,
+            'Gly': True,
+            'H2O': False,
+            'Ins': True,
+            'Lac': True,
+            'NAA': True,
+            'NAAG': True,
+            'PCh': True,
+            'PCr': True,
+            'PE': True,
+            'Phenyl': False,
+            'Ref0ppm': False,
+            'Scyllo': True,
+            'Ser': False,
+            'Tau': True,
+            'Tau_govind': False,
+            'Tyros': False,
+            'bHB': False,
+            'bHG': False,
+        }
+
+        # dropdown options
+        self.dropdown = {
+            'System': ['Philips', 'Siemens'],
+            'Sequence': ['sLASER'],
+        }
+
+        # add file selection fields
+        self.file_selection = ['Path to Pulse']
+
+        # define dictionary of mandatory parameters
+        self.mandatory_params = {
+            "System": "Philips",
+            "Sequence": "sLASER",
+            "Basis Name": "test.basis",
+            "B1max": 22.,
+            "Flip Angle": 180.,
+            "RefTp": 4.5008,   # duration of the refocusing pulse
+            "Samples": None,
+            "Bandwidth": None,
+            "Linewidth": 1.,
+            "Bfield": None,
+
+            # TODO: see that REMY gets the right values
+            "thkX": 2.,  # in cm
+            "thkY": 2.,
+            "fovX": 3.,  # in cm   (if not found, default to +1 slice thickness)
+            "fovY": 3.,
+
+            "nX": 64.,
+            "nY": 64.,
+
+            "TE": None,
+            "Center Freq": None,
+            "Metabolites": [key for key, value in self.metabs.items() if value],
+
+            "Tau 1": 15.,   # fake timing
+            "Tau 2": 13.,
+
+            "Path to Pulse": None,
+            "Output Path": None,
+        }
+
+
+        # define dictionary of optional parameters
+        self.optional_params = {
+            'Nucleus': None,
+            'TR': None,
+        }
+
+    def run_simulation(self, params):
+        pass
+
+    def run_simulation_with_progress(self, params, progress_callback):
+        # create the output directory if it does not exist
+        if not os.path.exists(params['Output Path']): os.makedirs(params['Output Path'])
+
+        # fixed parameters
+        params.update({
+            "Curfolder": os.getcwd() + '/jbss/',
+            "Path to FIA-A": os.getcwd() + "/fidA/",
+            "Path to Spin System": os.getcwd() + "/jbss/my_mets/",
+            "Display": False,
+        })
+
+        def sLASER_makebasisset_function(curfolder,pathtofida,system,
+                seq_name,basis_name,B1max,flip_angle,refTp,Npts,sw,lw,Bfield,
+                thkX,thkY,fovX,fovY,nX,nY,te,centreFreq,spinSysList,tau1,tau2,
+                path_to_pulse,path_to_save,path_to_spin_system,display):
+            results = self.octave.feval('sLASER_makebasisset_function', curfolder,pathtofida,system,
+                                        seq_name,basis_name,B1max,flip_angle,refTp,Npts,sw,lw,Bfield,
+                                        thkX,thkY,fovX,fovY,nX,nY,te,centreFreq,spinSysList,tau1,tau2,
+                                        path_to_pulse,path_to_save,path_to_spin_system,display)
+            return metab, results[:, 0] + 1j * results[:, 1]
+
+        tasks = [(params['Curfolder'], params['Path to FIA-A'], params['System'],
+                  params['Sequence'], params['Basis Name'], params['B1max'],
+                  params['Flip Angle'], params['RefTp'], params['Samples'],
+                  params['Bandwidth'], params['Linewidth'], params['Bfield'],
+                  params['thkX'], params['thkY'], params['fovX'], params['fovY'],
+                  params['nX'], params['nY'], params['TE'],
+                  params['Center Freq'], [metab], params['Tau 1'], params['Tau 2'],
+                  params['Path to Pulse'], params['Output Path'],
+                  params['Path to Spin System'], params['Display'])
+                 for metab in params['Metabolites']]
+
+        # initialize the progress bar
+        total_steps = len(tasks)
+        progress_step = 100 / total_steps
+
+        # run simulations sequentially
+        basis_set = {}
+        for i, task in enumerate(tasks):
+            metab, data = sLASER_makebasisset_function(*task)
+            basis_set[metab] = data
+            progress_callback(i + 1, total_steps)   # update the progress bar
+        return basis_set
 
 
 
@@ -783,9 +1005,6 @@ class LCModelBackend(Backend):
             'Ser': False,
             'Tau': True,
             'Tyros': False,
-            'bHB': False,
-            'bHG': False,
-            'hTau': False,
         }
 
         # dropdown options
@@ -803,19 +1022,19 @@ class LCModelBackend(Backend):
             'Bandwidth': None,
             'Bfield': None,
             'Linewidth': 1,
-            'TE1': None,
+            'TE': None,
             'TE2': None,
             'Add Ref.': 'No',  # default to 'No'
             'Make .raw': 'Yes',  # default to 'Yes' (need for .m script to run properly)
             'Output Path': None,
-            'Metabolites': [key for key, value in self.metabs.items() if value]
+            'Metabolites': [key for key, value in self.metabs.items() if value],
+            'Center Freq': None,   # currently used for plotting on the ppm scale
         }
 
         # define dictionary of optional parameters
         self.optional_params = {
             'Nucleus': None,
             'TR': None,
-            'Center Freq': None,
         }
 
     def parse2fidA(self, params):
@@ -841,7 +1060,7 @@ class LCModelBackend(Backend):
         # prepare tasks for each metabolite
         params = self.parse2fidA(params)
         tasks = [(params['Samples'], params['Bandwidth'], params['Bfield'],
-                  params['Linewidth'], metab, params['TE1'], params['TE2'],
+                  params['Linewidth'], metab, params['TE'], params['TE2'],
                   params['Add Ref.'], params['Make .raw'], params['Sequence'],
                   params['Output Path']) for metab in params['Metabolites']]
 
@@ -869,7 +1088,7 @@ class LCModelBackend(Backend):
         # prepare tasks for each metabolite
         params = self.parse2fidA(params)
         tasks = [(params['Samples'], params['Bandwidth'], params['Bfield'],
-                  params['Linewidth'], metab, params['TE1'], params['TE2'],
+                  params['Linewidth'], metab, params['TE'], params['TE2'],
                   params['Add Ref.'], params['Make .raw'], params['Sequence'],
                   params['Output Path']) for metab in params['Metabolites']]
 
