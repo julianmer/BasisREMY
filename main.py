@@ -813,8 +813,9 @@ class sLaserBackend(Backend):
         self.octave.addpath('./fidA/processingTools/')
         self.octave.addpath('./fidA/simulationTools/')
 
-        self.octave.addpath('./jbss/dependencies/')
         self.octave.addpath('./jbss/')
+
+        self.octave.addpath('./own/')
 
         # define possible metabolites
         self.metabs = {
@@ -919,14 +920,16 @@ class sLaserBackend(Backend):
             "Display": False,
         })
 
-        def sLASER_makebasisset_function(curfolder,pathtofida,system,
-                seq_name,basis_name,B1max,flip_angle,refTp,Npts,sw,lw,Bfield,
-                thkX,thkY,fovX,fovY,nX,nY,te,centreFreq,spinSysList,tau1,tau2,
-                path_to_pulse,path_to_save,path_to_spin_system,display):
-            results = self.octave.feval('sLASER_makebasisset_function', curfolder,pathtofida,system,
-                                        seq_name,basis_name,B1max,flip_angle,refTp,Npts,sw,lw,Bfield,
-                                        thkX,thkY,fovX,fovY,nX,nY,te,centreFreq,spinSysList,tau1,tau2,
-                                        path_to_pulse,path_to_save,path_to_spin_system,display)
+        def sLASER_makebasisset_function(curfolder, pathtofida, system,
+                                         seq_name, basis_name, B1max, flip_angle, refTp,
+                                         Npts, sw,lw, Bfield, thkX, thkY, fovX, fovY, nX, nY, te,
+                                         centreFreq, spinSysList, tau1, tau2, path_to_pulse,
+                                         path_to_save, path_to_spin_system, display):
+            results = self.octave.feval('sLASER_makebasisset_function', curfolder, pathtofida,
+                                        system, seq_name, basis_name, B1max, flip_angle, refTp,
+                                        Npts, sw, lw, Bfield, thkX, thkY, fovX, fovY, nX, nY, te,
+                                        centreFreq, spinSysList, tau1, tau2, path_to_pulse,
+                                        path_to_save, path_to_spin_system, display)
             return metab, results[:, 0] + 1j * results[:, 1]
 
         tasks = [(params['Curfolder'], params['Path to FIA-A'], params['System'],
