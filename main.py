@@ -28,7 +28,7 @@ from matplotlib.figure import Figure
 
 from multiprocessing import Pool
 
-from oct2py import Oct2Py
+
 
 from tkinter import ttk
 from tkinter import filedialog
@@ -36,10 +36,97 @@ from tkinterdnd2 import TkinterDnD, DND_FILES
 from tkinterweb import HtmlFrame
 
 from PIL import Image, ImageTk
+## dockerized oct2py call
+## to do: test with singularity instead
+## in essence, I was able to create a class which functions similar to oct2py. Don't have test data at the moment.
+import docker
+import scipy.io
+
+# from oct2py import Oct2Py
 
 # own
 from remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 
+#
+# DockerOctave class - maybe this will work like the oct2py call
+#
+class DockerOctave:
+    def __init__(self, shared_dir='./octave_shared', container_name='octave_runner'):
+        self.shared_dir = os.path.abspath(shared_dir)
+        os.makedirs(self.shared_dir, exist_ok=True)
+        self.script_path = os.path.join(self.shared_dir, 'run.m')
+        self.result_path = os.path.join(self.shared_dir, 'result.mat')
+        self.commands = []
+        self.container_name = container_name
+        self.client = docker.from_env()
+
+        # Checking if the container exists - currently requires docker to be installed.
+        # requirements.txt should be updated to also collect docker and scipy.io
+        try:
+            self.container = self.client.containers.get(container_name)
+            if self.container.status != 'running':
+                self.container.start()
+        except docker.errors.NotFound:
+            self.container = self.client.containers.run(
+                'gnuoctave/octave:latest',
+                name=container_name,
+                command='tail -f /dev/null',
+                volumes={self.shared_dir: {'bind': '/mnt', 'mode': 'rw'}},
+                detach=True
+            )
+
+    def eval(self, cmd):
+        self.commands.append(cmd)
+
+    def addpath(self, path):
+        self.commands.append(f"addpath('/mnt/{path.strip('/')}');")
+
+    def feval(self, func_path, *func_args, nout=1, store_as=None, verbose=False, **kwargs):
+        arg_vars = []
+        assigns = []
+        for i, arg in enumerate(func_args):
+            var = f'arg{i}'
+            arg_vars.append(var)
+            if isinstance(arg, str):
+                assigns.append(f"{var} = '{arg}';")
+            elif isinstance(arg, bool):
+                assigns.append(f"{var} = {int(arg)};")
+            elif isinstance(arg, (int, float)):
+                assigns.append(f"{var} = {arg};")
+            elif isinstance(arg, (list, np.ndarray)):
+                assigns.append(f"{var} = [{', '.join(map(str, np.ravel(arg)))}];")
+            else:
+                raise TypeError(f'Unsupported argument type: {type(arg)}')
+
+        result_vars = [f'result{i}' for i in range(nout)] if isinstance(nout, int) and nout > 1 else ['result']
+        call = f"[{', '.join(result_vars)}] = {func_path}({', '.join(arg_vars)});"
+
+        # Determine if we save or return results
+        store_vars = [store_as] if store_as else result_vars
+        save = f"save('-v7', '/mnt/result.mat', {', '.join([f'\'{v}\'' for v in store_vars])});"
+
+        code = '\n'.join(assigns + self.commands + [call, save])
+
+        with open(self.script_path, 'w') as f:
+            f.write(code)
+
+        out = self.container.exec_run("octave-cli /mnt/run.m")
+        if verbose:
+            print(out.output.decode())
+
+        mat = scipy.io.loadmat(self.result_path)
+
+        if store_as:
+            return mat[store_as]
+
+        if nout == 1:
+            return mat[result_vars[0]]
+        else:
+            return tuple(mat[v] for v in result_vars)
+
+
+    def exit(self):
+        self.commands = []
 
 #**************************************************************************************************#
 #                                           Application                                            #
@@ -731,7 +818,9 @@ class BasisREMY:
 
 def initialize_octave():
     # initialize an Octave session with needed paths
-    octave = Oct2Py()
+    # octave = Oct2Py()
+    octave = DockerOctave()
+
     octave.eval("warning('off', 'all');")
     octave.addpath('./fidA/inputOutput/')
     octave.addpath('./fidA/processingTools/')
@@ -807,7 +896,8 @@ class sLaserBackend(Backend):
         self.name = 'sLaserSim'
 
         # init fidA
-        self.octave = Oct2Py()
+        # self.octave = Oct2Py()
+        self.octave = DockerOctave()
         self.octave.eval("warning('off', 'all');")
         self.octave.addpath('./fidA/inputOutput/')
         self.octave.addpath('./fidA/processingTools/')
@@ -971,7 +1061,8 @@ class LCModelBackend(Backend):
         self.name = 'LCModel'
 
         # init fidA
-        self.octave = Oct2Py()
+        # self.octave = Oct2Py()
+        self.octave = DockerOctave()
         self.octave.eval("warning('off', 'all');")
         self.octave.addpath('./fidA/inputOutput/')
         self.octave.addpath('./fidA/processingTools/')
