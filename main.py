@@ -14,6 +14,9 @@
 #*************#
 #   imports   #
 #*************#
+
+import streamlit as st
+
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -128,6 +131,112 @@ class DockerOctave:
     def exit(self):
         self.commands = []
 
+
+
+#
+# STREAMLIT App
+#
+st.set_page_config(layout="wide")
+# App Title
+st.title('BasisREMY\n### A tool for generating study-specific basis sets from raw MRS data')
+# Tabs
+tab1, tab2, tab3 = st.tabs(["Data Selection", "Parameter Configuration", "Basis Simulation"])
+
+# first step - select file(s)
+with tab1:
+    st.file_uploader('Select a file', accept_multiple_files=True)
+    launch_tk_gui = st.button('launch original')
+# second step - parameter config
+with tab2:
+    backend = st.sidebar.selectbox('Select Backend', ['sLaserSim', 'LCModel'])
+    st.sidebar.selectbox('System', ['Philips', 'Siemens'])
+    st.sidebar.text_input('Basis Name', value = 'test.basis')
+
+    if backend == 'sLaserSim':
+        st.sidebar.selectbox('Sequence', sorted(['sLASER']))
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            st.number_input('B1max', value = 22.0)
+            st.number_input('Flip Angle', value = 180.0)
+            st.number_input('RefTp', value = 4.5008)
+            st.number_input('Samples')
+            st.number_input('Bandiwidth (Hz)')
+            st.number_input('TE (ms)')
+        with col2:
+            st.number_input('Linewidth', value = 1.0, min_value=0.0)
+            st.number_input('Tau1', value = 15.0)
+            st.number_input('Tau2', value = 13.0)
+            st.number_input('fovY', value = 3.0)
+            st.number_input('nX', value = 64.0)
+            st.number_input('Center Frequency (units?)')
+
+    if backend == 'LCModel':
+        st.sidebar.selectbox('Sequence', sorted(['Spin Echo', 'STEAM', 'PRESS', 'LASER']))
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            st.number_input('B1max', value = 22.0)
+            st.number_input('Flip Angle', value = 180.0)
+            st.number_input('RefTp', value = 4.5008)
+            st.number_input('Samples')
+            st.number_input('Bandiwidth (Hz)')
+            st.number_input('TE (ms)')
+        with col2:
+            st.number_input('Linewidth', value = 1.0, min_value=0.0)
+            st.number_input('Tau1', value = 15.0)
+            st.number_input('Tau2', value = 13.0)
+            st.number_input('fovY', value = 3.0)
+            st.number_input('nX', value = 64.0)
+            st.number_input('Center Frequency (units?)')
+
+    met_col1, met_col2, met_col3, met_col4, met_col5 = st.columns(5)    
+    with met_col1:
+        st.checkbox('Ala', value = False)
+        st.checkbox('Cit', value = False)
+        st.checkbox('GABA_govind', value = False)
+        st.checkbox('Gln', value = True)
+        st.checkbox('Lac', value = True)
+        st.checkbox('PE', value = True)
+        st.checkbox('Tau', value = True)
+    with met_col2:
+        st.checkbox('Asc', value = True)
+        st.checkbox('Cr', value = True)
+        st.checkbox('GPC', value = True)
+        st.checkbox('Glu', value = True)
+        st.checkbox('NAA', value = True)
+        st.checkbox('Phenyl', value = False)
+        st.checkbox('Tau_govind', value = False)
+    with met_col3:
+        st.checkbox('Asp', value = False)
+        st.checkbox('EtOH', value = False)
+        st.checkbox('GSH', value = True)
+        st.checkbox('Gly', value = True)
+        st.checkbox('NAAG', value = True)
+        st.checkbox('Ref0ppm', value = False)
+        st.checkbox('Tyros', value = False)
+    with met_col4:
+        st.checkbox('Bet', value = False)
+        st.checkbox('GABA', value = True)
+        st.checkbox('GSH_v2', value = False)
+        st.checkbox('H2O', value = False)
+        st.checkbox('PCh', value = True)
+        st.checkbox('Scyllo', value = True)
+        st.checkbox('bHB', value = False)
+    with met_col5:
+        st.checkbox('Ch', value = False)
+        st.checkbox('GABA_gov', value = False)
+        st.checkbox('Glc', value = True)
+        st.checkbox('Ins', value = True)
+        st.checkbox('PCr', value = True)
+        st.checkbox('Ser', value = False)
+        st.checkbox('bHG', value = False)
+    # to do: pack these into a YAML and call them. 
+    # to do: allow for users to save their defaults so that it can be specific. Should be achievable via a button.
+    mets_to_select = ['Ala', 'Cit', 'GABA_govind', 'Gln', 'Lac', 'PE', 'Tau', 'Asc', 'Cr', 'GPC', 'Glu', 'NAA', 'Phenyl', 'Tau_govind', 'Asp', 'EtOH', 'GSH', 'Gly', 'NAAG', 'Ref0ppm', 'Tyros', 'Bet', 'GABA', 'GSH_v2', 'H2O', 'PCh', 'Scyllo', 'bHB', 'Ch', 'GABA_gov', 'Glc', 'Ins', 'PCr', 'Ser', 'bHG']
+    default_selected_mets = ['Gln', 'Lac', 'PE', 'Tau', 'Asc', 'Cr', 'GPC', 'Glu', 'NAA', 'GSH', 'Gly', 'NAAG','GABA', 'PCh', 'Scyllo', 'Glc', 'Ins', 'PCr']
+    mets_to_sim = st.multiselect('Select metabolites to simulate', sorted(mets_to_select), default= sorted(default_selected_mets))
+# third step - basis sim
+
+
 #**************************************************************************************************#
 #                                           Application                                            #
 #**************************************************************************************************#
@@ -137,6 +246,7 @@ class DockerOctave:
 # configuration, and ending with the basis set simulation.                                         #
 #                                                                                                  #
 #**************************************************************************************************#
+# had to comment this out so the original gui doesn't launch
 class Application(TkinterDnD.Tk):
 
     def __init__(self):
@@ -1202,5 +1312,6 @@ class LCModelBackend(Backend):
 
 if __name__ == "__main__":
     # BasisREMY().run('./example_data/BigGABA_P1P_S01/S01_PRESS_35_act.SPAR', './output/')
-    BasisREMY().run_gui()
-    
+    if launch_tk_gui:
+        BasisREMY().run_gui()
+        
