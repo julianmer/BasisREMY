@@ -106,7 +106,8 @@ class DockerOctave:
 
         # Determine if we save or return results
         store_vars = [store_as] if store_as else result_vars
-        save = f"save('-v7', '/mnt/result.mat', {', '.join([f'\'{v}\'' for v in store_vars])});"
+        store_vars_str = ', '.join(repr(v) for v in store_vars)
+        save = f"save('-v7', '/mnt/result.mat', {store_vars_str});"
 
         code = '\n'.join(assigns + self.commands + [call, save])
 
