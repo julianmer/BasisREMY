@@ -81,29 +81,46 @@ class Application(TkinterDnD.Tk):
                         foreground=self.text_color)
 
         # setup window
+        self.windowLength = 800
+        self.windowHeight = 700
         self.title("BasisREMY")
-        self.geometry("1000x700")
+        self.geometry("{}x{}".format(self.windowLength, self.windowHeight))
         self.configure(bg=self.bg_1_color)
 
         # create UI elements
         self.create_widgets()
 
     def create_widgets(self):
-        # load and display the header image
-        header_image = Image.open("imgs/basisremy_header.png")
-        header_image = header_image.resize((1000, 50))
-        header_photo = ImageTk.PhotoImage(header_image)
-        header_label = tk.Label(self, image=header_photo, bg="#f0f0f0")
-        header_label.image = header_photo  # keep a reference to prevent garbage collection
-        header_label.pack(fill=tk.X)
+        # create a canvas for the header
+        header_canvas = tk.Canvas(self, width=self.windowLength, height=100, highlightthickness=0)
+        header_canvas.pack(fill=tk.X)
 
-        # header text
-        header_label = tk.Label(self, text="BasisREMY", font=("Arial bold", 20), bg="#f0f0f0")
-        header_label.pack(pady=10)
-        header_label = tk.Label(self, text="A tool for generating study-specific basis "
-                                           "sets directly from raw MRS data.",
-                                font=("Arial", 16), bg=self.bg_1_color)
-        header_label.pack(pady=1)
+        # load the header image
+        header_image = Image.open("imgs/basisremy_header.png")
+        header_image = header_image.resize((1600, 100))
+        header_photo = ImageTk.PhotoImage(header_image)
+
+        # place the image on the canvas
+        header_canvas.create_image(0, 0, anchor="nw", image=header_photo)
+        header_canvas.image = header_photo  # keep a reference to prevent garbage collection
+
+        # add centered text on top of the image
+        header_canvas.create_text(
+            self.windowLength // 2 + 50, 50,  # x, y position (middle of header + offset for logo)
+            text="A tool for generating study-specific basis sets directly from raw MRS data.",
+            fill="white",
+            font=("Arial", 16, "bold"),
+            width=self.windowLength - 300,  # wrap text if too long
+            justify="center"
+        )
+
+        # add logo
+        logo_image = Image.open("imgs/basisremy_logo.png")
+        logo_image = logo_image.resize((100, 100))
+        logo_photo = ImageTk.PhotoImage(logo_image)
+        logo_label = tk.Label(self, image=logo_photo, bg="#f0f0f0")
+        logo_label.image = logo_photo  # keep a reference to prevent garbage collection
+        logo_label.place(x=0, y=0)
 
         # notebook (tabbed interface)
         self.notebook = ttk.Notebook(self)
@@ -127,7 +144,7 @@ class Application(TkinterDnD.Tk):
                         font=("Arial", 12))  # set the font size and style for the tabs
 
         self.update()
-        self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
+        # self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
 
     def tab1_widgets(self):
         # drag and drop area
@@ -401,7 +418,7 @@ class Application(TkinterDnD.Tk):
             filetypes=[
                 ("MRS Data Files", (
                     "*.7", "*.ima", "*.rda", "*.dat",
-                    "*.spar", "*.method", "*.nii"
+                    "*.spar", "*method", "*2dseq", "*.nii"
                 ))
             ]
         )
@@ -420,7 +437,7 @@ class Application(TkinterDnD.Tk):
 
             # run REMY on the selected file
             MRSinMRS = self.BasisREMY.runREMY(file_path)
-            params, opt = self.BasisREMY.parseREMY(MRSinMRS)
+            params, opt = self.BasisREMY.backend.parseREMY(MRSinMRS)
 
             # update the mandatory parameters
             self.BasisREMY.backend.mandatory_params.update(params)

@@ -14,10 +14,16 @@
 #*************#
 #   imports   #
 #*************#
-from core.basisremy import BasisREMY
+from gui.application import Application
 
+
+#*************#
+#   run GUI   #
+#*************#
+def run_gui():
+    app = Application()
+    app.mainloop()
 
 if __name__ == "__main__":
-    # BasisREMY().run('./example_data/BigGABA_P1P_S01/S01_PRESS_35_act.SPAR', './output/')
-    BasisREMY().run_gui()
+    run_gui()
     

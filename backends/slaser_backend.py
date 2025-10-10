@@ -134,6 +134,37 @@ class sLaserBackend(Backend):
             'TR': None,
         }
 
+    def parseREMY(self, MRSinMRS):
+        # extract as much information as possible from the MRSinMRS dict
+
+        mandatory = {
+            'System': MRSinMRS.get('Manufacturer', None),
+            'Sequence': self.parseProtocol(MRSinMRS.get('Protocol', None)),
+            'Samples': MRSinMRS.get('NumberOfDatapoints', None),
+            'Bandwidth': MRSinMRS.get('SpectralWidth', None),
+            'Bfield': MRSinMRS.get('B0', None),
+            # 'Linewidth': 1,   # TODO: find how to handle or get from REMY
+            'TE': MRSinMRS.get('TE', None),
+            # 'TE2': 0,   # attention! - only holds for SpinEcho or STEAM
+            #             # TODO: find sound solution!
+            'Center Freq': MRSinMRS.get('Center Freq', None),
+        }
+
+        optional = {
+            'Nucleus': MRSinMRS.get('Nucleus', None),
+            'TR': MRSinMRS.get('TR', None),
+            'Model': MRSinMRS.get('Model', None),
+            'SoftwareVersion': MRSinMRS.get('SoftwareVersion', None),
+            'BodyPart': MRSinMRS.get('BodyPart', None),
+            'VOI': MRSinMRS.get('VOI', None),
+            'AnteriorPosteriorSize': MRSinMRS.get('AnteriorPosteriorSize', None),
+            'LeftRightSize': MRSinMRS.get('LeftRightSize', None),
+            'CranioCaudalSize': MRSinMRS.get('CranioCaudalSize', None),
+            'NumberOfAverages': MRSinMRS.get('NumberOfAverages', None),
+            'WaterSuppression': MRSinMRS.get('WaterSuppression', None),
+        }
+        return mandatory, optional
+
     def run_simulation(self, params):
         pass
 

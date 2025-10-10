@@ -17,6 +17,7 @@
 #*************#
 import pathlib
 import numpy as np
+from numpy.lib.format import dtype_to_descr
 
 # own
 from backends.lcmodel_backend import LCModelBackend
@@ -33,7 +34,7 @@ from externals.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 #                                                                                                  #
 #**************************************************************************************************#
 class BasisREMY:
-    def __init__(self, backend='sLaserSim'):
+    def __init__(self, backend='LCModel'):
         self.DRead = DataReaders()
         self.Table = Table()
 
@@ -54,10 +55,10 @@ class BasisREMY:
         else:
             raise ValueError(f"Unknown backend: {backend}. Available backends: {self.available_backends}")
 
-    def run(self, import_fpath, export_fpath=None, method=None, userParams={}, optionalParams={}):
+    def run(self, import_fpath, export_fpath=None, method=None, userParams={}, optionalParams={}, plot=False):
         # run REMY on the selected file
         MRSinMRS = self.runREMY(import_fpath, method)
-        params, opt = self.parseREMY(MRSinMRS)
+        params, opt = self.backend.parseREMY(MRSinMRS)
         params['Output Path'] = export_fpath if export_fpath is not None else './'
 
         # update the mandatory parameters
@@ -68,21 +69,32 @@ class BasisREMY:
         self.backend.optional_params.update(opt)
         self.backend.optional_params.update(optionalParams)
 
+        print(self.backend.mandatory_params)
+
         # run fidA simulation
-        basis = self.backend.run_simulation(self.mandatory_params)
+        basis = self.backend.run_simulation(self.backend.mandatory_params)
 
         # plot the basis set
-        import matplotlib.pyplot as plt
-        plt.figure()
-        for key, value in basis.items():
-            plt.plot(np.fft.fft(value), label=key)
-        plt.legend()
-        plt.show()
+        if plot:
+            import matplotlib.pyplot as plt
+            plt.figure()
+            for key, value in basis.items():
+                plt.plot(np.fft.fft(value), label=key)
+            plt.legend()
+            plt.show()
 
     def runREMY(self, import_fpath, method=None):
         # run REMY datareader on the selected file
         if method is None: suf = pathlib.Path(import_fpath).suffix.lower()
         else: suf = method
+
+        # check for bruker mehtod or 2dseq (no suffix)
+        if suf == '':
+            if 'method' in pathlib.Path(import_fpath).name.lower():
+                suf = 'method'
+            elif '2dseq' in pathlib.Path(import_fpath).name.lower():
+                suf = '2dseq'
+
         log = None
         if suf == '.dat':   # Siemens Twix file
             write_log(log, 'Data Read: Siemens Twix uses pyMapVBVD ')  # log - pyMapVBVD
@@ -104,11 +116,11 @@ class BasisREMY:
             write_log(log, 'Data Read: GE Pfile uses spec2nii ')  # log - spec2nii
             MRSinMRS, log = self.DRead.ge_7(import_fpath, log)
             vendor_selection = 'GE'
-        elif suf == 'bruker_method':  # Bruker Method file
+        elif suf == 'method':  # Bruker Method file
             write_log(log, 'Data Read: Bruker Method uses spec2nii ')  # log - spec2nii
             MRSinMRS, log = self.DRead.bruker_method(import_fpath, log)
             vendor_selection = 'Bruker'
-        elif suf == 'bruker_2dseq':  # Bruker 2dseq file
+        elif suf == '2dseq':  # Bruker 2dseq file
             write_log(log, 'Data Read: Bruker uses BrukerAPI ' +  # log - BrukerAPI
                       'developed by Tomáš Pšorn\n\t' +
                       'github.com/isi-nmr/brukerapi-python')
@@ -122,31 +134,74 @@ class BasisREMY:
             raise ValueError(f'Unknown file format {suf}! Valid formats are:'
                              f' .dat, .ima, .rda, .spar, .7, bruker_method, bruker_2dseq, .nii, .nii.gz')
 
-        # clean the data
-        dtype_selection = suf.replace('bruker_', '').replace('.', '')
-        MRSinMRS = self.Table.table_clean(vendor_selection, dtype_selection, MRSinMRS)
-        return MRSinMRS
+        dtype_selection = suf.replace('.', '')  # remove dot if present
 
-    def parseREMY(self, MRSinMRS):
-        # extract as much information as possible from the MRSinMRS dict
-        mandatory = {
-            # 'Sequence': None,  # TODO: find a way to get this from REMY
-            'Samples': MRSinMRS.get('samples', None),
-            'Bandwidth': MRSinMRS.get('sample_frequency', None),
-            'Bfield': MRSinMRS.get('FieldStrength', None),
-            # 'Linewidth': 1,   # TODO: find how to get from REMY
-            'TE': MRSinMRS.get('EchoTime', None),
-            # 'TE2': 0,   # attention! - only holds for SpinEcho or STEAM
-            #             # TODO: find sound solution!
-            'Center Freq': MRSinMRS.get('synthesizer_frequency', None),
-        }
-        optional = {
-            'Nucleus': MRSinMRS.get('Nucleus', None),
-            'TR': MRSinMRS.get('RepetitionTime', None),
-        }
-        return mandatory, optional
+        # check for missing MRSinMRS Values that might have different names across versions
+        try:
+            MRSinMRS = self.Table.table_clean(vendor_selection, dtype_selection, MRSinMRS)
+        except Exception as e:
+            print(f"Warning: table_clean failed: {e}")
 
-    def run_gui(self):
-        from gui.application import Application
-        app = Application()
-        app.mainloop()
+        # populate MRS Table
+        try:
+            self.Table.populate(vendor_selection, dtype_selection, MRSinMRS)
+        except Exception as e:
+            print(f"Warning: populate table failed: {e}")
+
+        # get unform MRSinMRS table
+        MRSinMRS_unif = self.flatten_mrsinmrs_table(self.Table.MRSinMRS_Table)
+
+        # extend with more info
+        MRSinMRS_unif.update(self.extract_more(MRSinMRS, vendor_selection, dtype_selection))
+        return MRSinMRS_unif
+
+    def extract_more(self, MRSinMRS, vendor, dtype):
+        # extract additional information from the raw MRSinMRS dict if possible
+        add_info = {}
+
+        if vendor == 'Philips':
+            if dtype == 'spar': # Philips SPAR specific
+                if 'synthesizer_frequency' in MRSinMRS:
+                    add_info['Center Freq'] = MRSinMRS['synthesizer_frequency']
+
+        elif vendor == 'Siemens':
+            # can be 'lFrequency', 'Frequency', 'SpectrometerFrequency', 'MRFrequency'
+            if 'lFrequency' in MRSinMRS:
+                add_info['Center Freq'] = MRSinMRS['lFrequency']
+            elif 'Frequency' in MRSinMRS:
+                add_info['Center Freq'] = MRSinMRS['Frequency']
+            elif 'SpectrometerFrequency' in MRSinMRS:
+                add_info['Center Freq'] = MRSinMRS['SpectrometerFrequency']
+            elif 'MRFrequency' in MRSinMRS:
+                add_info['Center Freq'] = MRSinMRS['MRFrequency']
+
+        elif vendor == 'GE':
+            if dtype == '7': # GE Pfile specific
+                if 'synthesizer_frequency' in MRSinMRS:
+                    add_info['Center Freq'] = MRSinMRS['rhr_rh_ps_mps_freq']
+
+        elif vendor == 'Bruker':
+            pass
+
+        elif vendor == 'NIfTI':
+            add_info['Center Freq'] = MRSinMRS['SpectrometerFrequency']
+
+        return add_info
+
+    def flatten_mrsinmrs_table(self, df):
+        flat_dict = {}
+
+        # iterate over all rows
+        for idx, row in df.iterrows():
+            key = str(row['Generic']).strip()  # lower-level key
+            val = row['Values']
+
+            # skip empty keys
+            if key != '' and key != 'nan':
+                # if value is bytes, decode
+                if isinstance(val, bytes):
+                    val = val.decode(errors='ignore')
+                flat_dict[key] = val
+
+        return flat_dict
+

@@ -49,6 +49,24 @@ class Backend:
         # note: for now no dropdown options are updated, as they are too specific to the backend
         #       at this point
 
+    def parseREMY(self, MRSinMRS):
+        # parse REMY output to parameters and optional parameters for the backend
+        raise NotImplementedError("This method should be overridden by subclasses.")
+
+    def parseProtocol(self, protocol):
+        if 'slaser' in protocol.lower():
+            return 'sLASER'
+        elif 'press' in protocol.lower():
+            return 'PRESS'
+        elif 'steam' in protocol.lower():
+            return 'STEAM'
+        elif 'spin' in protocol.lower() or 'se' in protocol.lower():
+            return 'Spin Echo'
+        elif 'laser' in protocol.lower():
+            return 'LASER'
+        else:
+            return None
+
     def run_simulation(self, params):
         raise NotImplementedError("This method should be overridden by subclasses.")
 
