@@ -104,33 +104,38 @@ if __name__ == "__main__":
     br.backend.mandatory_params['Metabolites'] = [key for key, value in config['metab_config'].items() if value]
 
     # run tests
+    successes = []
     for key, value in tests.items():
 
         params = br.runREMY(**value)
-        params, opt = br.backend.parseREMY(params)
+        params, opt = br.backend.parseREMY(params)   # parser will return None for unsupported sequences
+                                                     # of the given backend
+
+        print(f"Running test: {key} with backend {config['backend']} "
+              f"and sequence {params['Sequence']}")
 
         try:
             if config['backend'] == 'LCModel':
                 if params['Sequence'] in ['Spin Echo', 'PRESS', 'STEAM', 'LASER']:
-
-                    print(f"Running test: {key} with backend {config['backend']} "
-                          f"and sequence {params['Sequence']}")
-
                     config['run_config'].update(value)
                     basis, params = br.run(**config['run_config'])
+                    print("Success!")
+                    successes.append(key)
 
             elif config['backend'] == 'sLaserSim':
                 if params['Sequence'] == 'sLASER':
-
-                    print(f"Running test: {key} with backend {config['backend']} "
-                          f"and sequence {params['Sequence']}")
-
                     config['run_config'].update(value)
                     basis, params = br.run(**config['run_config'])
+                    print("Success!")
+                    successes.append(key)
 
             else:
-                print("Currently no other backends are supported.")
+                print("Currently no other backends are supported. "
+                      "Please add them to the test script.")
+
         except Exception as e:
             print(f"Test {key} with backend {config['backend']} failed with error: {e}")
+
+    print(f"Successful tests: {successes}")
 
     print("All tests completed.")

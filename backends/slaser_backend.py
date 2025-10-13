@@ -181,12 +181,10 @@ class sLaserBackend(Backend):
             print("Warning: sLaserBackend only supports sLASER sequences. ")
             return None
 
-    def run_simulation(self, params):
-        pass
-
-    def run_simulation_with_progress(self, params, progress_callback):
+    def run_simulation(self, params, progress_callback=None):
         # create the output directory if it does not exist
-        if not os.path.exists(params['Output Path']): os.makedirs(params['Output Path'])
+        if not os.path.exists(params['Output Path']):
+            os.makedirs(params['Output Path'])
 
         # fixed parameters
         params.update({
@@ -198,7 +196,7 @@ class sLaserBackend(Backend):
 
         def sLASER_makebasisset_function(curfolder, pathtofida, system,
                                          seq_name, basis_name, B1max, flip_angle, refTp,
-                                         Npts, sw,lw, Bfield, thkX, thkY, fovX, fovY, nX, nY, te,
+                                         Npts, sw, lw, Bfield, thkX, thkY, fovX, fovY, nX, nY, te,
                                          centreFreq, spinSysList, tau1, tau2, path_to_pulse,
                                          path_to_save, path_to_spin_system, display):
             results = self.octave.feval('sLASER_makebasisset_function', curfolder, pathtofida,
@@ -208,8 +206,6 @@ class sLaserBackend(Backend):
                                         path_to_save, path_to_spin_system, display)
             return metab, results[:, 0] + 1j * results[:, 1]
 
-        # TODO: make sure all parameters are cast properly (int, float, str)
-        #       e.g. see LCModelBackend for reference
         tasks = [(params['Curfolder'], params['Path to FIA-A'], params['System'],
                   params['Sequence'], params['Basis Name'], params['B1max'],
                   params['Flip Angle'], params['RefTp'], params['Samples'],
@@ -221,14 +217,11 @@ class sLaserBackend(Backend):
                   params['Path to Spin System'], params['Display'])
                  for metab in params['Metabolites']]
 
-        # initialize the progress bar
-        total_steps = len(tasks)
-        progress_step = 100 / total_steps
-
-        # run simulations sequentially
         basis_set = {}
+        total_steps = len(tasks)
         for i, task in enumerate(tasks):
             metab, data = sLASER_makebasisset_function(*task)
             basis_set[metab] = data
-            progress_callback(i + 1, total_steps)   # update the progress bar
+            if progress_callback:
+                progress_callback(i + 1, total_steps)
         return basis_set

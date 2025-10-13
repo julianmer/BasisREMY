@@ -501,7 +501,7 @@ class Application(TkinterDnD.Tk):
             self.update_idletasks()
 
         # run the simulation with the progress callback
-        basis = self.BasisREMY.backend.run_simulation_with_progress(self.BasisREMY.backend.mandatory_params, progress_callback)
+        basis = self.BasisREMY.backend.run_simulation(self.BasisREMY.backend.mandatory_params, progress_callback)
         self.after(0, callback, basis)
 
     def on_simulation_complete(self, basis):

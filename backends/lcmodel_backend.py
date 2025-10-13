@@ -174,9 +174,10 @@ class LCModelBackend(Backend):
         params['Make .raw'] = params['Make .raw'][0].lower()
         return params
 
-    def run_simulation(self, params):
+    def run_simulation(self, params, progress_callback=None):
         # create the output directory if it does not exist
-        if not os.path.exists(params['Output Path']): os.makedirs(params['Output Path'])
+        if not os.path.exists(params['Output Path']):
+            os.makedirs(params['Output Path'])
 
         def sim_lcmrawbasis(n, sw, Bfield, lb, metab, tau1, tau2, addref, makeraw, seq, out_path):
             results = self.octave.feval('sim_lcmrawbasis', n, sw, Bfield, lb, metab,
@@ -190,37 +191,11 @@ class LCModelBackend(Backend):
                   params['Add Ref.'], params['Make .raw'], params['Sequence'],
                   params['Output Path']) for metab in params['Metabolites']]
 
-        # run simulations sequentially
-        results = [sim_lcmrawbasis(*task) for task in tasks]
-
-        # collect results into a dictionary
-        basis_set = {metab: data for metab, data in results}
-        return basis_set
-
-    def run_simulation_with_progress(self, params, progress_callback):
-        # create the output directory if it does not exist
-        if not os.path.exists(params['Output Path']): os.makedirs(params['Output Path'])
-
-        def sim_lcmrawbasis(n, sw, Bfield, lb, metab, tau1, tau2, addref, makeraw, seq, out_path):
-            results = self.octave.feval('sim_lcmrawbasis', n, sw, Bfield, lb, metab,
-                                        tau1, tau2, addref, makeraw, seq, out_path + os.sep)
-            return metab, results[:, 0] + 1j * results[:, 1]
-
-        # prepare tasks for each metabolite
-        params = self.parse2fidA(params)
-        tasks = [(float(params['Samples']), float(params['Bandwidth']), float(params['Bfield']),
-                  float(params['Linewidth']), metab, float(params['TE']), float(params['TE2']),
-                  params['Add Ref.'], params['Make .raw'], params['Sequence'],
-                  params['Output Path']) for metab in params['Metabolites']]
-
-        # initialize the progress bar
-        total_steps = len(tasks)
-        progress_step = 100 / total_steps
-
-        # run simulations sequentially
         basis_set = {}
+        total_steps = len(tasks)
         for i, task in enumerate(tasks):
             metab, data = sim_lcmrawbasis(*task)
             basis_set[metab] = data
-            progress_callback(i + 1, total_steps)   # update the progress bar
+            if progress_callback:
+                progress_callback(i + 1, total_steps)
         return basis_set
