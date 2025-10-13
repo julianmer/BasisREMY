@@ -119,7 +119,7 @@ class LCModelBackend(Backend):
             'TE': MRSinMRS.get('TE', None),
             # 'TE2': 0,   # attention! - only holds for SpinEcho or STEAM
             #             # TODO: find sound solution!
-            'Center Freq': MRSinMRS.get('Center Freq', None),
+            'Center Freq': MRSinMRS.get('Center Freq', None),   # currently used for plotting only!
         }
 
         optional = {
@@ -137,6 +137,31 @@ class LCModelBackend(Backend):
             'WaterSuppression': MRSinMRS.get('WaterSuppression', None),
         }
         return mandatory, optional
+
+    def parseProtocol(self, protocol):
+        # lcmodel backend supports PRESS, STEAM, Spin Echo, LASER
+
+        if protocol is None:
+            return None
+
+        if 'mega' in protocol.lower():  # TODO: better check for editing
+            print("Warning: LCModelBackend does not support MEGA sequences. "
+                  "Ignoring MEGA part of the protocol.")
+
+        if 'slaser' in protocol.lower():
+            print("Warning: LCModelBackend does not support sLASER sequences. "
+                  "Recommended to switch backend.")
+            return None
+        elif 'press' in protocol.lower():
+            return 'PRESS'
+        elif 'steam' in protocol.lower():
+            return 'STEAM'
+        elif 'spin' in protocol.lower() or 'se' in protocol.lower():
+            return 'Spin Echo'
+        elif 'laser' in protocol.lower():
+            return 'LASER'
+        else:
+            return None
 
     def parse2fidA(self, params):
         # change the parameters to the format used by fidA
@@ -160,8 +185,8 @@ class LCModelBackend(Backend):
 
         # prepare tasks for each metabolite
         params = self.parse2fidA(params)
-        tasks = [(params['Samples'], params['Bandwidth'], params['Bfield'],
-                  params['Linewidth'], metab, params['TE'], params['TE2'],
+        tasks = [(float(params['Samples']), float(params['Bandwidth']), float(params['Bfield']),
+                  float(params['Linewidth']), metab, float(params['TE']), float(params['TE2']),
                   params['Add Ref.'], params['Make .raw'], params['Sequence'],
                   params['Output Path']) for metab in params['Metabolites']]
 
@@ -183,8 +208,8 @@ class LCModelBackend(Backend):
 
         # prepare tasks for each metabolite
         params = self.parse2fidA(params)
-        tasks = [(params['Samples'], params['Bandwidth'], params['Bfield'],
-                  params['Linewidth'], metab, params['TE'], params['TE2'],
+        tasks = [(float(params['Samples']), float(params['Bandwidth']), float(params['Bfield']),
+                  float(params['Linewidth']), metab, float(params['TE']), float(params['TE2']),
                   params['Add Ref.'], params['Make .raw'], params['Sequence'],
                   params['Output Path']) for metab in params['Metabolites']]
 

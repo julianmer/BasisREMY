@@ -165,6 +165,22 @@ class sLaserBackend(Backend):
         }
         return mandatory, optional
 
+    def parseProtocol(self, protocol):
+        # backend only supports sLASER sequences for now
+
+        if protocol is None:
+            return None
+
+        if 'mega' in protocol.lower():  # TODO: better check for editing
+            print("Warning: LCModelBackend does not support MEGA sequences. "
+                  "Ignoring MEGA part of the protocol.")
+
+        if 'slaser' in protocol.lower():
+            return 'sLASER'
+        else:
+            print("Warning: sLaserBackend only supports sLASER sequences. ")
+            return None
+
     def run_simulation(self, params):
         pass
 
@@ -192,6 +208,8 @@ class sLaserBackend(Backend):
                                         path_to_save, path_to_spin_system, display)
             return metab, results[:, 0] + 1j * results[:, 1]
 
+        # TODO: make sure all parameters are cast properly (int, float, str)
+        #       e.g. see LCModelBackend for reference
         tasks = [(params['Curfolder'], params['Path to FIA-A'], params['System'],
                   params['Sequence'], params['Basis Name'], params['B1max'],
                   params['Flip Angle'], params['RefTp'], params['Samples'],

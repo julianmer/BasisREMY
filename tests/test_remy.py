@@ -28,55 +28,54 @@ if __name__ == "__main__":
         # Big GABA test sets
         'REMY_tests/Big_GABA_P1P_S01': {
             'import_fpath': './example_data/BigGABA_P1P_S01/S01_PRESS_35_act.SPAR',
-            'export_fpath': './output/',
-            'plot': True,
         },
 
-        'REMY_tests/Big_GABA/G1_P': {   # NOT WORKING YET
+        'REMY_tests/Big_GABA/G1_P': {
             'import_fpath': './example_data/BigGABA_G1P_S01/S01_PRESS_35.7',
-            'export_fpath': './output/',
-            'plot': True,
         },
 
-        'REMY_tests/Big_GABA/S1_P': {   # NOT WORKING YET
+        'REMY_tests/Big_GABA/S1_P': {
             'import_fpath': './example_data/BigGABA_S1P_S01/S01_PRESS_35.dat',
-            'export_fpath': './output/',
-            'plot': True,
-        },
-
-        # REMY test sets
-        'REMY_tests/Dataset_00': {  # TODO: fix issue with bandwidth not being an int
-            'import_fpath': './example_data/REMY_tests/Dataset_00_Bruker_14T_STEAM_08/Dataset_00_Bruker_14T_STEAM_08_method',
-            'export_fpath': './output/',
-            'userParams': {},
-            'plot': True,
-        },
-
-        'REMY_tests/Dataset_01': {
-            'import_fpath': './example_data/REMY_tests/Dataset_01_Bruker_14T_STEAM_09/Dataset_01_Bruker_14T_STEAM_09_method',
-            'export_fpath': './output/',
-            'userParams': {},
-            'plot': True,
-        },
-        
-        'REMY_tests/Dataset_02': {  # NOT WORKING YET
-            'import_fpath': './example_data/REMY_tests/Dataset_02_GE_3T_pFile_MRSI_P13312/Dataset_02_GE_3T_pFile_MRSI_P13312.7',
-            'export_fpath': './output/',
-            'userParams': {},
-            'plot': True,
-        },
-
-        'REMY_tests/Dataset_04': {
-            'import_fpath': './example_data/REMY_tests/Dataset_04_GE_3T_pFile_P23040/Dataset_04_GE_3T_pFile_P23040.7',
-            'export_fpath': './output/',
-            'userParams': {},
-            'plot': True,
         },
     }
 
-    # initialize BasisREMY and run tests
-    br = BasisREMY(backend='LCModel')
+    # add all REMY tests
+    remy_test_dir = './example_data/REMY_tests/'
+    for test in sorted(os.listdir(remy_test_dir)):
+        if test.startswith('Dataset_'):
+            # go through all files in the directory and find the raw data file
+            test_dir = os.path.join(remy_test_dir, test)
+            for file in os.listdir(test_dir):
+                if file.lower().endswith(('.spar', '.7', '.dat', '.ima', '.rda', '.nii', '_method')):
+                    tests[test] = {'import_fpath': os.path.join(test_dir, file)}
+                    break
 
+    # initialize BasisREMY and run tests
+    br = BasisREMY()
+
+    check = ['Protocol', 'NumberOfDatapoints', 'SpectralWidth', 'B0', 'TE']
+    filled = 0
+    failed = []
     for key, value in tests.items():
         print(f"Running test: {key}")
-        br.run(**value)
+
+        params = br.runREMY(**value)
+        print(params)
+
+        # compute percentage of fields filled for lcmodel backend
+        # needed are: sequence, samples, bandwidth, bfield, te
+        fill = sum([1 for k in check if params.get(k) not in [None, '']])
+        print(f"Filled {fill}/{len(check)} mandatory fields ({(fill/len(check))*100:.1f}%)")
+
+        filled += fill
+        if fill < len(check):
+            failed.append(key)
+
+    print(f"Overall filled {filled}/{len(tests)*len(check)} mandatory fields "
+          f"({(filled/(len(tests)*len(check)))*100:.1f}%)")
+
+    print(f"Failed tests: {failed}")
+
+    print("Tests complete.")
+
+

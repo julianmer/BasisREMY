@@ -69,8 +69,6 @@ class BasisREMY:
         self.backend.optional_params.update(opt)
         self.backend.optional_params.update(optionalParams)
 
-        print(self.backend.mandatory_params)
-
         # run fidA simulation
         basis = self.backend.run_simulation(self.backend.mandatory_params)
 
@@ -82,6 +80,8 @@ class BasisREMY:
                 plt.plot(np.fft.fft(value), label=key)
             plt.legend()
             plt.show()
+
+        return basis, params
 
     def runREMY(self, import_fpath, method=None):
         # run REMY datareader on the selected file
