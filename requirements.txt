@@ -1,5 +1,5 @@
 brukerapi==0.1.8
-matplotlib==3.7.1
+matplotlib==3.10.7
 numpy==2.3.3
 oct2py==5.8.0
 pandas==2.3.3
