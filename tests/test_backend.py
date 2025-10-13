@@ -93,7 +93,7 @@ if __name__ == "__main__":
             # go through all files in the directory and find the raw data file
             test_dir = os.path.join(remy_test_dir, test)
             for file in os.listdir(test_dir):
-                if file.lower().endswith(('.spar', '.7', '.dat', '.ima', '.rda', '.nii', '_method')):
+                if file.lower().endswith(('.spar', '.7', '.dat', '.ima', '.rda', '.nii', '.nii.gz', '_method')):
                     tests[test] = {'import_fpath': os.path.join(test_dir, file)}
                     break
 

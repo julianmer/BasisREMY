@@ -418,7 +418,7 @@ class Application(TkinterDnD.Tk):
             filetypes=[
                 ("MRS Data Files", (
                     "*.7", "*.ima", "*.rda", "*.dat",
-                    "*.spar", "*method", "*2dseq", "*.nii"
+                    "*.spar", "*method", "*2dseq", "*.nii", "*.nii.gz"
                 ))
             ]
         )

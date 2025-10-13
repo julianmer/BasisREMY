@@ -17,7 +17,6 @@
 #*************#
 import pathlib
 import numpy as np
-from numpy.lib.format import dtype_to_descr
 
 # own
 from backends.lcmodel_backend import LCModelBackend
@@ -95,6 +94,10 @@ class BasisREMY:
             elif '2dseq' in pathlib.Path(import_fpath).name.lower():
                 suf = '2dseq'
 
+        if suf == '.gz':  # check for .nii.gz
+            if pathlib.Path(import_fpath).name.lower().endswith('.nii.gz'):
+                suf = '.nii.gz'
+
         log = None
         if suf == '.dat':   # Siemens Twix file
             write_log(log, 'Data Read: Siemens Twix uses pyMapVBVD ')  # log - pyMapVBVD
@@ -126,9 +129,11 @@ class BasisREMY:
                       'github.com/isi-nmr/brukerapi-python')
             MRSinMRS, log = self.DRead.bruker_2dseq(import_fpath, log)
             vendor_selection = 'Bruker'
-        elif suf == '.nii' or suf == '.nii.gz':
+        elif suf == '.nii' or suf == '.nii.gz':   # TODO: might want to adjust to be .nii.gz
             write_log(log, 'Data Read: NIfTI json side car')  # log - NIfTI JSON side car
-            MRSinMRS, log = self.DRead.nifti_json(import_fpath, log)
+            # MRSinMRS, log = self.DRead.nifti_json(import_fpath, log)   # TODO: fix for nifti
+            from nifti_mrs.nifti_mrs import NIFTI_MRS
+            MRSinMRS = NIFTI_MRS(import_fpath).hdr_ext
             vendor_selection = 'NIfTI'
         else:
             raise ValueError(f'Unknown file format {suf}! Valid formats are:'
@@ -204,4 +209,3 @@ class BasisREMY:
                 flat_dict[key] = val
 
         return flat_dict
-
