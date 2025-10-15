@@ -1,4 +1,4 @@
-# <img src="imgs/basisremy_logo.png" alt="BasisREMY Logo" width="170" align=""/>
+# <img src="imgs/basisremy_logo.png" alt="BasisREMY Logo" width="200" align=""/>
 
 A tool for generating study-specific basis sets directly from raw MRS data, integrating real pulse shapes and acquisition parameters. This project is in its early development stages, and contributions, testing, and feedback are highly welcomed!
 
