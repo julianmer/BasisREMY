@@ -96,7 +96,7 @@ class sLaserBackend(Backend):
 
         # define dictionary of mandatory parameters
         self.mandatory_params = {
-            "System": "Philips",
+            "System": None,
             "Sequence": "sLASER",
             "Basis Name": "test.basis",
             "B1max": 22.,
@@ -138,16 +138,30 @@ class sLaserBackend(Backend):
         # extract as much information as possible from the MRSinMRS dict
 
         mandatory = {
-            'System': MRSinMRS.get('Manufacturer', None),
+            'System': self.parseSystem(MRSinMRS.get('Manufacturer', None)),
             'Sequence': self.parseProtocol(MRSinMRS.get('Protocol', None)),
+            'B1max': None,  # TODO: find way to get from REMY? or set literature guided default
+            'Flip Angle': MRSinMRS.get('ExcitationFlipAngle', None),  # TODO: find way to get from REMY? or set literature guided default
+            'RefTp': None,   # duration of the refocusing pulse
             'Samples': MRSinMRS.get('NumberOfDatapoints', None),
             'Bandwidth': MRSinMRS.get('SpectralWidth', None),
+            'Linewidth': None,   # TODO: find how to handle best...
             'Bfield': MRSinMRS.get('B0', None),
-            # 'Linewidth': 1,   # TODO: find how to handle or get from REMY
+
+            'thkX': MRSinMRS.get('LeftRightSize', None),  # TODO: check for correctness
+            'thkY': MRSinMRS.get('AnteriorPosteriorSize', None),
+
+            'fovX': MRSinMRS.get('LeftRightSize', None),  # TODO: maybe get from VOI?
+            'fovY': MRSinMRS.get('AnteriorPosteriorSize', None),
+
+            'nX': None,
+            'nY': None,
+
             'TE': MRSinMRS.get('TE', None),
-            # 'TE2': 0,   # attention! - only holds for SpinEcho or STEAM
-            #             # TODO: find sound solution!
             'Center Freq': MRSinMRS.get('Center Freq', None),
+
+            'Tau 1': None,   # TODO
+            'Tau 2': None,
         }
 
         optional = {
@@ -157,8 +171,6 @@ class sLaserBackend(Backend):
             'SoftwareVersion': MRSinMRS.get('SoftwareVersion', None),
             'BodyPart': MRSinMRS.get('BodyPart', None),
             'VOI': MRSinMRS.get('VOI', None),
-            'AnteriorPosteriorSize': MRSinMRS.get('AnteriorPosteriorSize', None),
-            'LeftRightSize': MRSinMRS.get('LeftRightSize', None),
             'CranioCaudalSize': MRSinMRS.get('CranioCaudalSize', None),
             'NumberOfAverages': MRSinMRS.get('NumberOfAverages', None),
             'WaterSuppression': MRSinMRS.get('WaterSuppression', None),
@@ -181,6 +193,19 @@ class sLaserBackend(Backend):
             print("Warning: sLaserBackend only supports sLASER sequences. ")
             return None
 
+    def parseSystem(self, system):
+        # backend only supports Philips and Siemens systems for now
+        if system is None:
+            return None
+
+        if 'philips' in system.lower():
+            return 'Philips'
+        elif 'siemens' in system.lower():
+            return 'Siemens'
+        else:
+            print("Warning: sLaserBackend only supports Philips and Siemens systems. ")
+            return None
+
     def run_simulation(self, params, progress_callback=None):
         # create the output directory if it does not exist
         if not os.path.exists(params['Output Path']):
@@ -188,9 +213,9 @@ class sLaserBackend(Backend):
 
         # fixed parameters
         params.update({
-            "Curfolder": os.getcwd() + '/jbss/',
-            "Path to FIA-A": os.getcwd() + "/fidA/",
-            "Path to Spin System": os.getcwd() + "/jbss/my_mets/",
+            "Curfolder": os.getcwd() + "/externals/jbss/",
+            "Path to FIA-A": os.getcwd() + "/externals/fidA/",
+            "Path to Spin System": os.getcwd() + "/externals/jbss/my_mets/",
             "Display": False,
         })
 
@@ -216,6 +241,16 @@ class sLaserBackend(Backend):
                   params['Path to Pulse'], params['Output Path'],
                   params['Path to Spin System'], params['Display'])
                  for metab in params['Metabolites']]
+
+        print((params['Curfolder'], params['Path to FIA-A'], params['System'],
+               params['Sequence'], params['Basis Name'], params['B1max'],
+               params['Flip Angle'], params['RefTp'], params['Samples'],
+               params['Bandwidth'], params['Linewidth'], params['Bfield'],
+               params['thkX'], params['thkY'], params['fovX'], params['fovY'],
+               params['nX'], params['nY'], params['TE'],
+               params['Center Freq'], params['Tau 1'], params['Tau 2'],
+               params['Path to Pulse'], params['Output Path'],
+               params['Path to Spin System'], params['Display']))
 
         basis_set = {}
         total_steps = len(tasks)

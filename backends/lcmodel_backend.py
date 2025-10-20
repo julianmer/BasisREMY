@@ -144,21 +144,21 @@ class LCModelBackend(Backend):
         if protocol is None:
             return None
 
-        if 'mega' in protocol.lower():  # TODO: better check for editing
+        if 'mega' in str(protocol).lower():  # TODO: better check for editing
             print("Warning: LCModelBackend does not support MEGA sequences. "
                   "Ignoring MEGA part of the protocol.")
 
-        if 'slaser' in protocol.lower():
+        if 'slaser' in str(protocol).lower():
             print("Warning: LCModelBackend does not support sLASER sequences. "
                   "Recommended to switch backend.")
             return None
-        elif 'press' in protocol.lower():
+        elif 'press' in str(protocol).lower():
             return 'PRESS'
-        elif 'steam' in protocol.lower():
+        elif 'steam' in str(protocol).lower():
             return 'STEAM'
-        elif 'spin' in protocol.lower() or 'se' in protocol.lower():
+        elif 'spin' in str(protocol).lower() or 'se' in str(protocol).lower():
             return 'Spin Echo'
-        elif 'laser' in protocol.lower():
+        elif 'laser' in str(protocol).lower():
             return 'LASER'
         else:
             return None
