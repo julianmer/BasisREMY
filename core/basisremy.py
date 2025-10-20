@@ -15,8 +15,9 @@
 #*************#
 #   imports   #
 #*************#
-import pathlib
+import json
 import numpy as np
+import pathlib
 
 # own
 from backends.lcmodel_backend import LCModelBackend
@@ -132,14 +133,24 @@ class BasisREMY:
         elif suf == '.nii' or suf == '.nii.gz':   # TODO: might want to adjust to be .nii.gz
             write_log(log, 'Data Read: NIfTI json side car')  # log - NIfTI JSON side car
             # MRSinMRS, log = self.DRead.nifti_json(import_fpath, log)   # TODO: fix for nifti
-            from nifti_mrs.nifti_mrs import NIFTI_MRS
-            MRSinMRS = NIFTI_MRS(import_fpath).hdr_ext
+            try:
+                with open(import_fpath.replace(suf, '.json'), 'r') as f:
+                    MRSinMRS = json.load(f)
+            except:
+                from nifti_mrs.nifti_mrs import NIFTI_MRS
+                MRSinMRS = NIFTI_MRS(import_fpath).hdr_ext
+
+            # homogenize keys to be strings
+            MRSinMRS = {str(k): str(v[0]) if isinstance(v, list) and len(v) == 1 else v for k, v in
+                        dict(MRSinMRS).items()}
+
             vendor_selection = 'NIfTI'
         else:
             raise ValueError(f'Unknown file format {suf}! Valid formats are:'
                              f' .dat, .ima, .rda, .spar, .7, bruker_method, bruker_2dseq, .nii, .nii.gz')
 
         dtype_selection = suf.replace('.', '')  # remove dot if present
+        if suf == '.nii.gz': dtype_selection = 'json'  # special case
 
         # check for missing MRSinMRS Values that might have different names across versions
         try:
@@ -190,6 +201,7 @@ class BasisREMY:
 
         elif vendor == 'NIfTI':
             add_info['Center Freq'] = MRSinMRS['SpectrometerFrequency']
+            add_info['ExcitationFlipAngle'] = MRSinMRS['ExcitationFlipAngle']
 
         return add_info
 
