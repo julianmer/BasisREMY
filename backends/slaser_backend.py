@@ -213,9 +213,9 @@ class sLaserBackend(Backend):
 
         # fixed parameters
         params.update({
-            "Curfolder": os.getcwd() + "/externals/jbss/",
-            "Path to FIA-A": os.getcwd() + "/externals/fidA/",
-            "Path to Spin System": os.getcwd() + "/externals/jbss/my_mets/",
+            "Curfolder": "./externals/jbss/",
+            "Path to FIA-A": "./externals/fidA/",
+            "Path to Spin System": "./externals/jbss/my_mets/my_spinSystem.mat",
             "Display": False,
         })
 
