@@ -25,6 +25,9 @@ RUN apt-get update && \
         x11-apps && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# install gnuplot
+RUN apt-get update && apt-get install -y gnuplot
+
 # install Octave toolboxes
 RUN octave --eval "pkg install -forge control signal" && \
     octave --eval "pkg load control; pkg load signal; savepath"
@@ -40,6 +43,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . /app
 WORKDIR /app
 
-# default command to run your script
+# run your script(s)
 # CMD ["python", "main.py"]
 CMD ["python", "tests/test_sLaser_backend.py"]

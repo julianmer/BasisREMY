@@ -44,7 +44,7 @@ class sLaserBackend(Backend):
 
         self.octave.addpath('./externals/jbss/')
 
-        self.octave.addpath('./adapters/')
+        self.octave.addpath(self.octave.genpath('./adapters/'))
 
         # define possible metabolites
         self.metabs = {
@@ -89,6 +89,7 @@ class sLaserBackend(Backend):
         self.dropdown = {
             'System': ['Philips', 'Siemens'],
             'Sequence': ['sLASER'],
+            'Make .raw': ['Yes', 'No'],
         }
 
         # add file selection fields
@@ -125,6 +126,7 @@ class sLaserBackend(Backend):
 
             "Path to Pulse": None,
             "Output Path": None,
+            'Make .raw': 'No',   # TODO: fix io_writelcmraw in sLASER_makebasisset_function
         }
 
 
@@ -160,7 +162,7 @@ class sLaserBackend(Backend):
             'TE': MRSinMRS.get('TE', None),
             'Center Freq': MRSinMRS.get('Center Freq', None),
 
-            'Tau 1': None,   # TODO
+            'Tau 1': None,   # TODO: find way to get from REMY? or set literature guided default
             'Tau 2': None,
         }
 
@@ -206,6 +208,13 @@ class sLaserBackend(Backend):
             print("Warning: sLaserBackend only supports Philips and Siemens systems. ")
             return None
 
+    def parse2fidA(self, params):
+        # convert parameters to fidA format if needed
+        params['Make .basis'] = params['Make .basis'][0].lower()
+        params['Make .raw'] = params['Make .raw'][0].lower()
+        params['Display'] = params['Display'][0].lower()
+        return params
+
     def run_simulation(self, params, progress_callback=None):
         # create the output directory if it does not exist
         if not os.path.exists(params['Output Path']):
@@ -216,21 +225,28 @@ class sLaserBackend(Backend):
             "Curfolder": "./externals/jbss/",
             "Path to FIA-A": "./externals/fidA/",
             "Path to Spin System": "./externals/jbss/my_mets/my_spinSystem.mat",
-            "Display": False,
+            "Display": 'No',  # 0 (no display) <-> 1 (display)
+            "Make .basis": 'No',  # TODO: fix fit_makeLCMBasis in sLASER_makebasisset_function
         })
+        params = self.parse2fidA(params)   # convert parameters to fidA format if needed
 
+        # define wrapper for octave function
         def sLASER_makebasisset_function(curfolder, pathtofida, system,
                                          seq_name, basis_name, B1max, flip_angle, refTp,
                                          Npts, sw, lw, Bfield, thkX, thkY, fovX, fovY, nX, nY, te,
-                                         centreFreq, spinSysList, tau1, tau2, path_to_pulse,
-                                         path_to_save, path_to_spin_system, display):
+                                         centreFreq, metab_list, tau1, tau2, path_to_pulse,
+                                         path_to_save, path_to_spin_system, display,
+                                         make_basis, make_raw):
             results = self.octave.feval('sLASER_makebasisset_function', curfolder, pathtofida,
                                         system, seq_name, basis_name, B1max, flip_angle, refTp,
                                         Npts, sw, lw, Bfield, thkX, thkY, fovX, fovY, nX, nY, te,
-                                        centreFreq, spinSysList, tau1, tau2, path_to_pulse,
-                                        path_to_save, path_to_spin_system, display)
-            return metab, results[:, 0] + 1j * results[:, 1]
+                                        centreFreq, metab_list, tau1, tau2, path_to_pulse,
+                                        path_to_save, path_to_spin_system, display,
+                                        make_basis, make_raw)
+            results = [elem['fids'] for elem in results]
+            return metab_list, results
 
+        # prepare tasks for each metabolite
         tasks = [(params['Curfolder'], params['Path to FIA-A'], params['System'],
                   params['Sequence'], params['Basis Name'], params['B1max'],
                   params['Flip Angle'], params['RefTp'], params['Samples'],
@@ -239,24 +255,16 @@ class sLaserBackend(Backend):
                   params['nX'], params['nY'], params['TE'],
                   params['Center Freq'], [metab], params['Tau 1'], params['Tau 2'],
                   params['Path to Pulse'], params['Output Path'],
-                  params['Path to Spin System'], params['Display'])
+                  params['Path to Spin System'], params['Display'], params['Make .basis'],
+                  params['Make .raw'])
                  for metab in params['Metabolites']]
-
-        print((params['Curfolder'], params['Path to FIA-A'], params['System'],
-               params['Sequence'], params['Basis Name'], params['B1max'],
-               params['Flip Angle'], params['RefTp'], params['Samples'],
-               params['Bandwidth'], params['Linewidth'], params['Bfield'],
-               params['thkX'], params['thkY'], params['fovX'], params['fovY'],
-               params['nX'], params['nY'], params['TE'],
-               params['Center Freq'], params['Tau 1'], params['Tau 2'],
-               params['Path to Pulse'], params['Output Path'],
-               params['Path to Spin System'], params['Display']))
 
         basis_set = {}
         total_steps = len(tasks)
         for i, task in enumerate(tasks):
             metab, data = sLASER_makebasisset_function(*task)
-            basis_set[metab] = data
+            for i, m in enumerate(metab):
+                basis_set[m] = data[i]
             if progress_callback:
                 progress_callback(i + 1, total_steps)
         return basis_set
