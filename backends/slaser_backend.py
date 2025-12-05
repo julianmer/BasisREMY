@@ -226,6 +226,7 @@ class sLaserBackend(Backend):
             "Path to FIA-A": "./externals/fidA/",
             "Path to Spin System": "./externals/jbss/my_mets/my_spinSystem.mat",
             "Display": 'No',  # 0 (no display) <-> 1 (display)
+            "Make .raw": 'No',  # TODO: fix io_writelcmraw in sLASER_makebasisset_function
             "Make .basis": 'No',  # TODO: fix fit_makeLCMBasis in sLASER_makebasisset_function
         })
         params = self.parse2fidA(params)   # convert parameters to fidA format if needed
@@ -243,7 +244,6 @@ class sLaserBackend(Backend):
                                         centreFreq, metab_list, tau1, tau2, path_to_pulse,
                                         path_to_save, path_to_spin_system, display,
                                         make_basis, make_raw)
-            results = [elem['fids'] for elem in results]
             return metab_list, results
 
         # prepare tasks for each metabolite
@@ -253,18 +253,17 @@ class sLaserBackend(Backend):
                   params['Bandwidth'], params['Linewidth'], params['Bfield'],
                   params['thkX'], params['thkY'], params['fovX'], params['fovY'],
                   params['nX'], params['nY'], params['TE'],
-                  params['Center Freq'], [metab], params['Tau 1'], params['Tau 2'],
+                  params['Center Freq'], params['Metabolites'], params['Tau 1'], params['Tau 2'],
                   params['Path to Pulse'], params['Output Path'],
                   params['Path to Spin System'], params['Display'], params['Make .basis'],
-                  params['Make .raw'])
-                 for metab in params['Metabolites']]
+                  params['Make .raw'])]
 
         basis_set = {}
         total_steps = len(tasks)
         for i, task in enumerate(tasks):
             metab, data = sLASER_makebasisset_function(*task)
             for i, m in enumerate(metab):
-                basis_set[m] = data[i]
+                basis_set[m] = data[i]['fids']
             if progress_callback:
                 progress_callback(i + 1, total_steps)
         return basis_set

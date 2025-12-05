@@ -27,7 +27,7 @@ if __name__ == "__main__":
     config = {
         'backend': 'LCModel',   # the backend to use for the simulation
 
-        'test_vendor_file': '.dat',  # filter based on file type (None for all)
+        'test_vendor_file': None,  # filter based on file type (None for all)
 
         'run_config': {
             'import_fpath': None,   # the file to import
@@ -95,23 +95,23 @@ if __name__ == "__main__":
     #     },
     # })
 
-    # # add all REMY tests
-    # remy_test_dir = './example_data/REMY_tests/'
-    # for test in sorted(os.listdir(remy_test_dir)):
-    #     if test.startswith(('Dataset_00', 'Dataset_01', 'Dataset_11', 'Dataset_12', 'Dataset_13', 'Dataset_28')):  # Filter on PRESS, STEAM, LASER, Spin Echo
-    #         # go through all files in the directory and find the raw data file
-    #         test_dir = os.path.join(remy_test_dir, test)
-    #         for file in os.listdir(test_dir):
-    #             if file.lower().endswith(filetype):
-    #                 tests[test] = {'import_fpath': os.path.join(test_dir, file)}
-    #                 break
+    # add all REMY tests
+    remy_test_dir = './example_data/REMY_tests/'
+    for test in sorted(os.listdir(remy_test_dir)):
+        if test.startswith(('Dataset_00', 'Dataset_01', 'Dataset_11', 'Dataset_12', 'Dataset_13', 'Dataset_28')):  # Filter on PRESS, STEAM, LASER, Spin Echo
+            # go through all files in the directory and find the raw data file
+            test_dir = os.path.join(remy_test_dir, test)
+            for file in os.listdir(test_dir):
+                if file.lower().endswith(filetype):
+                    tests[test] = {'import_fpath': os.path.join(test_dir, file)}
+                    break
 
-    # # add all NIfTI REMY tests
-    # remy_test_dir = './example_data/REMY_tests/Datasets_nifti/'
-    # # go through all files in the directory and find the raw data file
-    # for file in os.listdir(remy_test_dir):
-    #     if file.lower().endswith(filetype):
-    #         tests[file] = {'import_fpath': os.path.join(remy_test_dir, file)}
+    # add all NIfTI REMY tests
+    remy_test_dir = './example_data/REMY_tests/Datasets_nifti/'
+    # go through all files in the directory and find the raw data file
+    for file in os.listdir(remy_test_dir):
+        if file.lower().endswith(filetype):
+            tests[file] = {'import_fpath': os.path.join(remy_test_dir, file)}
 
     # add (all) Big GABA test sets
     biggaba_test_dir = './example_data/BigGABA/'
@@ -125,34 +125,34 @@ if __name__ == "__main__":
                         tests[f'BigGABA_{site}_{subject}'] = {'import_fpath': os.path.join(subject_dir, file)}
                         break
 
-    # # add all spec2nii test sets
-    # spec2nii_test_dir = './example_data/spec2nii_tests/'
-    # for vendor in sorted(os.listdir(spec2nii_test_dir)):
-    #     vendor_dir = os.path.join(spec2nii_test_dir, vendor)
-    #     for study in sorted(os.listdir(vendor_dir)):
-    #         study_dir = os.path.join(vendor_dir, study)
-    #         if os.path.isdir(study_dir):
-    #             for file in os.listdir(study_dir):
-    #                 if os.path.isfile(os.path.join(study_dir, file)):
-    #                     if file.lower().endswith(filetype):
-    #                         if file == 'T1.nii.gz': continue
-    #                         tests[f'spec2nii_{vendor}_{study}_{file}'] = {'import_fpath': os.path.join(study_dir, file)}
-    #                         # break
-    #                 elif os.path.isdir(os.path.join(study_dir, file)):
-    #                     subdir = os.path.join(study_dir, file)
-    #                     for subfile in os.listdir(subdir):
-    #                         if os.path.isfile(os.path.join(subdir, subfile)):
-    #                             if subfile == 'T1.nii.gz': continue
-    #                             if subfile.lower().endswith(filetype):
-    #                                 tests[f'spec2nii_{vendor}_{study}_{file}_{subfile}'] = {'import_fpath': os.path.join(subdir, subfile)}
-    #                                 # break
-    #                         elif os.path.isdir(os.path.join(subdir, subfile)):
-    #                             subsubdir = os.path.join(subdir, subfile)
-    #                             for subsubfile in os.listdir(subsubdir):
-    #                                 if subsubfile == 'T1.nii.gz': continue
-    #                                 if subsubfile.lower().endswith(filetype):
-    #                                     tests[f'spec2nii_{vendor}_{study}_{file}_{subfile}_{subsubfile}'] = {'import_fpath': os.path.join(subsubdir, subsubfile)}
-    #                                     # break
+    # add all spec2nii test sets
+    spec2nii_test_dir = './example_data/spec2nii_tests/'
+    for vendor in sorted(os.listdir(spec2nii_test_dir)):
+        vendor_dir = os.path.join(spec2nii_test_dir, vendor)
+        for study in sorted(os.listdir(vendor_dir)):
+            study_dir = os.path.join(vendor_dir, study)
+            if os.path.isdir(study_dir):
+                for file in os.listdir(study_dir):
+                    if os.path.isfile(os.path.join(study_dir, file)):
+                        if file.lower().endswith(filetype):
+                            if file == 'T1.nii.gz': continue
+                            tests[f'spec2nii_{vendor}_{study}_{file}'] = {'import_fpath': os.path.join(study_dir, file)}
+                            # break
+                    elif os.path.isdir(os.path.join(study_dir, file)):
+                        subdir = os.path.join(study_dir, file)
+                        for subfile in os.listdir(subdir):
+                            if os.path.isfile(os.path.join(subdir, subfile)):
+                                if subfile == 'T1.nii.gz': continue
+                                if subfile.lower().endswith(filetype):
+                                    tests[f'spec2nii_{vendor}_{study}_{file}_{subfile}'] = {'import_fpath': os.path.join(subdir, subfile)}
+                                    # break
+                            elif os.path.isdir(os.path.join(subdir, subfile)):
+                                subsubdir = os.path.join(subdir, subfile)
+                                for subsubfile in os.listdir(subsubdir):
+                                    if subsubfile == 'T1.nii.gz': continue
+                                    if subsubfile.lower().endswith(filetype):
+                                        tests[f'spec2nii_{vendor}_{study}_{file}_{subfile}_{subsubfile}'] = {'import_fpath': os.path.join(subsubdir, subsubfile)}
+                                        # break
 
 
     # initialize BasisREMY

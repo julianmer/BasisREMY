@@ -592,9 +592,9 @@ class Application(TkinterDnD.Tk):
         self.ax.set_yticklabels([])
 
         # compute ppm axis using cf
-        cf = self.BasisREMY.backend.mandatory_params['Center Freq']
-        bw = self.BasisREMY.backend.mandatory_params['Bandwidth']
-        points = self.BasisREMY.backend.mandatory_params['Samples']
+        cf = float(self.BasisREMY.backend.mandatory_params['Center Freq'])
+        bw = float(self.BasisREMY.backend.mandatory_params['Bandwidth'])
+        points = int(self.BasisREMY.backend.mandatory_params['Samples'])
         ppm_axis = 1e6 * np.linspace(-bw/2 / cf, bw/2 / cf, points)
         ppm_axis = np.flip(ppm_axis) + 4.65   # TODO: make this more general
 

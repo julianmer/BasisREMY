@@ -93,6 +93,7 @@ function outputs = sLASER_makebasisset_function(curfolder, pathtofida, system, s
     outputs = cell(1, size(spinSysList, 2));
     for met_nr = 1:size(spinSysList, 2)
         spinSys = spinSysList{met_nr};
+        disp(['Simulating metabolite: ', spinSys]);
         sys = eval(['sys' spinSys]);
         sys(1).centreFreq = centreFreq;
 
@@ -137,15 +138,6 @@ function outputs = sLASER_makebasisset_function(curfolder, pathtofida, system, s
         out.centerFreq = centreFreq;
         out.w1max = w1max;
 
-        % Save raw data
-        save_raw = [folder_to_save, 'raw'];
-        if save_result
-            if exist(save_raw, 'dir') == 0
-                mkdir(save_raw);
-            end
-            RF = io_writelcmraw(out, [save_raw, '/', spinSys, '.RAW'], spinSys);
-        end
-
         % Save after shift
         save_out_mat_end = [folder_to_save, 'matfiles_post'];
         if exist(save_out_mat_end, 'dir') == 0
@@ -166,7 +158,8 @@ function outputs = sLASER_makebasisset_function(curfolder, pathtofida, system, s
 
     % Create .basis file
     if make_basis == 'y' || make_basis == 'Y'
-        disp('Running fit_makeLCMBasis...');
+        % disp('Running fit_makeLCMBasis...');
         BASIS = fit_makeLCMBasis(save_out_mat_end, false, [folder_to_save, '/', basis_name], system, seq_name);
+
     end
 end

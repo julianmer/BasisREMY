@@ -1,7 +1,8 @@
 % contains.m
 % Adapter function for MATLAB's "contains" to ensure compatibility with Octave.
 %
-% AU
+% AUTHORS:
+% J. P. Merkofer
 %
 % USAGE:
 % tf = contains(str, pattern)
