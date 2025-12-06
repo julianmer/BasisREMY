@@ -1,4 +1,6 @@
 % contains.m
+% -------------------------------------------------------------------------
+%
 % Adapter function for MATLAB's "contains" to ensure compatibility with Octave.
 %
 % AUTHORS:
@@ -23,6 +25,7 @@
 %
 % NOTE:
 % Place this file in your project directory or adapters folder to override missing "contains" in Octave.
+% -------------------------------------------------------------------------
 
 function tf = contains(str, pattern)
     if ischar(str)

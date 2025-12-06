@@ -227,7 +227,7 @@ class sLaserBackend(Backend):
             "Path to Spin System": "./externals/jbss/my_mets/my_spinSystem.mat",
             "Display": 'No',  # 0 (no display) <-> 1 (display)
             "Make .raw": 'No',  # TODO: fix io_writelcmraw in sLASER_makebasisset_function
-            "Make .basis": 'No',  # TODO: fix fit_makeLCMBasis in sLASER_makebasisset_function
+            "Make .basis": 'Yes',
         })
         params = self.parse2fidA(params)   # convert parameters to fidA format if needed
 
@@ -260,10 +260,13 @@ class sLaserBackend(Backend):
 
         basis_set = {}
         total_steps = len(tasks)
-        for i, task in enumerate(tasks):
-            metab, data = sLASER_makebasisset_function(*task)
-            for i, m in enumerate(metab):
-                basis_set[m] = data[i]['fids']
+        for task_idx, task in enumerate(tasks):
+            metab_list, outputs = sLASER_makebasisset_function(*task)
+            # outputs is a MATLAB cell array; convert to list and access each cell
+            for met_idx, metab_name in enumerate(metab_list):
+                # MATLAB cell arrays are 0-indexed when accessed from Python via oct2py
+                output_struct = outputs[0, met_idx]
+                basis_set[metab_name] = output_struct['fids']
             if progress_callback:
-                progress_callback(i + 1, total_steps)
+                progress_callback(task_idx + 1, total_steps)
         return basis_set

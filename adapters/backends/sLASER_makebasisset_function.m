@@ -10,7 +10,7 @@
 %   Julian P. Merkofer (j.p.merkofer@tue.nl)
 %
 % USAGE:
-% outputs = sLASER_makebasisset_function(curfolder, pathtofida, system, seq_name, basis_name, ...
+% METABS = sLASER_makebasisset_function(curfolder, pathtofida, system, seq_name, basis_name, ...
 %     B1max, flip_angle, refTp, Npts, sw, lw, Bfield, thkX, thkY, fovX, fovY, ...
 %     nX, nY, te, centreFreq, spinSysList, tau1, tau2, path_to_pulse, path_to_save, ...
 %     path_to_spin_system, display, make_basis, make_raw);
@@ -43,11 +43,11 @@
 %   make_raw            - Flag to save .raw data ('y'/'n')
 %
 % OUTPUTS:
-%   outputs:            - Cell array of simulated metabolite outputs
+%   METABS:            - Cell array of simulated metabolite outputs
 %
 % -------------------------------------------------------------------------
 
-function outputs = sLASER_makebasisset_function(curfolder, pathtofida, system, seq_name, ...
+function METABS = sLASER_makebasisset_function(curfolder, pathtofida, system, seq_name, ...
     basis_name, B1max, flip_angle, refTp, Npts, sw, lw, Bfield, thkX, thkY, fovX, fovY, ...
     nX, nY, te, centreFreq, spinSysList, tau1, tau2, path_to_pulse, path_to_save, ...
     path_to_spin_system, display, make_basis, make_raw)
@@ -100,12 +100,12 @@ function outputs = sLASER_makebasisset_function(curfolder, pathtofida, system, s
         % Simulate metabolite
         out = run_mysLASERShaped_fast(rfPulse, refTp, Npts, sw, lw, Bfield, thkX, thkY, x, y, te, sys, flip_angle);
 
-        % Save before shift
-        save_out_mat = [folder_to_save, 'matfiles_pre'];
-        if exist(save_out_mat, 'dir') == 0
-            mkdir(save_out_mat);
-        end
-        save([save_out_mat, '/', spinSys], 'out');
+%        % Save before shift
+%        save_out_mat = [folder_to_save, 'matfiles_pre'];
+%        if exist(save_out_mat, 'dir') == 0
+%            mkdir(save_out_mat);
+%        end
+%        save([save_out_mat, '/', spinSys], 'out');
 
         % Apply frequency shift
         out.fids = out.fids .* exp(-(1i * 2 * pi * freqShift_hz) .* ref.t).';
@@ -138,12 +138,12 @@ function outputs = sLASER_makebasisset_function(curfolder, pathtofida, system, s
         out.centerFreq = centreFreq;
         out.w1max = w1max;
 
-        % Save after shift
-        save_out_mat_end = [folder_to_save, 'matfiles_post'];
-        if exist(save_out_mat_end, 'dir') == 0
-            mkdir(save_out_mat_end);
-        end
-        save([save_out_mat_end, '/', spinSys], 'out');
+%        % Save after shift
+%        save_out_mat_end = [folder_to_save, 'matfiles_post'];
+%        if exist(save_out_mat_end, 'dir') == 0
+%            mkdir(save_out_mat_end);
+%        end
+%        save([save_out_mat_end, '/', spinSys], 'out');
 
         % Create .raw files
         if make_raw == 'y'|| make_raw == 'Y'
@@ -158,8 +158,9 @@ function outputs = sLASER_makebasisset_function(curfolder, pathtofida, system, s
 
     % Create .basis file
     if make_basis == 'y' || make_basis == 'Y'
-        % disp('Running fit_makeLCMBasis...');
-        BASIS = fit_makeLCMBasis(save_out_mat_end, false, [folder_to_save, '/', basis_name], system, seq_name);
-
+        % BASIS = fit_makeLCMBasis(save_out_mat_end, false, [folder_to_save, '/', basis_name], system, seq_name);
+        BASIS = io_writelcmBASIS_new(outputs, [folder_to_save, '/', basis_name], system, seq_name, Bfield, lw, Npts, sw, te, centreFreq);
     end
+
+    METABS = outputs;
 end
