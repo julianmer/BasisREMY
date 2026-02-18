@@ -1,9 +1,15 @@
 brukerapi==0.1.8
+docker>=6.0.0
 matplotlib==3.10.7
 numpy==2.3.3
 oct2py==5.8.0
 pandas==2.3.3
 pyMapVBVD==0.6.1
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-xdist>=3.0.0
+pytest-timeout>=2.1.0
+scipy>=1.10.0
 spec2nii==0.8.7
 tkinterdnd2==0.4.2
 tkinterweb==3.25.14

@@ -194,7 +194,16 @@ class Application(TkinterDnD.Tk):
         def switch_backend(event=None):
             selected_backend = self.backend_var.get()
             if selected_backend != self.BasisREMY.backend.name:
-                self.BasisREMY.set_backend(selected_backend)  # you must define this method
+                # Check if the new backend requires Octave
+                new_backend = self.BasisREMY.backends[selected_backend]
+                if new_backend.requires_octave and new_backend.octave is None:
+                    # Check Octave availability before switching
+                    if not self.check_octave_availability():
+                        # Reset the combobox to the current backend
+                        self.backend_var.set(self.BasisREMY.backend.name)
+                        return
+
+                self.BasisREMY.set_backend(selected_backend)
                 self.tab2_widgets()  # redraw tab2 widgets for the new backend
 
         backend_combo.bind("<<ComboboxSelected>>", switch_backend)
@@ -459,6 +468,59 @@ class Application(TkinterDnD.Tk):
         self.notebook.tab(1, state="normal")
         self.notebook.select(1)
 
+    def check_octave_availability(self):
+        """
+        Check if Octave is available (Docker or local).
+        Show a dialog with instructions if not available.
+
+        Returns:
+            bool: True if Octave is available, False otherwise
+        """
+        from core.octave_manager import OctaveManager
+
+        manager = OctaveManager()
+        docker_available = manager.check_docker_availability()
+        local_available = manager.check_local_octave_availability()
+
+        if docker_available or local_available:
+            return True
+
+        # Neither is available - show helpful dialog
+        instructions = manager._get_installation_instructions()
+
+        # Create a custom dialog with the instructions
+        dialog = tk.Toplevel(self)
+        dialog.title("Octave Runtime Required")
+        dialog.geometry("700x500")
+        dialog.configure(bg=self.bg_1_color)
+
+        # Make it modal
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Add text widget with scrollbar for instructions
+        frame = tk.Frame(dialog, bg=self.bg_1_color)
+        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        scrollbar = tk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        text = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scrollbar.set,
+                      font=("Courier", 10), bg="white", fg="black")
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text.yview)
+
+        text.insert("1.0", instructions)
+        text.config(state=tk.DISABLED)
+
+        # Add close button
+        close_btn = tk.Button(dialog, text="OK", command=dialog.destroy,
+                            bg=self.main_color, fg=self.text_color,
+                            font=("Arial", 12, "bold"))
+        close_btn.pack(pady=10)
+
+        return False
+
     def validate_inputs(self):
         # check if all mandatory parameters are filled
         all_params_filled = all(
@@ -477,6 +539,11 @@ class Application(TkinterDnD.Tk):
             self.simulate_button.config(state=tk.DISABLED)
 
     def simulate_basis(self):
+        # Check if Octave is available before proceeding
+        if self.BasisREMY.backend.requires_octave and self.BasisREMY.backend.octave is None:
+            if not self.check_octave_availability():
+                return  # Don't proceed if Octave is not available
+
         # move to the next tab and simulate the basis set
         self.notebook.tab(2, state="normal")
         self.notebook.select(2)
@@ -602,8 +669,30 @@ class Application(TkinterDnD.Tk):
         for metab, var in self.checkbox_vars.items():
             if var.get() and metab in self.basis_set:
                 data = self.basis_set[metab]
-                ydata = np.real(np.fft.fftshift(np.fft.fft(data)))
-                self.ax.plot(ppm_axis, ydata, color=self.metab_colors[metab])
+
+                # Ensure data is a proper numpy array
+                if not isinstance(data, np.ndarray):
+                    try:
+                        data = np.array(data, dtype=complex)
+                    except:
+                        print(f"Warning: Could not convert {metab} data to numpy array")
+                        continue
+
+                # Flatten if needed
+                if data.ndim > 1:
+                    data = data.flatten()
+
+                # Check if data is empty
+                if data.size == 0:
+                    print(f"Warning: {metab} data is empty")
+                    continue
+
+                try:
+                    ydata = np.real(np.fft.fftshift(np.fft.fft(data)))
+                    self.ax.plot(ppm_axis, ydata, color=self.metab_colors[metab])
+                except Exception as e:
+                    print(f"Warning: Could not plot {metab}: {e}")
+                    continue
 
         # limit the x-axis to 0 - 10 ppm (TODO: this is very proton specific)
         self.ax.set_xlim(0, 10)
