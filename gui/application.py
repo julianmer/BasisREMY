@@ -96,7 +96,7 @@ class Application(TkinterDnD.Tk):
         header_canvas.pack(fill=tk.X)
 
         # load the header image
-        header_image = Image.open("imgs/basisremy_header.png")
+        header_image = Image.open("assets/imgs/basisremy_header.png")
         header_image = header_image.resize((1600, 100))
         header_photo = ImageTk.PhotoImage(header_image)
 

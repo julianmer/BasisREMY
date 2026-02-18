@@ -2,11 +2,11 @@
 #                                      basic_usage.py                                              #
 ####################################################################################################
 #                                                                                                  #
-# Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                   #
+# Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
 #                                                                                                  #
 # Created: 18/02/26                                                                                #
 #                                                                                                  #
-# Purpose: Example showing how to use BasisREMY without the GUI.                                  #
+# Purpose: Example showing how to use BasisREMY without the GUI.                                   #
 #                                                                                                  #
 ####################################################################################################
 
