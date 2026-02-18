@@ -42,6 +42,9 @@ output/
 *.RAW
 *.mat
 
+# Docker/Octave temporary files
+docker_setup/octave_shared/
+
 # Temporary files
 *.log
 *.tmp
