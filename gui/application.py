@@ -115,7 +115,7 @@ class Application(TkinterDnD.Tk):
         )
 
         # add logo
-        logo_image = Image.open("imgs/basisremy_logo.png")
+        logo_image = Image.open("assets/imgs/basisremy_logo.png")
         logo_image = logo_image.resize((100, 100))
         logo_photo = ImageTk.PhotoImage(logo_image)
         logo_label = tk.Label(self, image=logo_photo, bg="#f0f0f0")
