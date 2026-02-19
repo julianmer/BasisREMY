@@ -22,15 +22,17 @@ RUN apt-get update && \
         xvfb \
         x11-utils \
         xauth \
-        x11-apps && \
+        x11-apps \
+        wget \
+        unzip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # install gnuplot
 RUN apt-get update && apt-get install -y gnuplot
 
-# install Octave toolboxes
-RUN octave --eval "pkg install -forge control signal" && \
-    octave --eval "pkg load control; pkg load signal; savepath"
+# install Octave toolboxes non-interactively (headless)
+RUN octave --no-gui --quiet --eval "pkg install -forge control signal" && \
+    octave --no-gui --quiet --eval "pkg load control; pkg load signal; savepath"
 
 # set environment for oct2py to find octave
 ENV OCTAVE_EXECUTABLE=octave
@@ -45,4 +47,3 @@ WORKDIR /app
 
 # run your script(s)
 # CMD ["python", "main.py"]
-CMD ["python", "tests/test_sLaser_backend.py"]

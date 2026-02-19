@@ -16,6 +16,10 @@
 #*************#
 from gui.application import Application
 
+# verbose for debugging
+import os
+os.environ['BASISREMY_VERBOSE'] = '1'
+
 
 #*************#
 #   run GUI   #
@@ -26,4 +30,4 @@ def run_gui():
 
 if __name__ == "__main__":
     run_gui()
-    
+

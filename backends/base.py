@@ -23,6 +23,10 @@ class Backend:
     def __init__(self):
         self.name = None
 
+        # Octave runtime management
+        self.requires_octave = False  # Set to True in subclasses that need Octave
+        self.octave = None  # Will be initialized when needed
+
         # define possible metabolites
         self.metabs = {}
 
@@ -37,6 +41,42 @@ class Backend:
 
         # define dictionary of optional parameters
         self.optional_params = {}
+
+    def initialize_octave(self, prefer_docker=True, verbose=False):
+        """
+        Initialize Octave runtime if required by this backend.
+
+        Args:
+            prefer_docker: If True, try Docker first, otherwise try local first
+            verbose: Enable verbose output for debugging
+
+        Returns:
+            True if successful, False otherwise
+
+        Raises:
+            RuntimeError: If Octave is required but cannot be initialized
+        """
+        if not self.requires_octave:
+            return True
+
+        from core.octave_manager import OctaveManager
+        manager = OctaveManager(verbose=verbose)
+
+        try:
+            self.octave = manager.initialize_octave(prefer_docker=prefer_docker)
+
+            # If using Docker, check for and clean up old processes
+            if hasattr(self.octave, 'check_running_processes'):
+                existing = self.octave.check_running_processes()
+                if existing:
+                    print(f"⚠️  Found {len(existing)} existing Octave process(es)")
+                    print(f"   Cleaning up old processes...")
+                    self.octave.kill_running_processes()
+                    print(f"✓ Ready for new simulation")
+
+            return True
+        except RuntimeError as e:
+            raise RuntimeError(f"Failed to initialize Octave for {self.name} backend:\n{e}")
 
     def update_from_backend(self, backend):
         # update the backend parameters from another backend instance

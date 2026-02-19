@@ -16,9 +16,9 @@
 #   imports   #
 #*************#
 import os
+import numpy as np
 
 from multiprocessing import Pool
-from oct2py import Oct2Py
 
 # own
 from backends.base import Backend
@@ -37,12 +37,9 @@ class LCModelBackend(Backend):
         super().__init__()
         self.name = 'LCModel'
 
-        # init fidA
-        self.octave = Oct2Py()
-        self.octave.eval("warning('off', 'all');")
-        self.octave.addpath('./externals/fidA/inputOutput/')
-        self.octave.addpath('./externals/fidA/processingTools/')
-        self.octave.addpath('./externals/fidA/simulationTools/')
+        # Mark that this backend requires Octave
+        self.requires_octave = True
+        # Octave will be initialized lazily when needed
 
         # define possible metabolites
         self.metabs = {
@@ -174,10 +171,38 @@ class LCModelBackend(Backend):
         params['Make .raw'] = params['Make .raw'][0].lower()
         return params
 
+    def setup_octave_paths(self):
+        """Setup Octave paths for FID-A toolbox."""
+        if self.octave is None:
+            raise RuntimeError("Octave not initialized. Call initialize_octave() first.")
+
+        self.octave.eval("warning('off', 'all');")
+        self.octave.addpath('./externals/fidA/inputOutput/')
+        self.octave.addpath('./externals/fidA/processingTools/')
+        self.octave.addpath('./externals/fidA/simulationTools/')
+
     def run_simulation(self, params, progress_callback=None):
+        # Initialize Octave if not already done
+        if self.octave is None:
+            print("Initializing Octave runtime...")
+            self.initialize_octave(prefer_docker=True)
+
+        # Always setup paths (in case octave was initialized but paths weren't set)
+        self.setup_octave_paths()
+
         # create the output directory if it does not exist
         if not os.path.exists(params['Output Path']):
             os.makedirs(params['Output Path'])
+
+        # Convert output path to relative path for Docker compatibility
+        output_path = params['Output Path']
+        if os.path.isabs(output_path):
+            # Convert absolute path to relative from current directory
+            try:
+                output_path = os.path.relpath(output_path)
+            except ValueError:
+                # If on different drive (Windows), keep absolute but remove drive letter
+                output_path = output_path.replace('\\', '/')
 
         def sim_lcmrawbasis(n, sw, Bfield, lb, metab, tau1, tau2, addref, makeraw, seq, out_path):
             results = self.octave.feval('sim_lcmrawbasis', n, sw, Bfield, lb, metab,
@@ -189,12 +214,21 @@ class LCModelBackend(Backend):
         tasks = [(float(params['Samples']), float(params['Bandwidth']), float(params['Bfield']),
                   float(params['Linewidth']), metab, float(params['TE']), float(params['TE2']),
                   params['Add Ref.'], params['Make .raw'], params['Sequence'],
-                  params['Output Path']) for metab in params['Metabolites']]
+                  output_path) for metab in params['Metabolites']]
 
         basis_set = {}
         total_steps = len(tasks)
         for i, task in enumerate(tasks):
             metab, data = sim_lcmrawbasis(*task)
+
+            # Ensure it's a proper numpy array
+            if not isinstance(data, np.ndarray):
+                data = np.array(data, dtype=complex)
+
+            # Flatten if multidimensional
+            if data.ndim > 1:
+                data = data.flatten()
+
             basis_set[metab] = data
             if progress_callback:
                 progress_callback(i + 1, total_steps)

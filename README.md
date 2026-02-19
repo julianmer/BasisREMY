@@ -1,36 +1,40 @@
-# <img src="imgs/basisremy_logo.png" alt="BasisREMY Logo" width="200" align=""/>
+<div align="center">
+  <img src="assets/imgs/basisremy_logo_round.png" alt="BasisREMY Logo" width="120" style="margin-bottom: -10px;"/>
+  <h1 style="margin-top: 5px; margin-bottom: 5px;">BasisREMY</h1>
+  <p style="margin-top: 0px;"><em>Study-Specific Basis Set Generation for MR Spectroscopy</em></p>
+  
+  [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+  [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
+  [![ISMRM 2026](https://img.shields.io/badge/ISMRM-Abstract%20%2301716-lightgrey.svg)](https://submissions.mirasmart.com/ISMRM2026/)
+</div>
+
+---
 
 A tool for generating study-specific basis sets directly from raw MRS data, integrating real pulse shapes and acquisition parameters. This project is in its early development stages, and contributions, testing, and feedback are highly welcomed!
+
+<div align="center">
+  <img src="assets/imgs/basisremy_workflow.png" alt="BasisREMY Workflow" width="750"/>
+</div>
 
 
 ## Prerequisites
 
 Before installing BasisREMY, ensure that the following are installed on your system:
 
-- **Python**: Version 3.6 or higher. You can download the latest version from the [official Python website](https://www.python.org/downloads/).
+- **Python**: Version 3.10 or higher. You can download the latest version from the [official Python website](https://www.python.org/downloads/).
 
-- **GNU Octave**: Version 4.0 or higher. Octave is required for BasisREMY to function properly.
+- **Octave Runtime** (required for simulation backends using MATLAB/Octave code): Version 4.0 or higher.
 
-  - **Windows**: Download the latest MinGW version of Octave from the [GNU Octave website](https://www.gnu.org/software/octave/download.html). During installation, ensure that Octave is added to your system's PATH. You can do this by selecting the option during installation or manually adding the path to the Octave `bin` directory to your system's PATH environment variable.
+  **You have two options:**
+  
+  1. **Docker** (Recommended) - Automatic setup, works everywhere
+  2. **Local Octave** - Traditional installation
+  
+  **📖 See the [Octave Setup Guide](assets/OCTAVE_SETUP.md) for installation instructions.**
+  
+  > **Note**: BasisREMY automatically detects and uses Docker if available, otherwise falls back to local Octave. If you only need to extract parameters with REMY, Octave is not required.
 
-  - **macOS**: Install Octave using Homebrew:
 
-    ```bash
-    brew install octave
-    ```
-
-  - **Linux**: Install Octave using your distribution's package manager. For example, on Ubuntu:
-
-    ```bash
-    sudo apt-get update
-    sudo apt-get install octave
-    ```
-
-  After installation, verify that Octave is accessible from the command line by running:
-
-  ```bash
-  octave --version
-    ```
 
 
 ## Setting Up the Python Environment
@@ -59,6 +63,7 @@ source .venv/bin/activate
 Upgrade pip and install the required packages by running:
 
 ```bash
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 

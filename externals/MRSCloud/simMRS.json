@@ -1,0 +1,28 @@
+{
+    "userInput": {
+        "metablist": ["Ch","GABA","Glu","Lac","mI","PCh","PCr"],
+        "FieldStr": ["3T"],
+        "vendor": ["Philips"], 
+        "mega_or_hadam": ["UnEdited"],
+        "localization": ["PRESS"],
+        "editTarget": ["GABA"],
+      	"TE": 35,
+      	"editOn": 1.9,
+      	"editOff": 7.5,
+        "editTp": 20,
+        "spatial_points": 101,
+        "tm": 30
+    },
+    "private": {
+        "metab_default": ["Cr","NAA","H2O","CrCH2"],
+        "flipAngle": 180,
+        "centreFreq": 3.0,
+        "edit_flipAngle": 180,
+        "excflipAngle": 90
+    },
+    "DIRECTORY":{
+        "save_dir": "C:/Users/SHUI/Documents/MATLAB/MRSCloud/save_dir/",
+        "work_dir": "C:/Users/SHUI/Documents/MATLAB/MRSCloud",
+        "outputFile": "C:/Users/SHUI/Documents/MATLAB/MRSCloud/mrs_sim_out.zip"
+    }
+}
