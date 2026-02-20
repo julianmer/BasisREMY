@@ -1,13 +1,13 @@
 ####################################################################################################
-#                                        lcmodel_backend.py                                        #
+#                                        mrscloud_backend.py                                       #
 ####################################################################################################
 #                                                                                                  #
-# Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
+# Authors: G. Simegn (gsimegn1@jh.edu), J. P. Merkofer (                                           #
+#          J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
 #                                                                                                  #
-# Created: 08/10/25                                                                                #
+# Created: 18/02/26                                                                                #
 #                                                                                                  #
-# Purpose: Defines the MRSCloudBackend class for simulating MRS basis sets using the                #
-#          FID-A sim_lcmrawbasis.m function.                                                       #
+# Purpose: Defines the MRSCloud backend class for simulating MRS basis sets.                       #
 #                                                                                                  #
 ####################################################################################################
 
@@ -18,8 +18,6 @@
 import os
 import numpy as np
 
-from multiprocessing import Pool
-
 # own
 from backends.base import Backend
 
@@ -28,8 +26,7 @@ from backends.base import Backend
 #                                         MRSCloudBackend                                          #
 #**************************************************************************************************#
 #                                                                                                  #
-# Implements the basis set simulation backend using the FID-A sim_lcmrawbasis.m function. A very   #
-# simplified simulation for SE, PRESS, STEAM, and LASER sequences.                                 #
+# Implements the basis set simulation backend using the MRSCloud approach.                         #
 #                                                                                                  #
 #**************************************************************************************************#
 class MRSCloudBackend(Backend):
