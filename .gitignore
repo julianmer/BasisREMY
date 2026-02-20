@@ -42,6 +42,9 @@ output/
 *.RAW
 *.mat
 
+# Legacy files
+legacy/
+
 # Docker/Octave temporary files
 docker_setup/octave_shared/
 
