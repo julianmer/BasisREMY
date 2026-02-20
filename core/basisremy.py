@@ -20,9 +20,10 @@ import numpy as np
 import pathlib
 
 # own
-from backends.lcmodel_backend import LCModelBackend
-from backends.slaser_backend import sLaserBackend
 from backends.fslmrs_backend import FSLMRSBackend
+from backends.lcmodel_backend import LCModelBackend
+from backends.mrscloud_backend import MRSCloudBackend
+from backends.slaser_backend import sLaserBackend
 from externals.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 
 
@@ -40,9 +41,10 @@ class BasisREMY:
         self.Table = Table()
 
         self.backends = {
+            'FSL-MRS': FSLMRSBackend(),
+            'MRSCloud': MRSCloudBackend(),
             'LCModel': LCModelBackend(),
             'sLaserSim': sLaserBackend(),
-            'FSL-MRS': FSLMRSBackend(),
         }
         self.backend = self.backends[backend]
         self.available_backends = list(self.backends.keys())
