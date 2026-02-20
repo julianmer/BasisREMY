@@ -2,7 +2,7 @@
 #                                        mrscloud_backend.py                                       #
 ####################################################################################################
 #                                                                                                  #
-# Authors: G. Simegn (gsimegn1@jh.edu), J. P. Merkofer (                                           #
+# Authors: G. Simegn (gsimegn1@jh.edu)                                                             #
 #          J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
 #                                                                                                  #
 # Created: 18/02/26                                                                                #
