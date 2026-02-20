@@ -10,3 +10,6 @@
 [submodule "externals/fsl_mrs"]
 	path = externals/fsl_mrs
 	url = https://git.fmrib.ox.ac.uk/fsl/fsl_mrs.git
+[submodule "externals/mrscloud"]
+	path = externals/mrscloud
+	url = https://github.com/shui5/MRSCloud.git
