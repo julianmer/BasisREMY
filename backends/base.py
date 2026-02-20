@@ -42,6 +42,52 @@ class Backend:
         # define dictionary of optional parameters
         self.optional_params = {}
 
+        # Mode support - every backend has at least 'Default'
+        # Subclasses override to add more modes
+        self.modes = ['Default']
+        self.current_mode = 'Default'
+
+    def get_modes(self):
+        """Return list of available modes for this backend"""
+        return self.modes
+
+    def get_current_mode(self):
+        """Return currently selected mode"""
+        return self.current_mode
+
+    def set_mode(self, mode):
+        """
+        Set the current mode and return parameters for that mode.
+
+        Subclasses should override get_params_for_mode() to define
+        mode-specific parameter sets.
+
+        Args:
+            mode: One of the values from self.modes
+
+        Returns:
+            dict: Parameters to display for this mode
+        """
+        if mode not in self.modes:
+            raise ValueError(f"Unknown mode '{mode}'. Available: {self.modes}")
+        self.current_mode = mode
+        return self.get_params_for_mode(mode)
+
+    def get_params_for_mode(self, mode=None):
+        """
+        Return parameters to display in GUI for the given mode.
+
+        Default implementation returns all mandatory_params.
+        Subclasses override this to return mode-specific parameter sets.
+
+        Args:
+            mode: Mode name (uses current_mode if None)
+
+        Returns:
+            dict: Parameters to show in GUI
+        """
+        return dict(self.mandatory_params)
+
     def initialize_octave(self, prefer_docker=True, verbose=False):
         """
         Initialize Octave runtime if required by this backend.
