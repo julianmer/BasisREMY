@@ -177,6 +177,9 @@ class LCModelBackend(Backend):
             raise RuntimeError("Octave not initialized. Call initialize_octave() first.")
 
         self.octave.eval("warning('off', 'all');")
+        # adapters/backends/ must come first — it contains our modified
+        # sim_lcmrawbasis.m that shadows the original in FID-A
+        self.octave.addpath('./adapters/backends/')
         self.octave.addpath('./externals/fidA/inputOutput/')
         self.octave.addpath('./externals/fidA/processingTools/')
         self.octave.addpath('./externals/fidA/simulationTools/')

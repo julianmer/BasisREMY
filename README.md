@@ -16,41 +16,24 @@ A tool for generating study-specific basis sets directly from raw MRS data, inte
   <img src="assets/imgs/basisremy_workflow.png" alt="BasisREMY Workflow" width="750"/>
 </div>
 
-<<<<<<< HEAD
-=======
 ---
->>>>>>> 69fefa4cdfe36370dc2db5baa0987fd354a2595c
 
 ## Prerequisites
 
 Before installing BasisREMY, ensure that the following are installed on your system:
 
 - **Python**: Version 3.10 or higher. You can download the latest version from the [official Python website](https://www.python.org/downloads/).
-<<<<<<< HEAD
 
 - **Octave Runtime** (required for simulation backends using MATLAB/Octave code): Version 4.0 or higher.
 
-=======
-
-- **Octave Runtime** (required for simulation backends using MATLAB/Octave code): Version 4.0 or higher.
-
->>>>>>> 69fefa4cdfe36370dc2db5baa0987fd354a2595c
   **You have two options:**
   
   1. **Docker** (Recommended) - Automatic setup, works everywhere
   2. **Local Octave** - Traditional installation
   
-<<<<<<< HEAD
-  **📖 See the [Octave Setup Guide](assets/OCTAVE_SETUP.md) for installation instructions.**
-  
-  > **Note**: BasisREMY automatically detects and uses Docker if available, otherwise falls back to local Octave. If you only need to extract parameters with REMY, Octave is not required.
-
-
-=======
   **📖 See the [Octave Setup Guide](assets/OCTAVE_SETUP.md) for detailed installation instructions.**
   
   > **Note**: BasisREMY automatically detects and uses Docker if available, otherwise falls back to local Octave.
->>>>>>> 69fefa4cdfe36370dc2db5baa0987fd354a2595c
 
 ---
 
@@ -124,6 +107,8 @@ The example shows how to:
 The project will build upon the methodologies used in existing tools. Some references include:
 - [REMY](https://github.com/agudmundson/mrs_in_mrs) and related literature ([nbm.70039](https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/nbm.70039))
 - [FID-A](https://github.com/CIC-methods/FID-A) and related literature ([mrm.26091](https://doi.org/10.1002/mrm.26091))
+- [FSL-MRS](https://github.com/wtclarke/fsl_mrs) and related literature ([mrm.28630](https://doi.org/10.1002/mrm.28630))
+- [MRSCloud](https://github.com/shui5/MRSCloud) and related literature ([mrm.29370](https://doi.org/10.1002/mrm.29370))
 - [BasisSetSimulation](https://github.com/arcj-hub/BasisSetSimulation/tree/main)
 
 ---

@@ -227,12 +227,44 @@ class Application(TkinterDnD.Tk):
 
         # function to update mandatory_params when an Entry or Combobox changes
         def update_param(key, var):
-            self.BasisREMY.backend.mandatory_params[key] = var.get()
+            val = var.get()
+            # Store in mandatory or optional params depending on where the key lives
+            if key in self.BasisREMY.backend.mandatory_params:
+                self.BasisREMY.backend.mandatory_params[key] = val
+            elif key in self.BasisREMY.backend.optional_params:
+                self.BasisREMY.backend.optional_params[key] = val
             self.validate_inputs()
 
+        # Mode selector - only shown if backend has more than one mode
+        backend = self.BasisREMY.backend
+        has_modes = len(backend.modes) > 1
+
+        if has_modes:
+            mode_frame = tk.Frame(params_frame)
+            mode_frame.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+
+            tk.Label(mode_frame, text="Mode:", font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+
+            self.mode_var = tk.StringVar(value=backend.current_mode)
+            mode_combo = ttk.Combobox(mode_frame, textvariable=self.mode_var,
+                                      values=backend.modes, font=("Arial", 12), state="readonly")
+            mode_combo.pack(side=tk.LEFT)
+
+            def on_mode_change(event=None):
+                new_mode = self.mode_var.get()
+                backend.set_mode(new_mode)
+                self.tab2_widgets()  # Rebuild with new mode params
+
+            mode_combo.bind("<<ComboboxSelected>>", on_mode_change)
+            row = 1
+        else:
+            row = 0
+
+        # Get parameters to display based on current mode
+        params_to_show = backend.get_params_for_mode()
+
         # populate the parameters frame
-        row = 0
-        for key, value in self.BasisREMY.backend.mandatory_params.items():
+        for key, value in params_to_show.items():
             if key in self.BasisREMY.backend.file_selection:
                 # label for the path (file)
                 label = tk.Label(params_frame, text=f"{key}:", font=("Arial", 12, "bold"))

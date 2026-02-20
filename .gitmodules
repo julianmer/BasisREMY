@@ -1,6 +1,6 @@
 [submodule "externals/fidA"]
-        path = externals/fidA
-        url = https://github.com/CIC-methods/FID-A.git
+    path = externals/fidA
+    url = https://github.com/CIC-methods/FID-A.git
 [submodule "externals/jbss"]
 	path = externals/jbss
 	url = https://github.com/arcj-hub/BasisSetSimulation.git

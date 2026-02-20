@@ -88,8 +88,8 @@ class MRSCloudBackend(Backend):
         # add file selection fields
         self.file_selection = ['Path to Pulse']
 		
-		# Default spin system path (MRSCloud style)
-		#self.default_spin_system_path = './externals/MRSCloud/spinSystems/' TODO-Gize
+        # Default spin system path (MRSCloud style)
+		#self.default_spin_system_path = './externals/mrscloud/spinSystems/' TODO-Gize
 
         # define dictionary of mandatory parameters
         self.mandatory_params = {
@@ -210,7 +210,7 @@ class MRSCloudBackend(Backend):
        # self.octave.addpath('./externals/fidA/processingTools/')
        # self.octave.addpath('./externals/fidA/simulationTools/')
         # the .genpath should add all the subfolders?
-        self.octave.addpath(self.octave.genpath('./externals/MRSCloud/functions/'))
+        self.octave.addpath(self.octave.genpath('./externals/mrscloud/functions/'))
 
     
 
