@@ -32,6 +32,8 @@ from tkinterweb import HtmlFrame
 
 # own
 from core.basisremy import BasisREMY
+from gui.help_widget import LabelWithHelp
+from gui.export_dialog import ExportDialog
 
 
 #**************************************************************************************************#
@@ -134,6 +136,14 @@ class Application(TkinterDnD.Tk):
         self.notebook.add(self.tab2, text="Parameter Configuration", state="disabled")
         self.notebook.add(self.tab3, text="Basis Simulation", state="disabled")
 
+        # Track whether the current basis set is still valid for the params
+        # on screen.  Set True after a successful simulation, False whenever
+        # the user navigates back to tab2 (edit params) from tab3.
+        self._basis_set_valid = False
+
+        # Watch tab switches so we can invalidate when going backwards.
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
         self.tab1_widgets()
         self.tab2_widgets()
         self.tab3_widgets()
@@ -145,6 +155,33 @@ class Application(TkinterDnD.Tk):
 
         self.update()
         # self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
+
+    # ------------------------------------------------------------------ tab navigation
+    def _on_tab_changed(self, event=None):
+        """Called whenever the notebook switches tabs.
+
+        Rule: if the user navigates *back* to tab2 (Parameter Configuration)
+        from tab3 (Basis Simulation), the previously computed basis set is no
+        longer guaranteed to match the current parameters — mark it stale and
+        lock tab3 so they must re-simulate before going forward again.
+        """
+        try:
+            current = self.notebook.index(self.notebook.select())
+        except Exception:
+            return
+
+        if current == 1:
+            # Arrived at Parameter Configuration — invalidate any existing results.
+            if self._basis_set_valid:
+                self._basis_set_valid = False
+                # Disable tab3 so the user cannot jump straight back to stale results.
+                self.notebook.tab(2, state="disabled")
+                # Re-enable the Simulate button (it may have been hidden if we got here
+                # programmatically; validate_inputs will set the correct state).
+                try:
+                    self.validate_inputs()
+                except Exception:
+                    pass
 
     def tab1_widgets(self):
         # drag and drop area
@@ -176,37 +213,116 @@ class Application(TkinterDnD.Tk):
     def tab2_widgets(self):
         # clear existing widgets in tab2 (and 3 for returns)
         self.reset_tab(self.tab2)
+        # Reset per-field state that lives on `self`. Without this, switching
+        # backend leaves stale StringVars from the previous backend's pulse
+        # pickers in `self.file_vars`, which can be picked up by lambdas
+        # whose widgets have already been destroyed.
+        self.file_vars = {}
 
-        # backend toggle
+        # backend toggle — two-level cascade: Category → Backend
         backend_frame = tk.Frame(self.tab2)
         backend_frame.pack(fill=tk.X, padx=10, pady=(10, 0))
 
-        tk.Label(backend_frame, text="Select Backend:",
-                 font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        current_category = self.BasisREMY.get_current_category()
+        # Only show categories that have at least one backend registered.
+        category_options = [c for c in self.BasisREMY.CATEGORY_ORDER
+                            if self.BasisREMY.categories.get(c)]
+        # Append any extra categories that may have been registered out of band
+        for c in self.BasisREMY.categories:
+            if c not in category_options and self.BasisREMY.categories[c]:
+                category_options.append(c)
 
-        self.backend_var = tk.StringVar(value=self.BasisREMY.backend.name)
-        backend_options = self.BasisREMY.available_backends
+        tk.Label(backend_frame, text="Category:",
+                 font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 5))
+        self.category_var = tk.StringVar(value=current_category)
+        category_combo = ttk.Combobox(backend_frame, textvariable=self.category_var,
+                                      values=category_options, font=("Arial", 12),
+                                      state="readonly", width=12)
+        category_combo.pack(side=tk.LEFT, padx=(0, 15))
 
+        # Backend label + combo — only shown when the chosen category has
+        # more than one backend option. Single-backend categories (MRSCloud,
+        # FSL-MRS, Custom) don't need a sub-selector.
+        backend_label_widget = tk.Label(backend_frame, text="Backend:",
+                                        font=("Arial", 12, "bold"))
+        backend_label_widget.pack(side=tk.LEFT, padx=(0, 5))
+
+        # Display labels in the Backend combo use `display_name`, while we
+        # keep a mapping back to the canonical `name` for set_backend().
+        def _backends_for(cat):
+            names = self.BasisREMY.categories.get(cat, [])
+            label_to_name = {}
+            labels = []
+            for n in names:
+                b = self.BasisREMY.backends[n]
+                label = getattr(b, 'display_name', None) or b.name
+                label_to_name[label] = n
+                labels.append(label)
+            return labels, label_to_name
+
+        def _set_backend_combo_visibility(labels):
+            """Show or hide the Backend widgets depending on choice count."""
+            if len(labels) > 1:
+                backend_label_widget.pack(side=tk.LEFT, padx=(0, 5))
+                backend_combo.pack(side=tk.LEFT)
+            else:
+                backend_label_widget.pack_forget()
+                backend_combo.pack_forget()
+
+        backend_labels, self._backend_label_map = _backends_for(current_category)
+        current_label = next(
+            (lbl for lbl, nm in self._backend_label_map.items()
+             if nm == self.BasisREMY.backend.name),
+            backend_labels[0] if backend_labels else '',
+        )
+        self.backend_var = tk.StringVar(value=current_label)
         backend_combo = ttk.Combobox(backend_frame, textvariable=self.backend_var,
-                                     values=backend_options, font=("Arial", 12), state="readonly")
+                                     values=backend_labels, font=("Arial", 12),
+                                     state="readonly", width=32)
         backend_combo.pack(side=tk.LEFT)
+        # Apply initial visibility
+        _set_backend_combo_visibility(backend_labels)
 
-        def switch_backend(event=None):
-            selected_backend = self.backend_var.get()
-            if selected_backend != self.BasisREMY.backend.name:
-                # Check if the new backend requires Octave
-                new_backend = self.BasisREMY.backends[selected_backend]
-                if new_backend.requires_octave and new_backend.octave is None:
-                    # Check Octave availability before switching
-                    if not self.check_octave_availability():
-                        # Reset the combobox to the current backend
-                        self.backend_var.set(self.BasisREMY.backend.name)
-                        return
+        def _do_switch(target_name):
+            """Switch backend, checking Octave availability if needed."""
+            if target_name == self.BasisREMY.backend.name:
+                return True
+            new_backend = self.BasisREMY.backends[target_name]
+            if new_backend.requires_octave and new_backend.octave is None:
+                if not self.check_octave_availability():
+                    return False
+            self.BasisREMY.set_backend(target_name)
+            return True
 
-                self.BasisREMY.set_backend(selected_backend)
-                self.tab2_widgets()  # redraw tab2 widgets for the new backend
+        def on_category_change(event=None):
+            cat = self.category_var.get()
+            labels, label_map = _backends_for(cat)
+            if not labels:
+                return
+            backend_combo['values'] = labels
+            self._backend_label_map = label_map
+            self.backend_var.set(labels[0])
+            _set_backend_combo_visibility(labels)
+            target_name = label_map[labels[0]]
+            if _do_switch(target_name):
+                self.tab2_widgets()
+            else:
+                self.category_var.set(self.BasisREMY.get_current_category())
 
-        backend_combo.bind("<<ComboboxSelected>>", switch_backend)
+        def on_backend_change(event=None):
+            label = self.backend_var.get()
+            target_name = self._backend_label_map.get(label)
+            if target_name is None:
+                return
+            if _do_switch(target_name):
+                self.tab2_widgets()
+            else:
+                cur = next((lbl for lbl, nm in self._backend_label_map.items()
+                            if nm == self.BasisREMY.backend.name), label)
+                self.backend_var.set(cur)
+
+        category_combo.bind("<<ComboboxSelected>>", on_category_change)
+        backend_combo.bind("<<ComboboxSelected>>", on_backend_change)
 
         # create a container frame to hold both parameter and metabolite sections
         container = tk.Frame(self.tab2)
@@ -234,6 +350,15 @@ class Application(TkinterDnD.Tk):
             elif key in self.BasisREMY.backend.optional_params:
                 self.BasisREMY.backend.optional_params[key] = val
             self.validate_inputs()
+
+            # Some keys change which OTHER fields are visible (e.g. picking
+            # MEGA reveals editing fields, picking Philips reveals the
+            # vendor pulse picker). Backends declare these in
+            # `schema_affecting_keys`; rebuild the panel so the UI matches.
+            schema_keys = getattr(self.BasisREMY.backend,
+                                  'schema_affecting_keys', set())
+            if key in schema_keys:
+                self.tab2_widgets()
 
         # Mode selector - only shown if backend has more than one mode
         backend = self.BasisREMY.backend
@@ -266,24 +391,35 @@ class Application(TkinterDnD.Tk):
         # populate the parameters frame
         for key, value in params_to_show.items():
             if key in self.BasisREMY.backend.file_selection:
-                # label for the path (file)
-                label = tk.Label(params_frame, text=f"{key}:", font=("Arial", 12, "bold"))
+                # label + help icon for the path (file)
+                label = LabelWithHelp(params_frame, key, bg=self.bg_1_color)
                 label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
 
-                # stringVar for the selected path
+                # stringVar for the selected path. We keep a per-key dict so
+                # backends with multiple pulse-file pickers (e.g. MEGA-PRESS:
+                # refoc + edit) don't share a single StringVar. `self.file_var`
+                # remains for backwards compat; it always points at the most
+                # recently created field.
+                if not hasattr(self, 'file_vars'):
+                    self.file_vars = {}
                 self.file_var = tk.StringVar(value="missing input")
+                self.file_vars[key] = self.file_var
 
                 entry = tk.Entry(params_frame, textvariable=self.file_var, font=("Arial", 12))
-                entry.grid(row=row, column=1, padx=0, pady=5, sticky="ew")
+                entry.grid(row=row, column=1, padx=(10, 0), pady=5, sticky="ew")
 
-                def select_path():
-                    # select a file (you could also switch to askdirectory if needed per key)
+                # IMPORTANT: bind `key` and `var` as default args so the
+                # closure captures THIS iteration's values. Without this
+                # the loop's `key` reference is shared across all picker
+                # buttons and Browse always writes to the loop's last
+                # parameter (the infamous "Tau 2 := pulse path" bug).
+                def select_path(key=key, var=self.file_var):
                     file_path = filedialog.askopenfilename()
                     if file_path:
-                        self.file_var.set(file_path)
+                        var.set(file_path)
                         self.BasisREMY.backend.mandatory_params[key] = file_path
                     else:
-                        self.file_var.set("missing input")
+                        var.set("missing input")
                         self.BasisREMY.backend.mandatory_params[key] = None
                     self.validate_inputs()
 
@@ -293,35 +429,6 @@ class Application(TkinterDnD.Tk):
                 # automatically update backend dict on any entry edit
                 self.file_var.trace_add('write', lambda *args, key=key,
                                                         var=self.file_var: update_param(key, var))
-
-            elif key == 'Output Path':
-                # label for output directory
-                label = tk.Label(params_frame, text=f"{key}:", font=("Arial", 12, "bold"))
-                label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
-
-                # StringVar for the directory path
-                self.out_path_var = tk.StringVar(value="missing input")
-
-                entry = tk.Entry(params_frame, textvariable=self.out_path_var, font=("Arial", 12))
-                entry.grid(row=row, column=1, padx=0, pady=5, sticky="ew")
-
-                # button to open directory dialog
-                def select_directory():
-                    directory = filedialog.askdirectory()
-                    if directory:
-                        self.out_path_var.set(directory)
-                        self.BasisREMY.backend.mandatory_params['Output Path'] = directory
-                    else:
-                        self.out_path_var.set("missing input")
-                        self.BasisREMY.backend.mandatory_params['Output Path'] = None
-                    self.validate_inputs()
-
-                button = tk.Button(params_frame, text="Browse", command=select_directory)
-                button.grid(row=row, column=2, padx=0, pady=5)
-
-                # trace changes to the StringVar
-                self.out_path_var.trace_add('write', lambda *args, key=key,
-                                                            var=self.out_path_var: update_param(key, var))
 
             elif key == 'Metabolites':
                 # populate the metabolites frame
@@ -355,24 +462,35 @@ class Application(TkinterDnD.Tk):
                     var.trace_add('write', update_metabs)
 
             elif key in self.BasisREMY.backend.dropdown:
-                # label for dropdown parameters
-                label = tk.Label(params_frame, text=f"{key}:", font=("Arial", 12, "bold"))
+                # label + help icon for dropdown parameters
+                label = LabelWithHelp(params_frame, key, bg=self.bg_1_color)
                 label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
 
-                # StringVar for the Combobox
-                var = tk.StringVar(value=str(value) if value is not None else "missing input")
+                # StringVar for the Combobox. Use "Select option" as the
+                # placeholder when nothing is set so the user knows they
+                # have to pick one (instead of the cryptic "missing input").
+                allowed = list(self.BasisREMY.backend.dropdown[key])
+                if value is not None and str(value) in allowed:
+                    initial = str(value)
+                else:
+                    initial = "Select option"
+                var = tk.StringVar(value=initial)
 
-                # Combobox for dropdown parameters
-                combobox = ttk.Combobox(params_frame, textvariable=var, values=self.BasisREMY.backend.dropdown[key],
-                                        font=("Arial", 12))
-                combobox.grid(row=row, column=1, padx=0, pady=5, sticky="ew")
+                # Combobox for dropdown parameters. Readonly so users can
+                # only choose values the backend understands (free-typing
+                # caused MRSCloud crashes when 'PRESS' was typed into the
+                # Sequence box, which expects UnEdited/MEGA/HERMES/HERCULES).
+                combobox = ttk.Combobox(params_frame, textvariable=var,
+                                        values=allowed,
+                                        font=("Arial", 12), state="readonly")
+                combobox.grid(row=row, column=1, padx=(10, 0), pady=5, sticky="ew")
 
                 # trace changes to the StringVar
                 var.trace_add('write', lambda *args, key=key, var=var: update_param(key, var))
 
             else:
-                # label for other parameters
-                label = tk.Label(params_frame, text=f"{key}:", font=("Arial", 12, "bold"))
+                # label + help icon for other parameters
+                label = LabelWithHelp(params_frame, key, bg=self.bg_1_color)
                 label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
 
                 # StringVar for the Entry
@@ -380,7 +498,7 @@ class Application(TkinterDnD.Tk):
 
                 # entry for other parameters
                 entry = tk.Entry(params_frame, textvariable=var, font=("Arial", 12))
-                entry.grid(row=row, column=1, padx=0, pady=5, sticky="ew")
+                entry.grid(row=row, column=1, padx=(10, 0), pady=5, sticky="ew")
 
                 # trace changes to the StringVar
                 var.trace_add('write', lambda *args, key=key, var=var: update_param(key, var))
@@ -409,6 +527,15 @@ class Application(TkinterDnD.Tk):
             font=("Arial", 12, "bold"),
         )
         self.back_button.pack(pady=5)
+
+        # All widgets built and bound — refresh the simulate-button state so
+        # it lights up immediately when defaults / REMY-parsed values already
+        # satisfy validation (otherwise the user would have to touch a field
+        # for nothing).
+        try:
+            self.validate_inputs()
+        except Exception:
+            pass
 
     def tab3_widgets(self):
         # clear existing widgets in tab3.
@@ -555,8 +682,9 @@ class Application(TkinterDnD.Tk):
 
     def validate_inputs(self):
         # check if all mandatory parameters are filled
+        _UNSET = (None, "", "missing input", "Select option")
         all_params_filled = all(
-            self.BasisREMY.backend.mandatory_params[key] not in (None, "", "missing input")
+            self.BasisREMY.backend.mandatory_params[key] not in _UNSET
             for key in self.BasisREMY.backend.mandatory_params
             if key != 'Metabolites'
         )
@@ -576,7 +704,13 @@ class Application(TkinterDnD.Tk):
             if not self.check_octave_availability():
                 return  # Don't proceed if Octave is not available
 
-        # move to the next tab and simulate the basis set
+        # Always reset tab3 to the clean progress-bar state before starting a
+        # new run so old results (plot + checkboxes) are never visible while a
+        # new simulation is in flight.
+        self._basis_set_valid = False
+        self.tab3_widgets()
+
+        # move to the next tab
         self.notebook.tab(2, state="normal")
         self.notebook.select(2)
 
@@ -607,6 +741,9 @@ class Application(TkinterDnD.Tk):
     def on_simulation_complete(self, basis):
         print("Simulation complete.")
         self.basis_set = basis
+        # Mark the basis set as valid for the current parameters.
+        # _on_tab_changed will clear this flag if the user goes back to edit params.
+        self._basis_set_valid = True
 
         # remove simulation progress widgets.
         self.simulation_status_label.pack_forget()
@@ -676,8 +813,25 @@ class Application(TkinterDnD.Tk):
             )
             checkbutton.pack(side=tk.LEFT)
 
+        # Export… button (unified exporter, see core/exporters.py)
+        self.export_button = tk.Button(
+            self.tab3,
+            text="Export Basis…",
+            command=self.open_export_dialog,
+            bg=self.main_color,
+            fg=self.text_color,
+            font=("Arial", 12, "bold"),
+        )
+        self.export_button.pack(pady=(8, 0))
+
         # render the initial plot.
         self.update_plot()
+
+    def open_export_dialog(self):
+        """Open the unified export dialog (LCModel / jMRUI / FSL-MRS / Osprey)."""
+        if not getattr(self, "basis_set", None):
+            return
+        ExportDialog(self, self.basis_set, self.BasisREMY.backend.mandatory_params)
 
     def update_plot(self):
         # clear the axis and reapply basic settings.
@@ -690,12 +844,25 @@ class Application(TkinterDnD.Tk):
         self.ax.set_yticks([])
         self.ax.set_yticklabels([])
 
-        # compute ppm axis using cf
-        cf = float(self.BasisREMY.backend.mandatory_params['Center Freq'])
-        bw = float(self.BasisREMY.backend.mandatory_params['Bandwidth'])
-        points = int(self.BasisREMY.backend.mandatory_params['Samples'])
-        ppm_axis = 1e6 * np.linspace(-bw/2 / cf, bw/2 / cf, points)
-        ppm_axis = np.flip(ppm_axis) + 4.65   # TODO: make this more general
+        # compute ppm axis using cf (centre / Larmor frequency in Hz).
+        # Some backends (e.g. MRSCloud) intentionally don't expose Center Freq
+        # because it's derived from Field Strength internally — fall back to
+        # γ × B0 when the explicit value is missing.
+        mp = self.BasisREMY.backend.mandatory_params
+        cf_raw = mp.get('Center Freq')
+        if cf_raw in (None, '', 'missing input'):
+            field_str = str(mp.get('Field Strength') or '3T').replace('T', '').strip()
+            try:
+                b0 = float(field_str)
+            except ValueError:
+                b0 = 3.0
+            cf = 42.577e6 * b0  # Hz
+        else:
+            cf = float(cf_raw) * (1e6 if float(cf_raw) < 1000 else 1.0)
+        bw = float(mp['Bandwidth'])
+        # We use the actual FID length (data.size) per metabolite when
+        # building the ppm axis below — backends like MRSCloud may return a
+        # different length than `Samples` if their internal grid disagrees.
 
         # plot each metabolite's data if its checkbox is selected.
         for metab, var in self.checkbox_vars.items():
@@ -720,14 +887,28 @@ class Application(TkinterDnD.Tk):
                     continue
 
                 try:
+                    # MRS convention: FFT the FID, then fftshift so frequency
+                    # 0 is centred. The ppm axis goes low→high; the x-axis is
+                    # inverted below (xlim 10→0) so high ppm appears on the
+                    # left, matching radiological MRS display convention.
+                    # NOTE: do NOT flip ppm_axis — flipping creates a spectral
+                    # mirror by misassigning FFT bins to the wrong ppm values.
                     ydata = np.real(np.fft.fftshift(np.fft.fft(data)))
+                    npts = data.size
+                    # ppm axis: offset from carrier → absolute chemical shift.
+                    # The offset (+4.65) must match the centreFreq used during
+                    # simulation (MRSCloud adapter sets centreFreq = 4.65, the
+                    # standard water reference). A mismatch causes a rigid shift.
+                    ppm_axis = np.linspace(-bw / 2, bw / 2, npts) / cf * 1e6 + 4.65
                     self.ax.plot(ppm_axis, ydata, color=self.metab_colors[metab])
                 except Exception as e:
                     print(f"Warning: Could not plot {metab}: {e}")
                     continue
 
-        # limit the x-axis to 0 - 10 ppm (TODO: this is very proton specific)
-        self.ax.set_xlim(0, 10)
-        self.ax.invert_xaxis()
+        # MRS convention: high ppm on the left, low ppm on the right.
+        # set_xlim(10, 0) with xmin > xmax is all matplotlib needs — do NOT
+        # also call invert_xaxis() because that would invert a second time
+        # and put the axis back to 0→10.
+        self.ax.set_xlim(10, 0)
 
         self.canvas.draw()

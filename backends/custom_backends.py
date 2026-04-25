@@ -1,13 +1,15 @@
 ####################################################################################################
-#                                         slaser_backend.py                                        #
+#                                       backends/custom_backends.py                                #
 ####################################################################################################
 #                                                                                                  #
 # Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
 #                                                                                                  #
 # Created: 08/10/25                                                                                #
+# Renamed: 25/04/26                                                                                #
 #                                                                                                  #
-# Purpose: Defines the sLaserBackend class for simulating MRS basis sets using the                 #
-#          sLASER sequence with the sLASER_makebasisset_function.m function.                       #
+# Purpose: Container module for the "Custom" backend category — hand-rolled MATLAB simulators      #
+#          maintained outside the FID-A toolbox. Currently exposes one entry: CustomSLaser, the    #
+#          custom sLASER pipeline driven by sLASER_makebasisset_function.m.                        #
 #                                                                                                  #
 ####################################################################################################
 
@@ -23,16 +25,19 @@ from backends.base import Backend
 
 
 #**************************************************************************************************#
-#                                          sLaserBackend                                           #
+#                                          CustomSLaser                                            #
 #**************************************************************************************************#
 #                                                                                                  #
-# Implements the basis set simulation backend for the sLASER sequence.                             #
+# Implements the basis set simulation backend for the sLASER sequence using a custom MATLAB        #
+# pipeline (adapters/backends/sLASER_makebasisset_function.m).                                     #
 #                                                                                                  #
 #**************************************************************************************************#
-class sLaserBackend(Backend):
+class CustomSLaser(Backend):
     def __init__(self):
         super().__init__()
-        self.name = 'sLaserSim'
+        self.name = 'CustomSLaser'
+        self.display_name = 'sLASER (custom MATLAB)'
+        self.category = 'Custom'
 
         # Mark that this backend requires Octave
         self.requires_octave = True
@@ -78,17 +83,17 @@ class sLaserBackend(Backend):
             'bHG': False,
         }
 
-        # dropdown options
+        # dropdown options (export-related options live in the Export dialog)
         self.dropdown = {
             'System': ['Philips', 'Siemens'],
             'Sequence': ['sLASER'],
-            'Make .raw': ['Yes', 'No'],
         }
 
         # add file selection fields
         self.file_selection = ['Path to Pulse']
 
-        # define dictionary of mandatory parameters
+        # define dictionary of mandatory parameters (no Output Path / Make .raw —
+        # these belong to the post-simulation Export dialog)
         self.mandatory_params = {
             "System": None,
             "Sequence": "sLASER",
@@ -118,8 +123,6 @@ class sLaserBackend(Backend):
             "Tau 2": 13.,
 
             "Path to Pulse": None,
-            "Output Path": None,
-            'Make .raw': 'No',   # TODO: fix io_writelcmraw in sLASER_makebasisset_function
         }
 
 
@@ -179,7 +182,7 @@ class sLaserBackend(Backend):
             return None
 
         if 'mega' in protocol.lower():  # TODO: better check for editing
-            print("Warning: LCModelBackend does not support MEGA sequences. "
+            print("Warning: CustomSLaser does not support MEGA sequences. "
                   "Ignoring MEGA part of the protocol.")
 
         if 'slaser' in protocol.lower():
@@ -198,7 +201,7 @@ class sLaserBackend(Backend):
         elif 'siemens' in system.lower():
             return 'Siemens'
         else:
-            print("Warning: sLaserBackend only supports Philips and Siemens systems. ")
+            print("Warning: CustomSLaser only supports Philips and Siemens systems. ")
             return None
 
     def parse2fidA(self, params):
@@ -229,18 +232,15 @@ class sLaserBackend(Backend):
         # Always setup paths (in case octave was initialized but paths weren't set)
         self.setup_octave_paths()
 
-        # create the output directory if it does not exist
-        if not os.path.exists(params['Output Path']):
-            os.makedirs(params['Output Path'])
+        # Allocate an internal scratch directory for FID-A intermediate files
+        workdir = self.ensure_workdir()
 
-        # Convert output path to relative path for Docker compatibility
-        output_path = params['Output Path']
+        # Convert work dir to relative path for Docker compatibility
+        output_path = workdir
         if os.path.isabs(output_path):
-            # Convert absolute path to relative from current directory
             try:
                 output_path = os.path.relpath(output_path)
             except ValueError:
-                # If on different drive (Windows), keep absolute but remove drive letter
                 output_path = output_path.replace('\\', '/')
 
         # Convert pulse path to relative path for Docker compatibility

@@ -17,7 +17,7 @@ class TestLCModelLASER:
     @pytest.fixture(scope="class")
     def basisremy(self):
         br = BasisREMY()
-        br.set_backend('LCModel')
+        br.set_backend('FidaIdeal')
         return br
     def test_laser_simulation(self, basisremy, test_output_dir, cleanup_docker_processes):
         """
@@ -36,19 +36,15 @@ class TestLCModelLASER:
             'Linewidth': 1,
             'TE': 30,
             'TE2': 0,
-            'Add Ref.': 'No',
-            'Output Path': os.path.join(test_output_dir, 'lcmodel_laser_test'),
             'Metabolites': ['NAA'],
             'Center Freq': 127736713,
-            'Make .raw': 'Yes',
         }
-        os.makedirs(test_params['Output Path'], exist_ok=True)
         print("Initializing Octave...")
         basisremy.backend.initialize_octave(prefer_docker=True, verbose=False)
         print("Running LASER simulation...")
         result = basisremy.backend.run_simulation(test_params)
         # Verify output file was created
-        output_file = os.path.join(test_params['Output Path'], 'NAA.RAW')
+        output_file = os.path.join(basisremy.backend._workdir, 'NAA.RAW')
         assert os.path.exists(output_file), (
             f"❌ Output file not created: {output_file}\n"
             f"Simulation ran but produced no output."
@@ -57,5 +53,4 @@ class TestLCModelLASER:
         assert file_size > 0, f"Output file is empty: {output_file}"
         print(f"\n✅ SUCCESS!")
         print(f"   Output: NAA.RAW ({file_size} bytes)")
-        print(f"   Location: {test_params['Output Path']}")
         print(f"{'='*80}\n")

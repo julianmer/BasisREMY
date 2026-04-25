@@ -47,6 +47,8 @@ class FSLMRSBackend(Backend):
         super().__init__()
 
         self.name = 'FSL-MRS'
+        self.display_name = 'FSL-MRS'
+        self.category = 'FSL-MRS'
         self.requires_octave = False  # Pure Python!
 
         # Mode support (overrides base class)
@@ -109,20 +111,20 @@ class FSLMRSBackend(Backend):
         # Metabolite selection for UI
         self.metabs = {name: False for name in self.default_metabolites}
 
-        # Dropdown options (Mode NOT here - handled by base class)
+        # Dropdown options (export-related options live in the Export dialog)
         self.dropdown = {
             'Sequence': [
                 'PRESS', 'STEAM', 'LASER', 'sLASER',
                 'MEGA-PRESS', 'HERMES', 'HERCULES', 'MEGA-sLASER'
             ],
             'Template File': [info['description'] for info in self.predefined_sequences.values()],
-            'Output Format': ['LCModel RAW', 'JSON'],
         }
 
         # File selection fields
         self.file_selection = ['Custom Sequence']
 
-        # Mandatory parameters (Mode NOT here - handled by base class)
+        # Mandatory parameters (no Output Path / Output Format — those belong
+        # to the post-simulation Export dialog)
         self.mandatory_params = {
             'Sequence': 'PRESS',
             'Samples': 2048,
@@ -131,9 +133,7 @@ class FSLMRSBackend(Backend):
             'TE': 35,
             'Nucleus': '1H',
             'Center Freq': 123.2,
-            'Output Path': './output',
             'Metabolites': [],
-            'Output Format': 'LCModel RAW',
         }
 
         # Optional parameters
@@ -148,6 +148,20 @@ class FSLMRSBackend(Backend):
             'Custom Sequence': None,
         }
 
+        # Sequences whose physics needs an explicit editing frequency
+        # (the editing pulse is positioned at the metabolite's J-coupled
+        # resonance, e.g. 1.9 ppm for GABA). All other sequences ignore
+        # `Edit Frequency` so we hide it in the GUI.
+        self._edited_sequences = {'MEGA-PRESS', 'HERMES', 'HERCULES', 'MEGA-sLASER'}
+
+        # Sequences that use a mixing time (STEAM family). For PRESS,
+        # LASER, sLASER, MEGA-* etc. TM is meaningless.
+        self._tm_sequences = {'STEAM'}
+
+        # Sequence selection changes which fields are relevant — the GUI
+        # rebuilds the parameter panel whenever a key listed here changes.
+        self.schema_affecting_keys = {'Sequence'}
+
     def get_params_for_mode(self, mode=None):
         """
         Return parameters to display in GUI for the given mode.
@@ -158,22 +172,26 @@ class FSLMRSBackend(Backend):
 
         # Common parameters shown in every mode
         common = {
-            'Output Path': self.mandatory_params['Output Path'],
             'Metabolites': self.mandatory_params['Metabolites'],
-            'Output Format': self.mandatory_params['Output Format'],
         }
 
         if mode == 'Simple':
-            return {
-                'Sequence': self.mandatory_params['Sequence'],
-                'Bfield': self.mandatory_params['Bfield'],
-                'TE': self.mandatory_params['TE'],
-                'TM': self.optional_params['TM'],
-                'Samples': self.mandatory_params['Samples'],
+            seq = self.mandatory_params.get('Sequence')
+            params = {
+                'Sequence': seq,
+                'Bfield':   self.mandatory_params['Bfield'],
+                'TE':       self.mandatory_params['TE'],
+                'Samples':  self.mandatory_params['Samples'],
                 'Bandwidth': self.mandatory_params['Bandwidth'],
-                'Edit Frequency': self.optional_params['Edit Frequency'],
-                **common,
             }
+            # Conditional fields — only show when relevant to the chosen
+            # sequence so the parameter sheet stays uncluttered.
+            if seq in self._tm_sequences:
+                params['TM'] = self.optional_params['TM']
+            if seq in self._edited_sequences:
+                params['Edit Frequency'] = self.optional_params['Edit Frequency']
+            params.update(common)
+            return params
 
         elif mode == 'Template':
             return {
@@ -230,9 +248,7 @@ class FSLMRSBackend(Backend):
         else:
             params['Sequence'] = None  # Will need manual selection
 
-        params['Output Path'] = './output'
         params['Metabolites'] = []
-        params['Output Format'] = 'LCModel RAW'
 
         # Optional parameters
         opt['Linewidth'] = 2.0
@@ -293,6 +309,33 @@ class FSLMRSBackend(Backend):
 
         return None
 
+    def _coerce_params(self, params: dict) -> dict:
+        """Return a copy of *params* with all numeric fields cast to their
+        proper Python types.
+
+        GUI entries arrive as strings; arithmetic inside _generate_sequence_json
+        and run_simulation will crash with ``TypeError: unsupported operand type
+        'str'`` without this guard. We coerce conservatively — only keys we
+        know are numeric — and leave everything else untouched.
+        """
+        p = dict(params)
+        float_keys = ('TE', 'Bfield', 'Bandwidth', 'TM', 'Edit Frequency',
+                      'Linewidth', 'Center Freq')
+        int_keys   = ('Samples',)
+        for k in float_keys:
+            if k in p and p[k] not in (None, '', 'missing input'):
+                try:
+                    p[k] = float(p[k])
+                except (TypeError, ValueError):
+                    pass
+        for k in int_keys:
+            if k in p and p[k] not in (None, '', 'missing input'):
+                try:
+                    p[k] = int(float(p[k]))
+                except (TypeError, ValueError):
+                    pass
+        return p
+
     def _generate_sequence_json(self, params):
         """
         Generate FSL-MRS sequence JSON with IDEAL PULSES (FID-A style)
@@ -311,10 +354,10 @@ class FSLMRSBackend(Backend):
             dict: Sequence definition in FSL-MRS JSON format with ideal pulses
         """
         sequence = params['Sequence']
-        te = params['TE']
-        bandwidth = params['Bandwidth']
-        samples = params['Samples']
-        bfield = params['Bfield']
+        te = float(params['TE'])
+        bandwidth = float(params['Bandwidth'])
+        samples = int(float(params['Samples']))
+        bfield = float(params['Bfield'])
 
         print(f"Generating IDEAL pulse sequence: {sequence}")
         print("  Using instantaneous rotation operators (FID-A style)")
@@ -585,6 +628,10 @@ class FSLMRSBackend(Backend):
                 f"Error: {e}\n\n"
                 f"Run: git submodule update --init --recursive"
             )
+
+        # Coerce all numeric fields from string (GUI entries) to float/int
+        # before any arithmetic — prevents "unsupported operand type 'str'" crashes.
+        params = self._coerce_params(params)
         print("✓ denmatsim imported successfully")
 
         print(f"\n{'='*80}")
@@ -595,8 +642,9 @@ class FSLMRSBackend(Backend):
         print(f"Field strength: {params['Bfield']} T")
         print(f"Metabolites: {len(params['Metabolites'])}")
 
-        # Create output directory
-        output_path = params['Output Path']
+        # Allocate an internal scratch directory for the sequence JSON dump
+        # (final exports go through core.exporters via the GUI Export dialog)
+        output_path = self.ensure_workdir()
         os.makedirs(output_path, exist_ok=True)
 
         # Get or generate sequence JSON
@@ -738,14 +786,15 @@ class FSLMRSBackend(Backend):
                 else:
                     FID, ax, pmat = simseq.simseq(spin_system, seq_params, verbose=False)
 
-                # denmatsim returns FID with negative ppm convention and an
-                # arbitrary zero-order phase from the TE evolution.
-                # Fix both:
-                #   1. Conjugate → flips the frequency axis to the standard
-                #      MRS convention (low-field resonances at positive ppm)
-                #   2. Zero-order phase correction using FID[0] angle →
-                #      puts the absorptive signal in the real channel
-                FID = np.conj(FID)
+                # denmatsim already returns the FID in the standard NMR
+                # convention that BasisREMY's plotter assumes
+                # (`fft + fftshift` against `linspace(-bw/2, +bw/2)`). An
+                # earlier version of this backend conjugated the FID to
+                # "flip the ppm axis" — that was correct for an older
+                # plotting convention, but with the current GUI it produces
+                # mirrored spectra (NAA appearing where Cho should be, etc).
+                # The conjugate has been removed; we keep only the zero-order
+                # phase correction so the absorptive signal lands in real().
                 phi0 = np.angle(FID[0])
                 FID = FID * np.exp(-1j * phi0)
 
@@ -753,23 +802,6 @@ class FSLMRSBackend(Backend):
                 basis_set[metab] = FID
                 print(f"  ✓ Generated FID with {len(FID)} points")
 
-                # Optionally save individual metabolite files
-                if params.get('Output Format') == 'JSON':
-                    metab_file = os.path.join(output_path, f'{metab}.json')
-                    metab_data = {
-                        'FID': FID.tolist() if hasattr(FID, 'tolist') else list(FID),
-                        'sequence': seq_params,
-                        'metabolite': metab,
-                    }
-                    with open(metab_file, 'w') as f:
-                        json.dump(metab_data, f, indent=2)
-                    print(f"  Saved: {metab_file}")
-
-                elif params.get('Output Format') == 'LCModel RAW':
-                    # Save as LCModel RAW format
-                    raw_file = os.path.join(output_path, f'{metab}.RAW')
-                    self._save_lcmodel_raw(FID, raw_file, params)
-                    print(f"  Saved: {raw_file}")
 
             except Exception as e:
                 print(f"  ✗ Simulation failed: {e}")

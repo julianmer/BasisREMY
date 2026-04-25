@@ -12,7 +12,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from core.basisremy import BasisREMY
 
-
 @pytest.mark.backend
 @pytest.mark.slaser
 @pytest.mark.slow
@@ -23,7 +22,7 @@ class TestSLaserSLASER:
     @pytest.fixture(scope="class")
     def basisremy(self):
         br = BasisREMY()
-        br.set_backend('sLaserSim')
+        br.set_backend('CustomSLaser')
         return br
 
     @pytest.fixture(scope="class")
@@ -66,11 +65,7 @@ class TestSLaserSLASER:
             'Tau 1': 15.0,
             'Tau 2': 13.0,
             'Path to Pulse': pulse_file,
-            'Output Path': os.path.join(test_output_dir, 'slaser_test'),
-            'Make .raw': 'No',
         }
-
-        os.makedirs(test_params['Output Path'], exist_ok=True)
 
         print("Initializing Octave...")
         basisremy.backend.initialize_octave(prefer_docker=True, verbose=False)
@@ -79,7 +74,7 @@ class TestSLaserSLASER:
         result = basisremy.backend.run_simulation(test_params)
 
         # Verify output file was created
-        output_file = os.path.join(test_params['Output Path'], 'test_slaser.basis')
+        output_file = os.path.join(basisremy.backend._workdir, 'test_slaser.basis')
 
         assert os.path.exists(output_file), (
             f"❌ Output file not created: {output_file}\n"
@@ -91,5 +86,4 @@ class TestSLaserSLASER:
 
         print(f"\n✅ SUCCESS!")
         print(f"   Output: test_slaser.basis ({file_size} bytes)")
-        print(f"   Location: {test_params['Output Path']}")
         print(f"{'='*80}\n")

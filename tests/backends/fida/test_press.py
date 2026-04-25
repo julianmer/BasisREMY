@@ -12,7 +12,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from core.basisremy import BasisREMY
 
-
 @pytest.mark.backend
 @pytest.mark.lcmodel
 @pytest.mark.slow
@@ -23,7 +22,7 @@ class TestLCModelPRESS:
     @pytest.fixture(scope="class")
     def basisremy(self):
         br = BasisREMY()
-        br.set_backend('LCModel')
+        br.set_backend('FidaIdeal')
         return br
 
     def test_press_simulation(self, basisremy, test_output_dir, cleanup_docker_processes):
@@ -44,14 +43,9 @@ class TestLCModelPRESS:
             'Linewidth': 1,
             'TE': 35,
             'TE2': 0,
-            'Add Ref.': 'No',
-            'Output Path': os.path.join(test_output_dir, 'lcmodel_press_test'),
             'Metabolites': ['NAA'],  # Just one metabolite for speed
             'Center Freq': 127736713,
-            'Make .raw': 'Yes',
         }
-
-        os.makedirs(test_params['Output Path'], exist_ok=True)
 
         print("Initializing Octave...")
         basisremy.backend.initialize_octave(prefer_docker=True, verbose=False)
@@ -59,24 +53,22 @@ class TestLCModelPRESS:
         print("Running PRESS simulation...")
         result = basisremy.backend.run_simulation(test_params)
 
-        # Verify output file was created
-        output_file = os.path.join(test_params['Output Path'], 'NAA.RAW')
-
+        # Verify backend returned a non-empty FID for NAA and wrote
+        # an internal .RAW into its scratch workdir (export is now a
+        # post-step, not a backend concern).
+        import numpy as np
+        assert 'NAA' in result and isinstance(result['NAA'], np.ndarray)
+        assert np.max(np.abs(result['NAA'])) > 0, "NAA FID is empty"
+        wd = basisremy.backend._workdir
+        assert wd and os.path.isdir(wd)
+        output_file = os.path.join(wd, 'NAA.RAW')
         assert os.path.exists(output_file), (
-            f"❌ Output file not created: {output_file}\n"
-            f"Simulation ran but produced no output.\n"
-            f"Check Docker logs and Octave execution."
-        )
+            f"intermediate .RAW missing in workdir {wd}")
 
         file_size = os.path.getsize(output_file)
         assert file_size > 0, f"Output file is empty: {output_file}"
 
         print(f"\n✅ SUCCESS!")
         print(f"   Output: NAA.RAW ({file_size} bytes)")
-        print(f"   Location: {test_params['Output Path']}")
         print(f"{'='*80}\n")
-
-
-
-
 

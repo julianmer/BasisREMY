@@ -21,14 +21,14 @@ class TestBasisREMY:
     def test_set_backend_lcmodel(self):
         """Test setting LCModel backend"""
         br = BasisREMY()
-        br.set_backend('LCModel')
-        assert br.backend.name == 'LCModel'
+        br.set_backend('FidaIdeal')
+        assert br.backend.name == 'FidaIdeal'
 
     def test_set_backend_slaser(self):
         """Test setting sLaser backend"""
         br = BasisREMY()
-        br.set_backend('sLaserSim')
-        assert br.backend.name == 'sLaserSim'
+        br.set_backend('CustomSLaser')
+        assert br.backend.name == 'CustomSLaser'
 
     def test_set_backend_invalid(self):
         """Test setting invalid backend"""
@@ -42,8 +42,8 @@ class TestBasisREMY:
         backends = br.available_backends
         assert isinstance(backends, list)
         assert len(backends) > 0
-        assert 'LCModel' in backends
-        assert 'sLaserSim' in backends
+        assert 'FidaIdeal' in backends
+        assert 'CustomSLaser' in backends
 
     def test_run_remy_invalid_file(self):
         """Test runREMY with invalid file"""
@@ -62,7 +62,7 @@ class TestBasisREMY:
 class TestBasisREMYIntegration:
     """Integration tests for BasisREMY with real files"""
 
-    @pytest.mark.parametrize("backend_name", ['LCModel', 'sLaserSim'])
+    @pytest.mark.parametrize("backend_name", ['FidaIdeal', 'CustomSLaser'])
     def test_backend_initialization(self, backend_name):
         """Test that each backend initializes correctly"""
         br = BasisREMY()

@@ -21,9 +21,9 @@ import pathlib
 
 # own
 from backends.fslmrs_backend import FSLMRSBackend
-from backends.lcmodel_backend import LCModelBackend
 from backends.mrscloud_backend import MRSCloudBackend
-from backends.slaser_backend import sLaserBackend
+from backends.custom_backends import CustomSLaser
+from backends.fida_backends import FIDA_BACKENDS
 from externals.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 
 
@@ -36,28 +36,65 @@ from externals.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 #                                                                                                  #
 #**************************************************************************************************#
 class BasisREMY:
-    def __init__(self, backend='LCModel'):
+    # Display order for the top-level Category dropdown.
+    CATEGORY_ORDER = ['FID-A', 'Custom', 'MRSCloud', 'FSL-MRS']
+
+    def __init__(self, backend='FidaIdeal'):
         self.DRead = DataReaders()
         self.Table = Table()
 
-        self.backends = {
-            'FSL-MRS': FSLMRSBackend(),
-            'MRSCloud': MRSCloudBackend(),
-            'LCModel': LCModelBackend(),
-            'sLaserSim': sLaserBackend(),
-        }
-        self.backend = self.backends[backend]
-        self.available_backends = list(self.backends.keys())
+        # Build the flat backend registry. The FID-A category contains many
+        # entries (FidaIdeal = ex-LCModel, plus PRESS shaped, MEGA-PRESS
+        # shaped, …); the other categories currently have a single backend.
+        self.backends = {}
+        for cls in FIDA_BACKENDS:
+            inst = cls()
+            self.backends[inst.name] = inst
+        # Custom category
+        custom = CustomSLaser()
+        self.backends[custom.name] = custom
+        # MRSCloud + FSL-MRS top-level categories
+        mc = MRSCloudBackend(); self.backends[mc.name] = mc
+        fm = FSLMRSBackend();   self.backends[fm.name] = fm
+
+        # Group backends by their declared category. Order within a category
+        # follows the registration order above.
+        self.categories: dict[str, list[str]] = {c: [] for c in self.CATEGORY_ORDER}
+        for name, inst in self.backends.items():
+            cat = getattr(inst, 'category', 'Other')
+            self.categories.setdefault(cat, []).append(name)
+
+        self.set_backend(backend)
+
+    @property
+    def available_backends(self):
+        return list(self.backends.keys())
 
     def set_backend(self, backend):
-        # set the backend to the selected one
-        if backend in self.backends:
-            old_backend = self.backend
-            self.backend = self.backends[backend]
-            self.backend.update_from_backend(old_backend)  # update parameters
-            print(f"Backend set to: {self.backend.name}")
-        else:
-            raise ValueError(f"Unknown backend: {backend}. Available backends: {self.available_backends}")
+        """Switch to the named backend."""
+        if backend not in self.backends:
+            raise ValueError(
+                f"Unknown backend: {backend}. Available backends: "
+                f"{self.available_backends}"
+            )
+        old_backend = getattr(self, 'backend', None)
+        self.backend = self.backends[backend]
+        if old_backend is not None and old_backend is not self.backend:
+            self.backend.update_from_backend(old_backend)
+        print(f"Backend set to: {self.backend.name}")
+
+    def set_category(self, category):
+        """Select the first backend in the given category. Convenience for
+        the GUI's two-level Category → Backend dropdown."""
+        if category not in self.categories or not self.categories[category]:
+            raise ValueError(
+                f"Unknown / empty category: {category}. "
+                f"Available: {list(self.categories.keys())}"
+            )
+        self.set_backend(self.categories[category][0])
+
+    def get_current_category(self):
+        return getattr(self.backend, 'category', 'Other')
 
     def run(self, import_fpath, export_fpath=None, method=None, userParams={}, optionalParams={}, plot=False):
         # run REMY on the selected file

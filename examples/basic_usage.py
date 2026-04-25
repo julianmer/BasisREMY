@@ -44,10 +44,10 @@ if __name__ == "__main__":
     # Set backend and parse parameters
     # =============================================================================================
     # Available backends:
-    #   - LCModel  : Fast ideal pulse simulations (PRESS, STEAM, LASER)
-    #   - sLaserSim: Realistic Bloch simulations (sLASER, semi-LASER)
+    #   - FidaIdeal   : Fast ideal pulse simulations (PRESS, STEAM, LASER, SE)
+    #   - CustomSLaser: Realistic Bloch simulations (sLASER, semi-LASER)
 
-    br.set_backend('LCModel')
+    br.set_backend('FidaIdeal')
     parsed_params, opt = br.backend.parseREMY(params)
 
     # Handle empty parameters

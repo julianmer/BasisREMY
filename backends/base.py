@@ -11,6 +11,9 @@
 ####################################################################################################
 
 
+from __future__ import annotations
+
+
 #**************************************************************************************************#
 #                                             Backend                                              #
 #**************************************************************************************************#
@@ -22,6 +25,19 @@
 class Backend:
     def __init__(self):
         self.name = None
+
+        # Human-friendly label shown inside the per-category dropdown.
+        # Defaults to `name` if a subclass doesn't override it. The GUI uses
+        # `display_name` for the visible label but always identifies the
+        # backend by `name` (so tests, scripts, and `BasisREMY.set_backend()`
+        # keep working with the stable identifier).
+        self.display_name = None
+
+        # Top-level category this backend belongs to. The GUI groups backends
+        # by category, exposing a Category combo and then a Backend combo.
+        # New backends MUST set this; existing ones default to a sensible
+        # value via the legacy mapping in core.basisremy.
+        self.category: str = 'Other'
 
         # Octave runtime management
         self.requires_octave = False  # Set to True in subclasses that need Octave
@@ -42,10 +58,47 @@ class Backend:
         # define dictionary of optional parameters
         self.optional_params = {}
 
+        # Keys whose value changes affect WHICH parameters are visible in
+        # the GUI (e.g. selecting MEGA in MRSCloud reveals Edit On/Off).
+        # The GUI rebuilds the parameter panel whenever one of these keys
+        # changes. Backends override this set as needed.
+        self.schema_affecting_keys: set[str] = set()
+
         # Mode support - every backend has at least 'Default'
         # Subclasses override to add more modes
         self.modes = ['Default']
         self.current_mode = 'Default'
+
+        # Internal scratch directory for backends that need to write intermediate
+        # files (FID-A, MRSCloud). Allocated lazily by `ensure_workdir()`. It is
+        # NOT exposed to the user — final export is handled by core.exporters.
+        self._workdir = None
+
+    # ------------------------------------------------------------------ work dir
+    def ensure_workdir(self) -> str:
+        """Return (and lazily create) a private scratch directory for this run.
+
+        Backends that wrap MATLAB/Octave scripts often need to write intermediate
+        artefacts. This directory is internal — users see exports only through
+        the Export dialog (core/exporters.py).
+        """
+        import os, tempfile, time
+        if self._workdir is None or not os.path.isdir(self._workdir):
+            base = os.path.join(os.path.abspath('./output'), '.basisremy_work')
+            os.makedirs(base, exist_ok=True)
+            tag = (self.name or 'backend').replace(' ', '_').lower()
+            self._workdir = tempfile.mkdtemp(
+                prefix=f'{tag}_{time.strftime("%Y%m%d_%H%M%S")}_',
+                dir=base,
+            )
+        return self._workdir
+
+    def cleanup_workdir(self):
+        """Best-effort removal of the internal scratch directory."""
+        import os, shutil
+        if self._workdir and os.path.isdir(self._workdir):
+            shutil.rmtree(self._workdir, ignore_errors=True)
+        self._workdir = None
 
     def get_modes(self):
         """Return list of available modes for this backend"""
