@@ -433,8 +433,33 @@ class Application(TkinterDnD.Tk):
             elif key == 'Metabolites':
                 # populate the metabolites frame
                 metabs_label = tk.Label(metabs_frame, text="Select Metabolites:", font=("Arial", 12, "bold"))
-                metabs_label.grid(row=0, column=0, columnspan=2, pady=5)
+                metabs_label.grid(row=0, column=0, columnspan=5, pady=5)
 
+                # "All" toggle: flips every checkbox to all-on or all-off in
+                # one click. We avoid trace storms by temporarily disabling
+                # the per-var trace inside `update_metabs` via a guard flag.
+                self._metabs_toggle_state = True   # next click → select all
+                def toggle_all_metabs():
+                    target = self._metabs_toggle_state
+                    self._metabs_bulk_update = True
+                    try:
+                        for v in self.metab_vars.values():
+                            v.set(target)
+                    finally:
+                        self._metabs_bulk_update = False
+                    # run the consolidated update once instead of N times
+                    selected = [m for m, v in self.metab_vars.items() if v.get()]
+                    self.BasisREMY.backend.mandatory_params['Metabolites'] = selected
+                    self.validate_inputs()
+                    # flip for next click; relabel button accordingly
+                    self._metabs_toggle_state = not target
+                    all_btn.config(text="Deselect All" if target else "Select All")
+
+                all_btn = tk.Button(metabs_frame, text="Select All",
+                                    command=toggle_all_metabs)
+                all_btn.grid(row=0, column=4, sticky="e", padx=5, pady=5)
+
+                self._metabs_bulk_update = False
                 self.metab_vars = {}
                 row = 1
                 col = 0
@@ -453,9 +478,25 @@ class Application(TkinterDnD.Tk):
 
                 # update mandatory_params with selected metabolites
                 def update_metabs(*args):
+                    # Suppressed during the "All" bulk toggle — we update
+                    # once at the end of toggle_all_metabs() instead.
+                    if getattr(self, '_metabs_bulk_update', False):
+                        return
                     selected_metabs = [metab for metab, var in self.metab_vars.items() if var.get()]
                     self.BasisREMY.backend.mandatory_params['Metabolites'] = selected_metabs
                     self.validate_inputs()
+                    # Keep the All-toggle label in sync with the actual state.
+                    if all(v.get() for v in self.metab_vars.values()):
+                        self._metabs_toggle_state = False
+                        all_btn.config(text="Deselect All")
+                    else:
+                        self._metabs_toggle_state = True
+                        all_btn.config(text="Select All")
+
+                # Initial label reflects the current selection.
+                if self.metab_vars and all(v.get() for v in self.metab_vars.values()):
+                    self._metabs_toggle_state = False
+                    all_btn.config(text="Deselect All")
 
                 # trace variable changes to update the list
                 for var in self.metab_vars.values():

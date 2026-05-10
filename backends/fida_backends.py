@@ -60,7 +60,7 @@ def _shaped_params(extra: dict | None = None) -> dict:
         'fovY':          3.0,
         'nX':            8,
         'nY':            8,
-        'Center Freq':   2.3,
+        'Center Freq':   4.65,
         'Path to Pulse': None,
         'Metabolites':   [],
     }
@@ -117,15 +117,20 @@ class FidaBackend(Backend):
         if self.octave is None:
             raise RuntimeError("Octave not initialized.")
         self.octave.eval("warning('off', 'all');")
-        # adapters/backends/ wins over upstream FID-A (we ship a patched
-        # sim_lcmrawbasis.m there). adapters/backends/fida/ holds the
-        # single dispatcher that wraps every FID-A sim entry point.
+        # First add the FID-A tree recursively so nested helpers (e.g.
+        # rfPulseTools/mklassenTools/bes.m, used by io_loadRFwaveform for
+        # phase-modulated waveforms like GOIA) are resolvable. Without this,
+        # shaped-pulse sims fail with "error: 'bes' undefined".
+        self.octave.eval("addpath(genpath('./externals/fidA/'));")
+        # THEN add our adapter dirs — addpath() prepends, so these now win
+        # over the upstream FID-A files. We use this to:
+        #   * ship a patched sim_lcmrawbasis.m
+        #   * ship a non-interactive io_loadRFwaveform.m (the upstream one
+        #     calls plot()/input() for phase-modulated pulses, which fails
+        #     in headless Docker Octave with "ft_text_renderer: invalid
+        #     bounding box, cannot render, unable to create graphics handle").
         self.octave.addpath('./adapters/backends/')
         self.octave.addpath('./adapters/backends/fida/')
-        self.octave.addpath('./externals/fidA/inputOutput/')
-        self.octave.addpath('./externals/fidA/processingTools/')
-        self.octave.addpath('./externals/fidA/simulationTools/')
-        self.octave.addpath('./externals/fidA/rfPulseTools/')
 
     # -------------------------------------------------- REMY
     def parseREMY(self, MRSinMRS):
@@ -183,6 +188,14 @@ class FidaBackend(Backend):
             fid_re, fid_im, _npts, _sw, _cf = results
             fid = (np.asarray(fid_re, dtype=float).flatten()
                    + 1j * np.asarray(fid_im, dtype=float).flatten())
+            # FID-A's sim_readout stores `out.specs = fftshift(ifft(out.fids))`
+            # with a ppm axis `ppm = -freq/larmor + 4.65`.  fida_run.m returns
+            # out.fids directly (no conjugation applied), so the FID oscillates
+            # at -(δ - centreFreq)*larmor Hz for a metabolite at δ ppm.  Our
+            # GUI computes `fftshift(fft(fid))` and uses a ppm axis
+            # `+freq/larmor + 4.65`.  fft of a −f0 signal peaks at −f0 →
+            # maps to (−f0/larmor + 4.65) ppm — which correctly equals δ ppm
+            # when centreFreq = 4.65.  No conjugation needed here.
             basis[metab] = fid
             if progress_callback:
                 progress_callback(i + 1, len(metabs))
@@ -322,7 +335,14 @@ class FidaPressShaped(FidaBackend):
             int(float(params.get('nX') or 8)),
             int(float(params.get('nY') or 8)),
             float(params.get('Flip Angle') or 180.0),
-            float(params.get('Center Freq') or 2.3),
+            # centreFreq for sim_press_shaped is in ppm (the rotating-frame
+            # centre). REMY fills 'Center Freq' from scanner metadata in Hz
+            # (e.g. 127736713). When that's the case (>1000), use the standard
+            # water reference 4.65 ppm so FID-A's spin shifts and the GUI's
+            # ppm axis (which adds +4.65 offset) are consistent.
+            (float(params.get('Center Freq') or 4.65)
+             if (float(params.get('Center Freq') or 4.65) <= 1000)
+             else 4.65),
         ]
 
 

@@ -40,17 +40,19 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
     switch lower(kind)
 
         % ----- IDEAL  (Spin Echo / PRESS / STEAM / LASER) ----------
-        % Shells out to the BasisREMY-patched sim_lcmrawbasis (which is
-        % itself an override on the Octave path). We replicate just the
-        % per-metab core here to avoid file I/O — sim_lcmrawbasis already
-        % loads spinSystems.mat internally, so we delegate fully.
+        % Use 2 outputs: [RF, out] = sim_lcmrawbasis(...).  We ignore RF
+        % and take out.fids directly so we get the raw FID-A signal WITHOUT
+        % the op_complexConj that io_writelcmraw would apply (which would
+        % invert the spectrum if we later process with fft).
+        % makeraw='n' suppresses the .RAW file write inside sim_lcmrawbasis;
+        % a separate export path handles that if needed.
         %   args: n, sw, Bfield, lw, tau1, tau2, seq, out_path
         case 'ideal'
             [n, sw, Bfield, lw, tau1, tau2, seq, out_path] = ...
                 deal(varargin{1:8});
-            results = sim_lcmrawbasis(n, sw, Bfield, lw, metab, ...
-                                      tau1, tau2, 'n', 'y', seq, out_path);
-            fid    = results(:,1) + 1i*results(:,2);
+            [~, out] = sim_lcmrawbasis(n, sw, Bfield, lw, metab, ...
+                                       tau1, tau2, 'n', 'n', seq, out_path);
+            fid    = out.fids(:);
             fid_re = real(fid); fid_im = imag(fid);
             npts   = numel(fid);
             sw_out = sw;
@@ -66,10 +68,24 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             if ~exist(pulse_path, 'file')
                 error('fida_run/press_shaped: pulse waveform not found: "%s"', pulse_path);
             end
-            RF = io_loadRFwaveform(pulse_path, 'refoc', 0);
-            % gradients chosen so RF bandwidth ≈ slice thickness
-            Gx = (RF.tbw / (tp/1000)) / (4258 * thkX);
-            Gy = (RF.tbw / (tp/1000)) / (4258 * thkY);
+            % NOTE: io_loadRFwaveform expects type ∈ {'exc','ref','inv'} (or
+            % a numeric flip angle). Passing 'refoc' triggers a length-mismatch
+            % crash inside its `type=='exc'` test ("mx_el_eq: nonconformant
+            % arguments (op1 is 1x5, op2 is 1x3)").
+            RF = io_loadRFwaveform(pulse_path, 'ref', 0);
+            % For gradient-modulated (GM / adiabatic) pulses such as GOIA the
+            % gradient waveform is already stored in column 4 of RF.waveform.
+            % sim_shapedRF will ERROR if you ALSO supply an explicit Gx/Gy
+            % ("You cannot supply GM pulse AND separately specify the Gradient
+            % strength"). For non-GM pulses we derive Gx/Gy analytically from
+            % the time-bandwidth product so the slice thickness matches thkX/Y.
+            if RF.isGM
+                Gx = 0;
+                Gy = 0;
+            else
+                Gx = (RF.tbw / (tp/1000)) / (4258 * thkX);
+                Gy = (RF.tbw / (tp/1000)) / (4258 * thkY);
+            end
             if nX < 2; nX = 2; end
             if nY < 2; nY = 2; end
             x = linspace(-fovX/2, fovX/2, nX);
