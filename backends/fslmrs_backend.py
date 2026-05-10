@@ -608,7 +608,7 @@ class FSLMRSBackend(Backend):
 
         return seq_def
 
-    def run_simulation(self, params, progress_callback=None):
+    def run_simulation(self, params, progress_callback=None, stop_event=None):
         """
         Run FSL-MRS basis set simulation using denmatsim
 
@@ -756,6 +756,9 @@ class FSLMRSBackend(Backend):
         total_metabs = len(params['Metabolites'])
 
         for idx, metab in enumerate(params['Metabolites'], 1):
+            if stop_event and stop_event.is_set():
+                print(f"  ⏹  Stopped before simulating {metab} (user cancelled).")
+                break
             if progress_callback:
                 progress_callback(idx, total_metabs)
 

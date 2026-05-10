@@ -141,6 +141,11 @@ class Application(TkinterDnD.Tk):
         # the user navigates back to tab2 (edit params) from tab3.
         self._basis_set_valid = False
 
+        # Simulation cancellation: a threading.Event that run_simulation_with_progress
+        # checks between metabolites.  Set it to stop the current run early.
+        self._sim_stop_event = threading.Event()
+        self._sim_thread = None   # reference to the in-flight thread (if any)
+
         # Watch tab switches so we can invalidate when going backwards.
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
@@ -182,6 +187,19 @@ class Application(TkinterDnD.Tk):
                     self.validate_inputs()
                 except Exception:
                     pass
+
+            # Cancel any in-flight simulation immediately.
+            if self._sim_thread is not None and self._sim_thread.is_alive():
+                print("⏹  Cancelling simulation (user navigated back)…")
+                self._sim_stop_event.set()
+                # Best-effort: kill the Octave process inside Docker so the
+                # blocking exec_run() call in docker_octave.py returns quickly.
+                try:
+                    octave = self.BasisREMY.backend.octave
+                    if octave is not None and hasattr(octave, 'kill_running_processes'):
+                        octave.kill_running_processes()
+                except Exception as e:
+                    print(f"  (Could not kill Docker Octave process: {e})")
 
     def tab1_widgets(self):
         # drag and drop area
@@ -764,7 +782,13 @@ class Application(TkinterDnD.Tk):
         self.progress["maximum"] = len(self.BasisREMY.backend.mandatory_params['Metabolites'])
 
         # run the simulation in a separate thread to keep the GUI responsive
-        threading.Thread(target=self.run_simulation_with_progress, args=(self.on_simulation_complete,)).start()
+        self._sim_stop_event.clear()
+        self._sim_thread = threading.Thread(
+            target=self.run_simulation_with_progress,
+            args=(self.on_simulation_complete,),
+            daemon=True,
+        )
+        self._sim_thread.start()
 
     def run_simulation_with_progress(self, callback):
         def progress_callback(step, total_steps):
@@ -775,8 +799,24 @@ class Application(TkinterDnD.Tk):
             # update the GUI
             self.update_idletasks()
 
-        # run the simulation with the progress callback
-        basis = self.BasisREMY.backend.run_simulation(self.BasisREMY.backend.mandatory_params, progress_callback)
+        try:
+            # run the simulation with the progress callback
+            basis = self.BasisREMY.backend.run_simulation(
+                self.BasisREMY.backend.mandatory_params,
+                progress_callback,
+                stop_event=self._sim_stop_event,
+            )
+        except Exception as e:
+            if self._sim_stop_event.is_set():
+                print("⏹  Simulation cancelled.")
+            else:
+                raise
+            return
+
+        if self._sim_stop_event.is_set():
+            print("⏹  Simulation cancelled.")
+            return
+
         self.after(0, callback, basis)
 
     def on_simulation_complete(self, basis):

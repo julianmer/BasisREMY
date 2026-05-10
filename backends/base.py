@@ -197,5 +197,5 @@ class Backend:
         # a backend-specific sequence name if needed
         raise NotImplementedError("This method should be overridden by subclasses.")
 
-    def run_simulation(self, params, progress_callback=None):
+    def run_simulation(self, params, progress_callback=None, stop_event=None):
         raise NotImplementedError("This method should be overridden by subclasses.")

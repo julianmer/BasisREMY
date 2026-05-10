@@ -66,10 +66,15 @@ class TestFidaIdeal:
         assert FidaIdeal._seq_to_fida('STEAM')     == 'st'
         assert FidaIdeal._seq_to_fida('LASER')     == 'l'
 
+    def test_seq_to_fida_invalid_raises(self):
+        with pytest.raises(ValueError, match="unrecognised Sequence"):
+            FidaIdeal._seq_to_fida('UnEdited')
+
     def test_parse_protocol(self):
         b = FidaIdeal()
         assert b.parseProtocol('PRESS_TE30')  == 'PRESS'
         assert b.parseProtocol('svs_steam')   == 'STEAM'
+        assert b.parseProtocol('UnEdited')    == 'PRESS'  # BigGABA / MRSCloud convention
         assert b.parseProtocol('svs_slaserVOI') is None  # unsupported
 
 

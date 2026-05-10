@@ -223,7 +223,7 @@ class CustomSLaser(Backend):
         self.octave.addpath('./externals/jbss/')
         self.octave.addpath(self.octave.genpath('./adapters/'))
 
-    def run_simulation(self, params, progress_callback=None):
+    def run_simulation(self, params, progress_callback=None, stop_event=None):
         # Initialize Octave if not already done
         if self.octave is None:
             print("Initializing Octave runtime...")
@@ -300,6 +300,9 @@ class CustomSLaser(Backend):
         basis_set = {}
         total_steps = len(tasks)
         for task_idx, task in enumerate(tasks):
+            if stop_event and stop_event.is_set():
+                print("  ⏹  Simulation cancelled before Octave call.")
+                break
             metab_list, outputs = sLASER_makebasisset_function(*task)
 
             # Debug: Show what we got from Octave

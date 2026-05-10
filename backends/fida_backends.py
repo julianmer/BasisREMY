@@ -162,7 +162,7 @@ class FidaBackend(Backend):
         raise NotImplementedError
 
     # -------------------------------------------------- driver
-    def run_simulation(self, params, progress_callback=None):
+    def run_simulation(self, params, progress_callback=None, stop_event=None):
         if self._is_stub or not self._kind:
             raise NotImplementedError(
                 f"{self.name}: this FID-A wrapper is a stub. The schema is "
@@ -181,6 +181,9 @@ class FidaBackend(Backend):
         metabs = params.get('Metabolites') or []
         basis = {}
         for i, metab in enumerate(metabs):
+            if stop_event and stop_event.is_set():
+                print(f"  ⏹  Stopped before simulating {metab}.")
+                break
             extra_args = self._build_args(params, metab)
             results = self.octave.feval(
                 'fida_run', metab, self._kind, *extra_args, nout=5,
@@ -255,17 +258,30 @@ class FidaIdeal(FidaBackend):
         if 'slaser' in p:
             print("Warning: FidaIdeal does not support sLASER. Switch backend.")
             return None
-        if 'press' in p:    return 'PRESS'
-        if 'steam' in p:    return 'STEAM'
+        if 'press' in p:      return 'PRESS'
+        if 'steam' in p:      return 'STEAM'
         if 'spin' in p or 'se' in p: return 'Spin Echo'
-        if 'laser' in p:    return 'LASER'
+        if 'laser' in p:      return 'LASER'
+        # 'UnEdited' is MRSCloud / BigGABA convention for a plain (non-edited)
+        # acquisition — default to PRESS, which is by far the most common.
+        if 'unedited' in p:   return 'PRESS'
         return None
 
     # ---- args ---------------------------------------------------------
+    _VALID_SEQUENCES = {'Spin Echo': 'se', 'PRESS': 'p', 'STEAM': 'st', 'LASER': 'l'}
+
     @staticmethod
     def _seq_to_fida(seq):
-        return {'Spin Echo': 'se', 'PRESS': 'p',
-                'STEAM': 'st', 'LASER': 'l'}.get(seq, seq)
+        mapped = FidaIdeal._VALID_SEQUENCES.get(seq)
+        if mapped is None:
+            valid = list(FidaIdeal._VALID_SEQUENCES.keys())
+            raise ValueError(
+                f"FidaIdeal: unrecognised Sequence '{seq}'. "
+                f"Please choose one of: {valid}. "
+                f"If REMY set this from the file's Protocol (e.g. 'UnEdited'), "
+                f"the protocol wasn't recognised — select the sequence manually."
+            )
+        return mapped
 
     def _build_args(self, params, metab):
         # workdir for the FID-A-side .RAW writes (kept for parity with the
