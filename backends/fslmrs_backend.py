@@ -162,6 +162,34 @@ class FSLMRSBackend(Backend):
         # rebuilds the parameter panel whenever a key listed here changes.
         self.schema_affecting_keys = {'Sequence'}
 
+    def map_sequence_in(self, seq: str) -> 'str | None':
+        """Translate an arbitrary sequence name into FSL-MRS's vocabulary."""
+        if not seq:
+            return None
+        s = seq.strip().lower()
+        # Exact match
+        for opt in self.dropdown.get('Sequence', []):
+            if opt.lower() == s:
+                return opt
+        # Cross-backend synonyms
+        if 'steam' in s:
+            return 'STEAM'
+        if 'hercules' in s:
+            return 'HERCULES'
+        if 'hermes' in s:
+            return 'HERMES'
+        if 'mega' in s and ('slaser' in s or 'semi' in s):
+            return 'MEGA-sLASER'
+        if 'mega' in s:
+            return 'MEGA-PRESS'
+        if 'slaser' in s or 'semi' in s:
+            return 'sLASER'
+        if 'laser' in s:
+            return 'LASER'
+        if 'press' in s or 'spin echo' in s or 'spinecho' in s or s == 'se':
+            return 'PRESS'
+        return None
+
     def get_params_for_mode(self, mode=None):
         """
         Return parameters to display in GUI for the given mode.

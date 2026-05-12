@@ -178,15 +178,55 @@ class Backend:
             raise RuntimeError(f"Failed to initialize Octave for {self.name} backend:\n{e}")
 
     def update_from_backend(self, backend):
-        # update the backend parameters from another backend instance
-        # TODO: make sure some parameters are reset (see e.g. Sequence in dropdown)
+        # Update the backend parameters from another backend instance, transferring
+        # only the values that make sense across backends (scan-physics params like
+        # Samples, Bandwidth, TE, Bfield, …).
+        #
+        # Keys intentionally excluded from the transfer:
+        #   'Sequence'    – options differ completely per backend (e.g. MRSCloud uses
+        #                   combined labels like 'MEGA-PRESS'; FID-A uses 'Spin Echo').
+        #                   Blindly copying a stale value breaks the dropdown.
+        #   'Metabolites' – each backend uses its own name conventions; copying a
+        #                   MRSCloud list into a FID-A backend produces names the FID-A
+        #                   spinSystems.mat library does not recognise.
+        _skip = {'Sequence', 'Metabolites'}
+
         self.metabs.update({k: v for k, v in backend.metabs.items() if k in self.metabs})
         self.mandatory_params.update({k: v for k, v in backend.mandatory_params.items()
-                                      if k in self.mandatory_params})
+                                      if k in self.mandatory_params and k not in _skip})
         self.optional_params.update({k: v for k, v in backend.optional_params.items()
                                      if k in self.optional_params})
-        # note: for now no dropdown options are updated, as they are too specific to the backend
-        #       at this point
+
+        # Rebuild the Metabolites list from the (possibly updated) metabs dict so the
+        # new backend's checkboxes reflect the shared enabled/disabled state.
+        if hasattr(self, '_refresh_metab_list'):
+            self._refresh_metab_list()
+        elif 'Metabolites' in self.mandatory_params:
+            self.mandatory_params['Metabolites'] = [k for k, v in self.metabs.items() if v]
+
+        # note: dropdown option lists are never copied, they are backend-specific.
+
+    def map_sequence_in(self, seq: str) -> 'str | None':
+        """Translate a sequence name from another backend into this backend's
+        own vocabulary.
+
+        Default implementation: exact case-insensitive match against this
+        backend's Sequence dropdown options.  Backends override this to handle
+        cross-backend synonyms (e.g. FID-A 'STEAM' → MRSCloud
+        'STEAM (7T only)', MRSCloud 'HERMES-PRESS' → FSL-MRS 'HERMES', …).
+
+        Returns the matched option string, or None if no plausible mapping
+        exists (the caller will then leave the Sequence field unset so the
+        user is prompted to choose manually).
+        """
+        options = self.dropdown.get('Sequence', [])
+        if not options or not seq:
+            return None
+        seq_l = seq.strip().lower()
+        for opt in options:
+            if opt.lower() == seq_l:
+                return opt
+        return None
 
     def parseREMY(self, MRSinMRS):
         # parse REMY output to parameters and optional parameters for the backend

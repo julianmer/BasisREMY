@@ -37,11 +37,15 @@ from externals.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 #**************************************************************************************************#
 class BasisREMY:
     # Display order for the top-level Category dropdown.
-    CATEGORY_ORDER = ['FID-A', 'Custom', 'MRSCloud', 'FSL-MRS']
+    CATEGORY_ORDER = ['MRSCloud', 'FID-A', 'FSL-MRS', 'Custom']
 
-    def __init__(self, backend='FidaIdeal'):
+    def __init__(self, backend='MRSCloud'):
         self.DRead = DataReaders()
         self.Table = Table()
+
+        # Cache the last REMY-extracted MRSinMRS dict so that switching
+        # backends can re-parse it with the new backend's parseREMY().
+        self._last_mrsinmrs = None
 
         # Build the flat backend registry. The FID-A category contains many
         # entries (FidaIdeal = ex-LCModel, plus PRESS shaped, MEGA-PRESS
@@ -79,8 +83,68 @@ class BasisREMY:
             )
         old_backend = getattr(self, 'backend', None)
         self.backend = self.backends[backend]
+
+        # Step 1 — if we have cached REMY data, let the NEW backend parse it
+        # first so it gets the parameters it specifically needs (e.g. FID-A
+        # needs Bfield + Center Freq which MRSCloud doesn't expose, and
+        # MRSCloud needs System + Field Strength which FID-A doesn't expose).
+        if self._last_mrsinmrs is not None:
+            try:
+                params, opt = self.backend.parseREMY(self._last_mrsinmrs)
+                self.backend.mandatory_params.update(
+                    {k: v for k, v in params.items() if v is not None})
+                self.backend.optional_params.update(
+                    {k: v for k, v in opt.items() if v is not None})
+            except Exception as e:
+                print(f"Warning: could not re-parse REMY data for {backend}: {e}")
+
+        # Step 2 — overlay user-modified physics values from the old backend
+        # (e.g. TE, Samples, Bandwidth the user changed by hand) so manual
+        # edits survive the switch.
+        #
+        # Rules:
+        #   * Only copy keys that exist in the NEW backend (don't inject alien keys).
+        #   * Skip Sequence and Metabolites — they are backend-specific.
+        #   * ONLY copy non-None values — a None on the old backend means
+        #     "REMY didn't find this / was never set", and we must not let it
+        #     overwrite the freshly re-parsed step-1 value (e.g. Bfield, Center Freq).
         if old_backend is not None and old_backend is not self.backend:
-            self.backend.update_from_backend(old_backend)
+            _skip = {'Sequence', 'Metabolites'}
+            self.backend.mandatory_params.update({
+                k: v for k, v in old_backend.mandatory_params.items()
+                if k in self.backend.mandatory_params
+                and k not in _skip
+                and v is not None
+            })
+            self.backend.optional_params.update({
+                k: v for k, v in old_backend.optional_params.items()
+                if k in self.backend.optional_params
+                and v is not None
+            })
+            # Carry over shared metabolite on/off state (e.g. user turned off GABA).
+            self.backend.metabs.update({
+                k: v for k, v in old_backend.metabs.items()
+                if k in self.backend.metabs
+            })
+            if hasattr(self.backend, '_refresh_metab_list'):
+                self.backend._refresh_metab_list()
+            elif 'Metabolites' in self.backend.mandatory_params:
+                self.backend.mandatory_params['Metabolites'] = [
+                    k for k, v in self.backend.metabs.items() if v]
+
+            # Sequence: translate old backend's sequence into the new backend's
+            # vocabulary using map_sequence_in(). This preserves the user's
+            # explicit sequence choice (e.g. FID-A 'STEAM' → MRSCloud
+            # 'STEAM (7T only)') and takes priority over the REMY-parsed value
+            # because it reflects what the user actually *wants* to simulate.
+            old_seq = (old_backend.mandatory_params.get('Sequence') or '').strip()
+            if old_seq:
+                mapped = self.backend.map_sequence_in(old_seq)
+                if mapped is not None:
+                    self.backend.mandatory_params['Sequence'] = mapped
+                # If no mapping (e.g. sLASER → FidaIdeal), leave whatever step 1
+                # set so the user is shown the REMY value or None.
+
         print(f"Backend set to: {self.backend.name}")
 
     def set_category(self, category):
@@ -210,6 +274,10 @@ class BasisREMY:
 
         # extend with more info
         MRSinMRS_unif.update(self.extract_more(MRSinMRS, vendor_selection, dtype_selection))
+
+        # Cache for later backend switches
+        self._last_mrsinmrs = MRSinMRS_unif
+
         return MRSinMRS_unif
 
     def extract_more(self, MRSinMRS, vendor, dtype):

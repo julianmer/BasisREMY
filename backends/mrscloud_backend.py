@@ -298,7 +298,13 @@ class MRSCloudBackend(Backend):
                 self.file_selection.append(label)
                 params[label] = self.mandatory_params.get(label)
                 self.mandatory_params.setdefault(label, None)
+            else:
+                # All required pulses are present on disk — no picker needed.
+                params.pop(self._pulse_param_label, None)
+                self.mandatory_params.pop(self._pulse_param_label, None)
         else:
+            # Universal vendor (bundled) or nothing selected yet — no picker.
+            params.pop(self._pulse_param_label, None)
             self.mandatory_params.pop(self._pulse_param_label, None)
 
         # Re-order Metabolites to the bottom for the GUI grid
@@ -383,21 +389,62 @@ class MRSCloudBackend(Backend):
         return None
 
     def parseSystem(self, system):
-        """Map a vendor string onto the MRSCloud vendor list."""
+        """Map a vendor string onto the MRSCloud vendor list.
+
+        Philips and Siemens are mapped to their Universal_* counterparts by
+        default: those waveforms are bundled with the public MRSCloud repo and
+        work without any extra pulse files.  The product-specific pulse files
+        (Philips_spredrex.pta, orig_refoc_mao_100_4.pta, …) are vendor-
+        confidential and NOT shipped — parsing to 'Philips' / 'Siemens' would
+        immediately trigger the "Vendor Pulse File" picker, which surprises
+        users who just loaded a file.
+
+        If a user needs the vendor-specific accuracy they can manually change
+        the System dropdown to 'Philips' / 'Siemens' / 'GE' after loading.
+        GE has no Universal equivalent in MRSCloud, so it stays as 'GE'.
+        """
         if system is None:
             return None
         s = str(system).lower()
+        # Explicit universal tags take priority
         if 'philips_universal' in s or 'universal_philips' in s:
             return 'Universal_Philips'
         if 'siemens_universal' in s or 'universal_siemens' in s:
             return 'Universal_Siemens'
+        # Default Philips / Siemens → Universal so no proprietary pulse is needed
         if 'philips' in s:
-            return 'Philips'
+            return 'Universal_Philips'
         if 'siemens' in s:
-            return 'Siemens'
+            return 'Universal_Siemens'
         if 'ge' in s:
             return 'GE'
         print(f"Warning: MRSCloud unsupported vendor '{system}'.")
+        return None
+
+    def map_sequence_in(self, seq: str) -> 'str | None':
+        """Translate any sequence name into MRSCloud's combined-label vocabulary."""
+        if not seq:
+            return None
+        s = seq.strip().lower()
+        # Exact match first (handles same-label backends)
+        for opt in self._COMBINED_SEQ_OPTIONS:
+            if opt.lower() == s:
+                return opt
+        # Cross-backend synonyms
+        if 'steam' in s:
+            return 'STEAM (7T only)'
+        if 'hercules' in s:
+            return 'HERCULES-sLASER' if 'slaser' in s or 'laser' in s else 'HERCULES-PRESS'
+        if 'hermes' in s:
+            return 'HERMES-sLASER' if 'slaser' in s or 'laser' in s else 'HERMES-PRESS'
+        if 'mega' in s:
+            return 'MEGA-sLASER' if ('slaser' in s or 'semi' in s) else 'MEGA-PRESS'
+        if 'slaser' in s or 'semi' in s:
+            return 'sLASER'
+        if 'press' in s or 'spin echo' in s or 'se' == s or 'spinecho' in s:
+            return 'PRESS'
+        if 'laser' in s:
+            return 'PRESS'   # MRSCloud has no standalone LASER; PRESS is closest
         return None
 
     # --------------------------------------------------------------- Octave paths

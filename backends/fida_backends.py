@@ -96,6 +96,19 @@ class FidaBackend(Backend):
         self.metabs = dict(_DEFAULT_FIDA_METABS)
         self.optional_params = {'Nucleus': None, 'TR': None}
 
+    # -------------------------------------------------- sequence mapping
+    def map_sequence_in(self, seq: str) -> 'str | None':
+        """Translate any sequence name into this FID-A backend's vocabulary.
+        Subclasses (FidaIdeal, FidaPressShaped …) override as needed."""
+        options = self.dropdown.get('Sequence', [])
+        if not options or not seq:
+            return None
+        s = seq.strip().lower()
+        for opt in options:
+            if opt.lower() == s:
+                return opt
+        return None
+
     # -------------------------------------------------- helpers
     def _refresh_metab_list(self):
         active = [k for k, v in self.metabs.items() if v]
@@ -236,6 +249,26 @@ class FidaIdeal(FidaBackend):
             'Center Freq': None,
         }
         self._refresh_metab_list()
+
+    # ---- sequence mapping ----------------------------------------------
+    def map_sequence_in(self, seq: str) -> 'str | None':
+        """Translate an arbitrary sequence name into FidaIdeal's vocabulary."""
+        if not seq:
+            return None
+        s = seq.strip().lower()
+        # Exact match
+        for opt in self.dropdown.get('Sequence', []):
+            if opt.lower() == s:
+                return opt
+        # Cross-backend synonyms
+        if 'steam' in s:
+            return 'STEAM'
+        if 'press' in s or 'spin echo' in s or 'spinecho' in s or s == 'se':
+            return 'PRESS'
+        if 'laser' in s and 'mega' not in s and 'slaser' not in s and 'semi' not in s:
+            return 'LASER'
+        # sLASER, MEGA-*, HERMES, HERCULES — no equivalent in FidaIdeal
+        return None
 
     # ---- REMY ---------------------------------------------------------
     def parseREMY(self, MRSinMRS):
