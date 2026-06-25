@@ -46,4 +46,4 @@ COPY . /app
 WORKDIR /app
 
 # run your script(s)
-# CMD ["python", "main.py"]
+# CMD ["python", "-m", "basisremy"]

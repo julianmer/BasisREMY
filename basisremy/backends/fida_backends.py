@@ -1,5 +1,5 @@
 ####################################################################################################
-#                                  backends/fida/fida_backends.py                                   #
+#                                         fida_backends.py                                          #
 ####################################################################################################
 #                                                                                                  #
 # Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
@@ -7,7 +7,7 @@
 # Created: 25/04/26                                                                                #
 #                                                                                                  #
 # Purpose: One-stop module for the entire "FID-A" backend family. Each FID-A simulation entry      #
-#          point under externals/fidA/simulationTools/ is exposed as a small subclass of           #
+#          point under externals/fidA/simulationTools/ is exposed as a small subclass of            #
 #          FidaBackend. They all share:                                                            #
 #            * the spinSystems.mat metabolite library                                              #
 #            * Octave path setup                                                                   #
@@ -15,7 +15,7 @@
 #            * the per-metabolite driver loop                                                      #
 #                                                                                                  #
 #          Only the parameter schema and the `kind` dispatched into the shared Octave adapter      #
-#          (adapters/backends/fida/fida_run.m) differ between subclasses. FidaIdeal is the         #
+#          (adapters/backends/fida/fida_run.m) differ between subclasses. FidaIdeal is the           #
 #          ex-"LCModel" backend, now living natively under FID-A; backends/lcmodel_backend.py      #
 #          stays as a thin alias for backwards compat.                                             #
 #                                                                                                  #
@@ -28,7 +28,7 @@ import os
 
 import numpy as np
 
-from backends.base import Backend
+from basisremy.backends.base import Backend
 
 
 # --------------------------------------------------------------------------- defaults
@@ -129,6 +129,9 @@ class FidaBackend(Backend):
     def setup_octave_paths(self):
         if self.octave is None:
             raise RuntimeError("Octave not initialized.")
+        # Fetch FID-A on first use (no-op in a source checkout).
+        from basisremy.core.externals import ensure
+        ensure('fidA')
         self.octave.eval("warning('off', 'all');")
         # First add the FID-A tree recursively so nested helpers (e.g.
         # rfPulseTools/mklassenTools/bes.m, used by io_loadRFwaveform for

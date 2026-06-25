@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="assets/imgs/basisremy_logo_round.png" alt="BasisREMY Logo" width="120" style="margin-bottom: -10px;"/>
+  <img src="basisremy/assets/imgs/basisremy_logo_round.png" alt="BasisREMY Logo" width="120" style="margin-bottom: -10px;"/>
   <h1 style="margin-top: 5px; margin-bottom: 5px;">BasisREMY</h1>
-  <p style="margin-top: 0px;"><em>Study-Specific Basis Set Generation for MR Spectroscopy</em></p>
+  <p style="margin-top: 0px;"><em>A Unified Framework for Study-Specific Basis Set Generation in MR Spectroscopy</em></p>
   
   [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
   [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
@@ -13,31 +13,139 @@
 A tool for generating study-specific basis sets directly from raw MRS data, integrating real pulse shapes and acquisition parameters. This project is in its early development stages, and contributions, testing, and feedback are highly welcomed!
 
 <div align="center">
-  <img src="assets/imgs/basisremy_workflow.png" alt="BasisREMY Workflow" width="750"/>
+  <img src="basisremy/assets/imgs/basisremy_workflow_v2.png" alt="BasisREMY Workflow" width="750"/>
 </div>
 
 ---
 
 ## Prerequisites
 
-Before installing BasisREMY, ensure that the following are installed on your system:
+For the recommended [`uvx`](https://docs.astral.sh/uv/) quick start you do **not**
+need to install Python yourself — `uv` downloads a compatible Python automatically.
+You only need:
 
-- **Python**: Version 3.10 or higher. You can download the latest version from the [official Python website](https://www.python.org/downloads/).
+- **[`uv`](https://docs.astral.sh/uv/)**: installs Python and all dependencies into
+  an isolated environment (one-line installer in *Quick Start* below). Nothing is
+  installed globally.
 
-- **Octave Runtime** (required for simulation backends using MATLAB/Octave code): Version 4.0 or higher.
+- **[`git`](https://git-scm.com/)**: used the first time you run a simulation to
+  fetch the third-party simulation toolboxes (and for cloning if you develop).
+
+- **Octave Runtime** *(simulation backends only)*: Version 4.0 or higher.
 
   **You have two options:**
   
   1. **Docker** (Recommended) - Automatic setup, works everywhere
   2. **Local Octave** - Traditional installation
   
-  **📖 See the [Octave Setup Guide](assets/OCTAVE_SETUP.md) for detailed installation instructions.**
+  **📖 See the [Octave Setup Guide](basisremy/assets/OCTAVE_SETUP.md) for detailed installation instructions.**
   
-  > **Note**: BasisREMY automatically detects and uses Docker if available, otherwise falls back to local Octave.
+  > **Note**: BasisREMY automatically detects and uses Docker if available, otherwise falls back to local Octave. Data extraction and parameter configuration work without an Octave runtime; only the simulation step requires it.
+
+> **Python 3.10+** is only required if you skip `uv` and install manually with
+> `pip` (see *Setting Up the Python Environment* below).
 
 ---
 
-## Setting Up the Python Environment
+## Quick Start (for users)
+
+The fastest way to run BasisREMY is with [`uv`](https://docs.astral.sh/uv/) — a single
+tool that installs Python for you (no manual Python, `pip`, or conda setup required).
+
+**1. Install `uv`** (one time):
+
+```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**2. Launch BasisREMY** directly from the repository, without cloning:
+
+```bash
+uvx --from git+https://github.com/julianmer/BasisREMY basisremy
+```
+
+Or, for repeated use, install the command once and then run it by name:
+
+```bash
+uv tool install git+https://github.com/julianmer/BasisREMY
+basisremy
+```
+
+`uv` automatically downloads a compatible Python and all dependencies into an
+isolated environment — nothing is installed globally and your data never leaves
+your machine.
+
+> **Note on simulation backends**: The simulation backends
+> rely on third-party toolboxes that cannot be redistributed inside the wheel. The first time you run a
+> simulation, BasisREMY fetches the toolbox it needs (at a pinned version) into a
+> per-user data directory (`~/.basisremy`, overridable via `$BASISREMY_HOME`).
+
+---
+
+## Developer Setup
+
+Clone the repository (with submodules) and let `uv` create the environment:
+
+```bash
+git clone --recurse-submodules https://github.com/julianmer/BasisREMY.git
+cd BasisREMY
+uv sync            # creates .venv and installs all dependencies
+uv run basisremy   # launches the GUI
+```
+
+`uv sync` reads [`pyproject.toml`](pyproject.toml), provisions a matching Python,
+and installs everything into `.venv`. You do **not** need to activate the
+environment — `uv run` handles that automatically. To include development tools
+(pytest, coverage), run `uv sync --extra dev`.
+
+---
+
+## Docker / Octave Requirements
+
+Simulation backends execute MATLAB/Octave code and therefore need an Octave
+runtime. BasisREMY supports **two interchangeable options** and selects one
+automatically:
+
+1. **Docker** (recommended) — install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   (macOS/Windows) or Docker Engine (Linux), and make sure it is **running**.
+   BasisREMY pulls/builds an Octave container on demand.
+2. **Local Octave** — install [Octave](https://octave.org/) 4.0+ directly; it is
+   used as a fallback when Docker is unavailable.
+
+Whether an Octave runtime is needed is **backend-dependent**: data extraction and
+parameter configuration work without it; only the simulation step requires it.
+See the [Octave Setup Guide](basisremy/assets/OCTAVE_SETUP.md) for detailed instructions.
+
+---
+
+## Troubleshooting
+
+- **`ModuleNotFoundError: No module named 'tkinter'`** — Tkinter ships with
+  CPython but some distributions split it into a separate package:
+  - macOS (Homebrew Python): `brew install python-tk`
+  - Debian/Ubuntu: `sudo apt install python3-tk`
+  - Fedora: `sudo dnf install python3-tkinter`
+  - Windows: reinstall Python from [python.org](https://www.python.org/downloads/)
+    with the *"tcl/tk and IDLE"* option enabled.
+- **Simulation fails / "Octave not found"** — start Docker Desktop/Engine, or
+  install local Octave. See the [Octave Setup Guide](basisremy/assets/OCTAVE_SETUP.md).
+- **`uv: command not found`** — re-open your terminal after installing `uv`, or
+  add its install location to your `PATH`.
+- **Backends can't find `externals/...`** — the simulation toolboxes are fetched
+  on first use into `~/.basisremy` (or `$BASISREMY_HOME`); make sure `git` is
+  installed and you have network access the first time you run a simulation. In a
+  cloned repository the existing submodules under `externals/` are used as-is.
+
+---
+
+## Setting Up the Python Environment (manual / pip)
+
+> The `uv` quick start above is the recommended path. The steps below remain
+> available if you prefer a manual `venv` + `pip` workflow.
 
 It is recommended to use a virtual environment to isolate project dependencies. Start by cloning the repository.
 ```bash
@@ -70,11 +178,11 @@ pip install -r requirements.txt
 ---
 
 ## Running BasisREMY
-With all dependencies installed and your basisREMY virtual environment activated, and run the application:
+With all dependencies installed and your basisREMY environment activated, run the application:
 ```bash
-python main.py
+python -m basisremy
 ```
-This will launch the BasisREMY GUI.
+This will launch the BasisREMY GUI. (Inside the repo you can equivalently use `uv run basisremy`.)
 
 ### Usage Overview
 1. Data Selection (Tab 1):

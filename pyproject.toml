@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "basisremy"
+version = "0.1.0"
+description = "A tool for generating study-specific MR spectroscopy basis sets directly from raw MRS data."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "J. P. Merkofer", email = "j.p.merkofer@tue.nl" },
+]
+keywords = ["MRS", "spectroscopy", "basis set", "simulation", "FID-A", "FSL-MRS", "MRSCloud"]
+
+# NOTE: Tkinter is intentionally NOT listed here. It ships with the CPython
+# standard library and cannot be installed from PyPI. See the README
+# "Troubleshooting" section for platform-specific Tk install notes.
+dependencies = [
+    "brukerapi==0.1.8",
+    "docker>=6.0.0",
+    "matplotlib==3.10.7",
+    "numpy==2.3.3",
+    "oct2py==5.8.0",
+    "pandas==2.3.3",
+    "pillow>=10.0.0",
+    "pyMapVBVD==0.6.1",
+    "scipy>=1.10.0",
+    "spec2nii==0.8.7",
+    "tkinterdnd2==0.4.2",
+    "tkinterweb==3.25.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
+    "pytest-timeout>=2.1.0",
+]
+
+[project.scripts]
+# Single, stable command. The launcher currently starts the Tkinter GUI; a
+# future NiceGUI front-end can be swapped in behind this same entry point
+# without changing the user-facing command.
+basisremy = "basisremy.__main__:main"
+
+[tool.setuptools.packages.find]
+# Package the application code under basisremy/ (now including the docker runtime
+# and the vendored remy module). Only externals/ stays top-level: it is the large
+# third-party Octave/MATLAB code, referenced via cwd-relative paths and fetched on
+# demand rather than shipped in the wheel.
+include = ["basisremy*"]
+
+[tool.setuptools.package-data]
+# Ship the GUI image assets and bundled data files that live inside the package.
+basisremy = [
+    "assets/imgs/*.png",
+    "assets/*.md",
+    # Vendored third-party MRSinMRS data + license (BSD-3, see remy/LICENSE).
+    "remy/*.csv",
+    "remy/LICENSE",
+    # Docker image build context (used to build the Octave runtime on first use).
+    "docker/dockerfile",
+    "docker/requirements.txt",
+]

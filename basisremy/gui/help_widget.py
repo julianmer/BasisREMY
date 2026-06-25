@@ -19,7 +19,7 @@ from __future__ import annotations
 import platform
 import tkinter as tk
 
-from core.parameter_registry import tooltip_text, get as get_param, TODO
+from basisremy.core.parameter_registry import tooltip_text, get as get_param, TODO
 
 
 # Visual tokens (kept in-sync with gui/application.py palette).

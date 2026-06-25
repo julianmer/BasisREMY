@@ -1,5 +1,5 @@
 ####################################################################################################
-#                                       test_fida_schema.py                                        #
+#                                       test_fida_schema.py                                         #
 ####################################################################################################
 #                                                                                                  #
 # Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
@@ -19,7 +19,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from backends.fida_backends import (
+from basisremy.backends.fida_backends import (
     FIDA_BACKENDS,
     FidaBackend,
     FidaIdeal,

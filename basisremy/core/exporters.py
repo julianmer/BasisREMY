@@ -4,11 +4,11 @@
 #                                                                                                  #
 # Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
 #                                                                                                  #
-# Purpose: Unified basis-set exporter. Backends only need to return a                              #
+# Purpose: Unified basis-set exporter. Backends only need to return a                               #
 #          { metabolite_name: complex_FID_array } dictionary; this module turns that               #
 #          dict into any of the formats commonly used in the MRS community:                        #
 #                                                                                                  #
-#            - LCModel  .basis              (single combined file)                                 #
+#            - LCModel  .basis              (single combined file)                                  #
 #            - LCModel  .RAW (per metab)    (folder of individual FIDs)                            #
 #            - jMRUI    .txt (per metab)                                                           #
 #            - FSL-MRS  .json (per metab)   (FSL-MRS basis directory)                              #
@@ -32,10 +32,10 @@ from typing import Any, Iterable
 
 import numpy as np
 
+from basisremy.core.paths import externals_root
+
 # Make sure the vendored fsl_mrs is importable
-_FSL_MRS_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "externals", "fsl_mrs")
-)
+_FSL_MRS_ROOT = str(externals_root() / "fsl_mrs")
 if _FSL_MRS_ROOT not in sys.path:
     sys.path.insert(0, _FSL_MRS_ROOT)
 
@@ -335,6 +335,8 @@ def _write_fsl_json_folder(basis, out_dir, hdr, params):
 
     # Try FSL-MRS helper for full compatibility
     try:
+        from basisremy.core.externals import ensure as _ensure_external
+        _ensure_external('fsl_mrs')
         from fsl_mrs.utils.mrs_io.fsl_io import write_fsl_basis_file
         # Header that write_fsl_basis_file expects
         fsl_hdr = {
@@ -447,7 +449,7 @@ def _git_sha() -> str | None:
     try:
         sha = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
             stderr=subprocess.DEVNULL,
         ).decode().strip()
         return sha or None
@@ -468,7 +470,7 @@ def _hash_file(path: str) -> str | None:
 
 def _write_sidecar(path: str, fmt: str, output_path: str,
                    basis: dict[str, np.ndarray], params: dict, extra: dict | None) -> None:
-    from core import parameter_registry as _pr
+    from basisremy.core import parameter_registry as _pr
     sidecar = {
         "tool": "BasisREMY",
         "tool_version": _basisremy_version(),

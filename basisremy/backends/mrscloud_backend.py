@@ -8,21 +8,17 @@
 # Created: 18/02/26                                                                                #
 # Rewritten: 24/04/26                                                                              #
 #                                                                                                  #
-# Purpose: BasisREMY backend that drives the **real** MRSCloud workflow                            #
-#          (externals/mrscloud) instead of the wrong FID-A `sim_lcmrawbasis`                       #
-#          script that was used previously. Per-metabolite execution goes                          #
-#          through `adapters/backends/mrscloud_run_metab.m`, a thin Octave                         #
-#          adapter that mirrors the body of                                                        #
-#          `externals/mrscloud/run/run_simulations_cloud.m` and returns                            #
-#          the FID as plain numeric arrays so oct2py can ferry them across.                        #
+# Purpose: Per-metabolite execution goes through `adapters/backends/mrscloud_run_metab.m`, a thin  #
+#          Octave adapter that mirrors `externals/mrscloud/run/run_simulations_cloud.m` and        #
+#          returns the FID as plain numeric arrays so oct2py can ferry them across.                #
 #                                                                                                  #
 # Notes                                                                                            #
-#   - Output Path / Make .raw / Add Ref. are no longer user-facing; final                          #
-#     export is handled by the post-simulation Export dialog (core/exporters).                     #
-#   - The metabolite list matches the official MRSCloud README. Some entries                       #
-#     (Cystat, HCar, iLe, Lys, Glc) simulate slowly — flagged with TODO.                           #
-#   - HERMES / HERCULES sub-spectrum recombination is not yet exposed; only                        #
-#     the first sub-spectrum (off / 'a') is returned. TODO marked below.                           #
+#   - Output Path / Make .raw / Add Ref. are no longer user-facing; final export is handled by the  #
+#     post-simulation Export dialog (core/exporters).                                              #
+#   - The metabolite list matches the official MRSCloud README. Some entries (Cystat, HCar, iLe,    #
+#     Lys, Glc) simulate slowly — flagged with TODO.                                                #
+#   - HERMES / HERCULES sub-spectrum recombination is not yet exposed; only the first sub-spectrum  #
+#     (off / 'a') is returned. TODO marked below.                                                  #
 #                                                                                                  #
 ####################################################################################################
 
@@ -37,7 +33,7 @@ import os
 import numpy as np
 
 # own
-from backends.base import Backend
+from basisremy.backends.base import Backend
 
 
 #**************************************************************************************************#
@@ -68,38 +64,9 @@ class MRSCloudBackend(Backend):
         'EtOH': False, 'MSM':  False,
     }
 
+    _SEQUENCES     = ['UnEdited', 'MEGA', 'HERMES', 'HERCULES']
     _LOCALIZATIONS = ['PRESS', 'sLASER', 'STEAM_7T']
     _VENDORS       = ['Philips', 'Universal_Philips', 'Siemens', 'Universal_Siemens', 'GE']
-
-    # Combined Sequence dropdown: each label encodes both the MRSCloud editing
-    # scheme *and* the localization in one user-facing string.  The GUI only
-    # ever shows this one field; the backend decodes it into the two internal
-    # values MRSCloud's Octave layer expects.
-    _COMBINED_SEQ_OPTIONS = [
-        'PRESS',
-        'sLASER',
-        'STEAM (7T only)',
-        'MEGA-PRESS',
-        'MEGA-sLASER',
-        'HERMES-PRESS',
-        'HERMES-sLASER',
-        'HERCULES-PRESS',
-        'HERCULES-sLASER',
-    ]
-    # label → (mrscloud_sequence, mrscloud_localization)
-    _COMBINED_SEQ_MAP = {
-        'PRESS':            ('UnEdited',  'PRESS'),
-        'sLASER':           ('UnEdited',  'sLASER'),
-        'STEAM (7T only)':  ('UnEdited',  'STEAM_7T'),
-        'MEGA-PRESS':       ('MEGA',      'PRESS'),
-        'MEGA-sLASER':      ('MEGA',      'sLASER'),
-        'HERMES-PRESS':     ('HERMES',    'PRESS'),
-        'HERMES-sLASER':    ('HERMES',    'sLASER'),
-        'HERCULES-PRESS':   ('HERCULES',  'PRESS'),
-        'HERCULES-sLASER':  ('HERCULES',  'sLASER'),
-    }
-    # Reverse map for when we need to go from internals → display label
-    _COMBINED_SEQ_REVERSE = {v: k for k, v in _COMBINED_SEQ_MAP.items()}
 
     # ---- Pulse-file availability map ---------------------------------
     # MRSCloud's README warns: "Product sequence and rf waveform are not
@@ -145,15 +112,6 @@ class MRSCloudBackend(Backend):
     }
 
     @classmethod
-    def _decode_sequence(cls, combined: str) -> tuple[str, str]:
-        """Return (mrscloud_sequence, localization) for a combined label.
-
-        Falls back to ('UnEdited', 'PRESS') for unknown / legacy values so
-        that stale params from other backends don't crash on startup.
-        """
-        return cls._COMBINED_SEQ_MAP.get(combined, ('UnEdited', 'PRESS'))
-
-    @classmethod
     def required_pulse_files(cls, vendor: str, sequence: str, localization: str) -> list[str]:
         """Pulse files MRSCloud will demand for this (vendor, seq, loc) combo."""
         return list(cls._PULSE_FILES_BY_VENDOR_LOC_SEQ.get(
@@ -185,9 +143,8 @@ class MRSCloudBackend(Backend):
         # editing fields appear/disappear depending on `Sequence`.
         self.dropdown = {
             'System':         list(self._VENDORS),
-            # One combined field: localization is encoded in the option name.
-            # get_params_for_mode() filters out 'STEAM (7T only)' at non-7T.
-            'Sequence':       list(self._COMBINED_SEQ_OPTIONS),
+            'Sequence':       list(self._SEQUENCES),
+            'Localization':   list(self._LOCALIZATIONS),
             'Field Strength': ['1.5T', '3T', '7T'],
             'Edit Target':    ['', 'GABA', 'GSH', 'Lac', 'PE'],
         }
@@ -195,15 +152,13 @@ class MRSCloudBackend(Backend):
         # GUI tells us when these change so we can rebuild the visible
         # parameter list (e.g. show editing fields only for MEGA/HERMES/HERCULES,
         # show the pulse-file picker only when the pulse is missing).
-        self.schema_affecting_keys = {'Sequence', 'System', 'Field Strength'}
+        self.schema_affecting_keys = {'Sequence', 'Localization', 'System', 'Field Strength'}
 
         # Pulse-file pickers are populated dynamically by get_params_for_mode().
         self.file_selection: list[str] = []
 
         # Mandatory parameters — only the ones MRSCloud actually consumes.
-        # 'Sequence' now encodes localization too (e.g. 'PRESS', 'MEGA-PRESS').
         # Removed:
-        #   * Localization  — encoded inside Sequence combined label
         #   * Bfield        — derived from Field Strength + vendor inside
         #                     externals/mrscloud/functions/load_parameters.m
         #   * Center Freq   — same (computed from Bfield × γ inside FID-A)
@@ -213,7 +168,8 @@ class MRSCloudBackend(Backend):
         # `_edit_params` and are spliced in by get_params_for_mode().
         self.mandatory_params = {
             'System':         None,        # vendor (must be selected)
-            'Sequence':       None,        # combined seq+loc (must be selected)
+            'Sequence':       None,        # UnEdited / MEGA / HERMES / HERCULES
+            'Localization':   None,        # PRESS / sLASER / STEAM_7T
             'Field Strength': '3T',
             'Samples':        None,
             'Bandwidth':      None,
@@ -246,37 +202,31 @@ class MRSCloudBackend(Backend):
     # --------------------------------------------------------------- mode/schema
     def get_params_for_mode(self, mode=None):
         """Return only the parameters relevant to the current Sequence /
-        System / Field Strength combo so the GUI never shows fields MRSCloud
+        Localization / System combo so the GUI never shows fields MRSCloud
         will silently ignore."""
         params = dict(self.mandatory_params)
-        combined = (self.mandatory_params.get('Sequence') or '').strip()
-        vendor   = (self.mandatory_params.get('System')        or '').strip()
-        field    = (self.mandatory_params.get('Field Strength') or '3T').strip()
+        seq    = (self.mandatory_params.get('Sequence')       or '').strip()
+        loc    = (self.mandatory_params.get('Localization')   or '').strip()
+        vendor = (self.mandatory_params.get('System')         or '').strip()
 
-        # Decode combined label → internal (sequence, localization)
-        seq_internal, loc_internal = self._decode_sequence(combined)
-
-        # ---- filter out STEAM (7T only) when not at 7T ----------------------
-        if field == '7T':
-            all_combined = list(self._COMBINED_SEQ_OPTIONS)
+        # ---- edited sequences restrict Localization to PRESS / sLASER -------
+        if seq in ('MEGA', 'HERMES', 'HERCULES'):
+            restricted = ['PRESS', 'sLASER']
+            self.dropdown['Localization'] = restricted
+            # If a STEAM_7T localization carried over, reset to PRESS
+            if loc not in restricted:
+                self.mandatory_params['Localization'] = 'PRESS'
+                params['Localization'] = 'PRESS'
         else:
-            all_combined = [o for o in self._COMBINED_SEQ_OPTIONS
-                            if o != 'STEAM (7T only)']
-            if combined == 'STEAM (7T only)':
-                # Reset to PRESS (safe fallback)
-                self.mandatory_params['Sequence'] = 'PRESS'
-                params['Sequence'] = 'PRESS'
-                combined = 'PRESS'
-                seq_internal, loc_internal = 'UnEdited', 'PRESS'
-
-        self.dropdown['Sequence'] = all_combined
+            # UnEdited — restore all localization options
+            self.dropdown['Localization'] = list(self._LOCALIZATIONS)
 
         # ---- splice editing fields only when relevant -----------------------
-        if seq_internal == 'MEGA':
+        if seq == 'MEGA':
             for k, v in self._edit_params.items():
                 params.setdefault(k, v)
                 self.mandatory_params.setdefault(k, v)
-        elif seq_internal in ('HERMES', 'HERCULES'):
+        elif seq in ('HERMES', 'HERCULES'):
             for k in ('Edit Target', 'Edit Tp'):
                 params.setdefault(k, self._edit_params[k])
                 self.mandatory_params.setdefault(k, self._edit_params[k])
@@ -290,9 +240,10 @@ class MRSCloudBackend(Backend):
                 self.mandatory_params.pop(k, None)
 
         # ---- ask for the missing vendor pulse file when needed ---------------
+        cur_loc = params.get('Localization') or loc
         self.file_selection = []
-        if combined and vendor and vendor not in ('Universal_Philips', 'Universal_Siemens'):
-            missing = self.missing_pulse_files(vendor, seq_internal, loc_internal)
+        if seq and vendor and cur_loc and vendor not in ('Universal_Philips', 'Universal_Siemens'):
+            missing = self.missing_pulse_files(vendor, seq, cur_loc)
             if missing:
                 label = self._pulse_param_label
                 self.file_selection.append(label)
@@ -322,9 +273,11 @@ class MRSCloudBackend(Backend):
         (see externals/mrscloud/functions/load_parameters.m, lines 20-36).
         """
         bfield = MRSinMRS.get('B0', None)
+        protocol = MRSinMRS.get('Protocol', None)
 
         mandatory = {
-            'Sequence':       self.parseProtocol(MRSinMRS.get('Protocol', None)),
+            'Sequence':       self.parseProtocol(protocol),
+            'Localization':   self.parseLocalization(protocol),
             'System':         self.parseSystem(MRSinMRS.get('Manufacturer', None)),
             'Field Strength': self._field_str_from_b0(bfield),
             'Samples':        MRSinMRS.get('NumberOfDatapoints', None),
@@ -361,47 +314,45 @@ class MRSCloudBackend(Backend):
         return '3T'
 
     def parseProtocol(self, protocol):
-        """Return a combined Sequence label (e.g. 'PRESS', 'MEGA-PRESS') from
-        the raw protocol string.  This single field encodes both the MRSCloud
-        editing scheme *and* the localization so the GUI only needs one
-        dropdown."""
+        """Return the MRSCloud editing-scheme label from a raw protocol string.
+
+        Returns one of: 'UnEdited', 'MEGA', 'HERMES', 'HERCULES', or None.
+        Use parseLocalization() separately to get the localisation.
+        """
         if protocol is None:
             return None
         p = str(protocol).lower()
-        is_slaser = ('slaser' in p or 'semi_laser' in p
-                     or 'semi-laser' in p or 'semilaser' in p)
-        # Editing scheme (highest priority), with localization suffix
         if 'hercules' in p:
-            return 'HERCULES-sLASER' if is_slaser else 'HERCULES-PRESS'
+            return 'HERCULES'
         if 'hermes' in p:
-            return 'HERMES-sLASER' if is_slaser else 'HERMES-PRESS'
+            return 'HERMES'
         if 'mega' in p:
-            return 'MEGA-sLASER' if is_slaser else 'MEGA-PRESS'
-        # Localization-only (→ UnEdited)
-        if is_slaser:
-            return 'sLASER'
+            return 'MEGA'
+        return 'UnEdited'
+
+    def parseLocalization(self, protocol):
+        """Return the MRSCloud localisation label from a raw protocol string.
+
+        Returns one of: 'PRESS', 'sLASER', 'STEAM_7T', or None.
+        """
+        if protocol is None:
+            return None
+        p = str(protocol).lower()
         if 'steam' in p:
-            return 'STEAM (7T only)'
-        # PRESS, UnEdited (BigGABA/MRSCloud convention), LASER all default to PRESS
-        if any(tag in p for tag in ('press', 'unedited', 'laser')):
-            return 'PRESS'
-        print(f"Warning: MRSCloud could not infer sequence from '{protocol}'.")
-        return None
+            return 'STEAM_7T'
+        if ('slaser' in p or 'semi_laser' in p
+                or 'semi-laser' in p or 'semilaser' in p):
+            return 'sLASER'
+        return 'PRESS'
 
     def parseSystem(self, system):
         """Map a vendor string onto the MRSCloud vendor list.
 
-        Philips and Siemens are mapped to their Universal_* counterparts by
-        default: those waveforms are bundled with the public MRSCloud repo and
-        work without any extra pulse files.  The product-specific pulse files
-        (Philips_spredrex.pta, orig_refoc_mao_100_4.pta, …) are vendor-
-        confidential and NOT shipped — parsing to 'Philips' / 'Siemens' would
-        immediately trigger the "Vendor Pulse File" picker, which surprises
-        users who just loaded a file.
-
-        If a user needs the vendor-specific accuracy they can manually change
-        the System dropdown to 'Philips' / 'Siemens' / 'GE' after loading.
-        GE has no Universal equivalent in MRSCloud, so it stays as 'GE'.
+        Returns the canonical vendor name as stored in self.dropdown['System'].
+        GE, Universal_Philips, and Universal_Siemens are passed through directly;
+        Philips and Siemens are returned as-is so the GUI accurately reflects the
+        scanner that acquired the data (the user can switch to a Universal_*
+        variant manually if the vendor pulse files are not available).
         """
         if system is None:
             return None
@@ -411,46 +362,40 @@ class MRSCloudBackend(Backend):
             return 'Universal_Philips'
         if 'siemens_universal' in s or 'universal_siemens' in s:
             return 'Universal_Siemens'
-        # Default Philips / Siemens → Universal so no proprietary pulse is needed
         if 'philips' in s:
-            return 'Universal_Philips'
+            return 'Philips'
         if 'siemens' in s:
-            return 'Universal_Siemens'
+            return 'Siemens'
         if 'ge' in s:
             return 'GE'
         print(f"Warning: MRSCloud unsupported vendor '{system}'.")
         return None
 
     def map_sequence_in(self, seq: str) -> 'str | None':
-        """Translate any sequence name into MRSCloud's combined-label vocabulary."""
+        """Translate any sequence name into MRSCloud's Sequence vocabulary."""
         if not seq:
             return None
         s = seq.strip().lower()
         # Exact match first (handles same-label backends)
-        for opt in self._COMBINED_SEQ_OPTIONS:
+        for opt in self._SEQUENCES:
             if opt.lower() == s:
                 return opt
         # Cross-backend synonyms
-        if 'steam' in s:
-            return 'STEAM (7T only)'
         if 'hercules' in s:
-            return 'HERCULES-sLASER' if 'slaser' in s or 'laser' in s else 'HERCULES-PRESS'
+            return 'HERCULES'
         if 'hermes' in s:
-            return 'HERMES-sLASER' if 'slaser' in s or 'laser' in s else 'HERMES-PRESS'
+            return 'HERMES'
         if 'mega' in s:
-            return 'MEGA-sLASER' if ('slaser' in s or 'semi' in s) else 'MEGA-PRESS'
-        if 'slaser' in s or 'semi' in s:
-            return 'sLASER'
-        if 'press' in s or 'spin echo' in s or 'se' == s or 'spinecho' in s:
-            return 'PRESS'
-        if 'laser' in s:
-            return 'PRESS'   # MRSCloud has no standalone LASER; PRESS is closest
-        return None
+            return 'MEGA'
+        return 'UnEdited'
 
     # --------------------------------------------------------------- Octave paths
     def setup_octave_paths(self):
         if self.octave is None:
             raise RuntimeError("Octave not initialized. Call initialize_octave() first.")
+        # Fetch MRSCloud on first use (no-op in a source checkout).
+        from basisremy.core.externals import ensure
+        ensure('mrscloud')
         self.octave.eval("warning('off', 'all');")
         # adapters/backends contains our mrscloud_run_metab.m wrapper
         self.octave.addpath('./adapters/backends/')
@@ -550,11 +495,9 @@ class MRSCloudBackend(Backend):
                 save_dir = save_dir.replace('\\', '/')
 
         # Pull params into local strongly-typed variables.
-        # 'Sequence' is the combined label (e.g. 'PRESS', 'MEGA-PRESS').
-        # Decode it into the two internal values MRSCloud's Octave layer expects.
-        vendor   = str(params.get('System')        or 'Philips')
-        combined = str(params.get('Sequence')      or 'PRESS')
-        sequence, localization = self._decode_sequence(combined)
+        vendor       = str(params.get('System')       or 'Universal_Philips')
+        sequence     = str(params.get('Sequence')     or 'UnEdited')
+        localization = str(params.get('Localization') or 'PRESS')
 
         # Stage the user-supplied vendor pulse (if any) FIRST, then drop in
         # the bundled universal excitation waveform under the name MRSCloud

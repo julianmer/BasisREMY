@@ -4,7 +4,7 @@ Tests for core.basisremy module
 
 import pytest
 import os
-from core.basisremy import BasisREMY
+from basisremy.core.basisremy import BasisREMY
 
 
 @pytest.mark.core

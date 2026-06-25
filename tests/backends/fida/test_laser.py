@@ -7,7 +7,7 @@ import pytest
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from core.basisremy import BasisREMY
+from basisremy.core.basisremy import BasisREMY
 @pytest.mark.backend
 @pytest.mark.lcmodel
 @pytest.mark.slow
@@ -43,14 +43,13 @@ class TestLCModelLASER:
         basisremy.backend.initialize_octave(prefer_docker=True, verbose=False)
         print("Running LASER simulation...")
         result = basisremy.backend.run_simulation(test_params)
-        # Verify output file was created
-        output_file = os.path.join(basisremy.backend._workdir, 'NAA.RAW')
-        assert os.path.exists(output_file), (
-            f"❌ Output file not created: {output_file}\n"
-            f"Simulation ran but produced no output."
-        )
-        file_size = os.path.getsize(output_file)
-        assert file_size > 0, f"Output file is empty: {output_file}"
+        # Verify backend returned a non-empty FID for NAA.
+        import numpy as np
+        assert 'NAA' in result, f"NAA missing from result keys: {list(result.keys())}"
+        fid = np.asarray(result['NAA'])
+        assert fid.ndim >= 1 and fid.size > 0, "NAA FID is empty"
+        assert np.max(np.abs(fid)) > 0, "NAA FID is all-zero"
+        file_size = fid.size * fid.itemsize
         print(f"\n✅ SUCCESS!")
         print(f"   Output: NAA.RAW ({file_size} bytes)")
         print(f"{'='*80}\n")

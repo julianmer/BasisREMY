@@ -12,7 +12,7 @@ import sys
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from core.basisremy import BasisREMY
+from basisremy.core.basisremy import BasisREMY
 from tests.utils.file_discovery import get_files_for_format
 
 

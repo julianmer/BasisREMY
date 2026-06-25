@@ -22,7 +22,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from backends.mrscloud_backend import MRSCloudBackend
+from basisremy.backends.mrscloud_backend import MRSCloudBackend
 
 
 # ============================================================ schema-aware
@@ -72,7 +72,7 @@ class TestSchemaAware:
     def test_edited_seq_replaces_steam_carryover(self, backend):
         """Switching from UnEdited+STEAM_7T → MEGA must not leave a stale value."""
         backend.mandatory_params['Sequence'] = 'UnEdited'
-        backend.mandatory_params['Localization'] = 'STEAM (7T only)'
+        backend.mandatory_params['Localization'] = 'STEAM_7T'
         backend.mandatory_params['Field Strength'] = '7T'
         backend.get_params_for_mode()  # establishes UnEdited state
         backend.mandatory_params['Sequence'] = 'MEGA'
@@ -88,7 +88,7 @@ class TestSchemaAware:
         backend.mandatory_params['Sequence'] = 'UnEdited'
         backend.get_params_for_mode()  # restore
         assert set(backend.dropdown['Localization']) == \
-            {'PRESS', 'sLASER', 'STEAM (7T only)'}
+            {'PRESS', 'sLASER', 'STEAM_7T'}
 
     # ---- Vendor-pulse-file picker -----------------------------------
     def test_universal_vendor_no_picker(self, backend):

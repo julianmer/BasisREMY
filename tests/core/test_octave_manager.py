@@ -4,7 +4,7 @@ Tests for core.octave_manager module
 
 import pytest
 import os
-from core.octave_manager import OctaveManager
+from basisremy.core.octave_manager import OctaveManager
 
 
 @pytest.mark.core

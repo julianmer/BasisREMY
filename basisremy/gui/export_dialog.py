@@ -16,13 +16,13 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from core.exporters import (
+from basisremy.core.exporters import (
     export as _export,
     SUPPORTED_FORMATS,
     FORMAT_LABELS,
     FORMAT_EXTENSIONS,
 )
-from gui.help_widget import HelpIcon
+from basisremy.gui.help_widget import HelpIcon
 
 
 _BG = "#f0f0f0"

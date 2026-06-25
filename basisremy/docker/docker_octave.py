@@ -7,7 +7,7 @@
 #                                                                                                  #
 # Created: 14/10/25                                                                                #
 #                                                                                                  #
-# Purpose: Defines a Docker-based interface to run Octave commands.                                #
+# Purpose: Defines a Docker-based interface to run Octave commands.                                 #
 #                                                                                                  #
 ####################################################################################################
 
@@ -46,8 +46,10 @@ class DockerOctave:
         # Get the project root directory (where we're running from)
         self.project_root = os.getcwd()
 
-        # Shared directory for temporary files
-        self.shared_dir = os.path.join(self.project_root, 'docker_setup', 'octave_shared')
+        # Scratch directory for the generated run.m / result.mat. It MUST live
+        # under the working directory because that is what gets mounted into the
+        # container at /workspace (see the volume mount below).
+        self.shared_dir = os.path.join(self.project_root, '.octave_shared')
         os.makedirs(self.shared_dir, exist_ok=True)
 
         self.script_path = os.path.join(self.shared_dir, 'run.m')
@@ -137,13 +139,14 @@ class DockerOctave:
             print(f"Building BasisREMY Octave Docker image (this may take a few minutes)...")
             print("=" * 80)
             try:
-                # Get the docker_setup directory path
+                # The dockerfile (and a requirements.txt for its COPY step)
+                # ship next to this module inside the package.
                 dockerfile_dir = os.path.dirname(os.path.abspath(__file__))
 
                 # Build the image from the Dockerfile with streaming output
                 build_logs = self.client.api.build(
-                    path=os.path.dirname(dockerfile_dir),  # Project root
-                    dockerfile=os.path.join('docker_setup', 'dockerfile'),
+                    path=dockerfile_dir,  # Build context: basisremy/docker/
+                    dockerfile='dockerfile',
                     tag=image_name,
                     rm=True,  # Remove intermediate containers
                     decode=True  # Decode JSON stream

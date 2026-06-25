@@ -6,7 +6,7 @@
 #                                                                                                  #
 # Created: 08/10/25                                                                                #
 #                                                                                                  #
-# Purpose: Defines the BasisREMY class for extracting REMY parameters from MRS data                #
+# Purpose: Defines the BasisREMY class for extracting REMY parameters from MRS data                 #
 #          and simulating a basis set using different backends.                                    #
 #                                                                                                  #
 ####################################################################################################
@@ -20,11 +20,11 @@ import numpy as np
 import pathlib
 
 # own
-from backends.fslmrs_backend import FSLMRSBackend
-from backends.mrscloud_backend import MRSCloudBackend
-from backends.custom_backends import CustomSLaser
-from backends.fida_backends import FIDA_BACKENDS
-from externals.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
+from basisremy.backends.fslmrs_backend import FSLMRSBackend
+from basisremy.backends.mrscloud_backend import MRSCloudBackend
+from basisremy.backends.custom_backends import CustomSLaser
+from basisremy.backends.fida_backends import FIDA_BACKENDS
+from basisremy.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 
 
 #**************************************************************************************************#

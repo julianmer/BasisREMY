@@ -19,13 +19,12 @@ import os
 import sys
 import json
 import numpy as np
-from backends.base import Backend
+from basisremy.backends.base import Backend
+from basisremy.core.paths import externals_root
 
-# denmatsim lives at externals/fsl_mrs/fsl_mrs/denmatsim/
+# denmatsim lives at <externals>/fsl_mrs/fsl_mrs/denmatsim/
 # add its parent to sys.path so 'from denmatsim import ...' works
-_denmatsim_parent = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', 'externals', 'fsl_mrs', 'fsl_mrs')
-)
+_denmatsim_parent = str(externals_root() / 'fsl_mrs' / 'fsl_mrs')
 if _denmatsim_parent not in sys.path:
     sys.path.insert(0, _denmatsim_parent)
 
@@ -648,6 +647,9 @@ class FSLMRSBackend(Backend):
             dict: {metabolite_name: FID_array}
         """
         # Import denmatsim (path already set up at module level)
+        # Fetch FSL-MRS on first use (no-op in a source checkout).
+        from basisremy.core.externals import ensure
+        ensure('fsl_mrs')
         try:
             from denmatsim import simseq, utils as simutils
         except ImportError as e:
@@ -706,9 +708,7 @@ class FSLMRSBackend(Backend):
             if param_match:
                 seq_rel_path = predefined_info['path']
                 # JSON example files live inside denmatsim itself
-                denmatsim_path = os.path.abspath(os.path.join(
-                    os.path.dirname(__file__), '..', 'externals', 'fsl_mrs', 'fsl_mrs', 'denmatsim'
-                ))
+                denmatsim_path = str(externals_root() / 'fsl_mrs' / 'fsl_mrs' / 'denmatsim')
                 seq_file_path = os.path.join(denmatsim_path, seq_rel_path)
 
                 if os.path.exists(seq_file_path):

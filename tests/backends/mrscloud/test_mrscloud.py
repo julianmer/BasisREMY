@@ -6,7 +6,7 @@
 #                                                                                                  #
 # Created: 24/04/26                                                                                #
 #                                                                                                  #
-# Purpose: Test MRSCloudBackend (rewritten 24/04/26 to drive the real MRSCloud workflow            #
+# Purpose: Test MRSCloudBackend (rewritten 24/04/26 to drive the real MRSCloud workflow             #
 #          through `adapters/backends/mrscloud_run_metab.m` instead of FID-A's                     #
 #          `sim_lcmrawbasis`).                                                                     #
 #                                                                                                  #
@@ -17,7 +17,7 @@
 #              one parametrize per (sequence × localization) combo. These require                  #
 #              a working MRSCloud + FID-A install.                                                 #
 #                                                                                                  #
-#          TODO: get vendor-specific testing data for HERMES / HERCULES / MEGA-sLASER and          #
+#          TODO: get vendor-specific testing data for HERMES / HERCULES / MEGA-sLASER and           #
 #          extend the integration suite to cover them with real REMY-extracted parameters.         #
 #                                                                                                  #
 ####################################################################################################
@@ -32,17 +32,26 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from core.basisremy import BasisREMY
-from backends.mrscloud_backend import MRSCloudBackend
+from basisremy.core.basisremy import BasisREMY
+from basisremy.backends.mrscloud_backend import MRSCloudBackend
 
 
 # ----------------------------------------------------------------- helpers
 def _octave_available() -> bool:
-    """True if either a local oct2py-compatible Octave or the Docker fallback works."""
+    """True if either a Docker-based Octave or a local oct2py-compatible Octave works."""
     try:
-        from core.octave_manager import OctaveManager
+        from basisremy.core.octave_manager import OctaveManager
         m = OctaveManager()
-        return bool(m.check_local_octave_availability() or m.check_docker_availability())
+        if m.check_docker_availability():
+            return True
+        # Local Octave is only usable when oct2py is also installed
+        if m.check_local_octave_availability():
+            try:
+                import oct2py  # noqa: F401
+                return True
+            except ImportError:
+                return False
+        return False
     except Exception:
         return False
 
@@ -327,7 +336,7 @@ class TestMRSCloudIntegration:
             assert np.max(np.abs(result[k])) > 0
 
         # Round-trip through the unified exporter
-        from core.exporters import export
+        from basisremy.core.exporters import export
         out = export(result, str(tmp_path / 'mrscloud.basis'),
                      'lcmodel_basis', sim_params)
         assert os.path.exists(out)

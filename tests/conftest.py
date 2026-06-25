@@ -173,7 +173,15 @@ def pytest_collection_modifyitems(config, items):
 
     import shutil
     octave_cmd = shutil.which('octave-cli') or shutil.which('octave')
-    octave_available = octave_cmd is not None
+    # Local Octave is only usable when oct2py is also importable
+    if octave_cmd is not None:
+        try:
+            import oct2py  # noqa: F401
+            octave_available = True
+        except ImportError:
+            octave_available = False
+    else:
+        octave_available = False
 
     for item in items:
         if "requires_docker" in item.keywords and not docker_available:

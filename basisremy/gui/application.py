@@ -6,9 +6,9 @@
 #                                                                                                  #
 # Created: 08/10/25                                                                                #
 #                                                                                                  #
-# Purpose: Defines the GUI application for the BasisREMY tool. Each tab is a different             #
+# Purpose: Defines the GUI application for the BasisREMY tool. Each tab is a different              #
 #          step in the process, starting with the data selection and REMY extraction,              #
-#          continuing with the parameter configuration, and ending with the basis set simulation.  #
+#          continuing with the parameter configuration, and ending with the basis set simulation.   #
 #                                                                                                  #
 ####################################################################################################
 
@@ -21,6 +21,8 @@ import numpy as np
 import threading
 import tkinter as tk
 
+from pathlib import Path
+
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
@@ -31,9 +33,9 @@ from tkinterdnd2 import TkinterDnD, DND_FILES
 from tkinterweb import HtmlFrame
 
 # own
-from core.basisremy import BasisREMY
-from gui.help_widget import LabelWithHelp
-from gui.export_dialog import ExportDialog
+from basisremy.core.basisremy import BasisREMY
+from basisremy.gui.help_widget import LabelWithHelp
+from basisremy.gui.export_dialog import ExportDialog
 
 
 #**************************************************************************************************#
@@ -42,7 +44,7 @@ from gui.export_dialog import ExportDialog
 #                                                                                                  #
 # The GUI application for the BasisREMY tool. Each tab is a different step in the process,         #
 # starting with the data selection and REMY extraction, continuing with the parameter              #
-# configuration, and ending with the basis set simulation.                                         #
+# configuration, and ending with the basis set simulation.                                          #
 #                                                                                                  #
 #**************************************************************************************************#
 class Application(TkinterDnD.Tk):
@@ -93,12 +95,16 @@ class Application(TkinterDnD.Tk):
         self.create_widgets()
 
     def create_widgets(self):
+        # bundled images live in <project root>/assets/imgs, one level up from
+        # this gui/ package, so the GUI works regardless of the working dir.
+        assets = Path(__file__).resolve().parent.parent / "assets" / "imgs"
+
         # create a canvas for the header
         header_canvas = tk.Canvas(self, width=self.windowLength, height=100, highlightthickness=0)
         header_canvas.pack(fill=tk.X)
 
         # load the header image
-        header_image = Image.open("assets/imgs/basisremy_header.png")
+        header_image = Image.open(assets / "basisremy_header.png")
         header_image = header_image.resize((1600, 100))
         header_photo = ImageTk.PhotoImage(header_image)
 
@@ -117,7 +123,7 @@ class Application(TkinterDnD.Tk):
         )
 
         # add logo
-        logo_image = Image.open("assets/imgs/basisremy_logo.png")
+        logo_image = Image.open(assets / "basisremy_logo.png")
         logo_image = logo_image.resize((100, 100))
         logo_photo = ImageTk.PhotoImage(logo_image)
         logo_label = tk.Label(self, image=logo_photo, bg="#f0f0f0")
@@ -694,7 +700,7 @@ class Application(TkinterDnD.Tk):
         Returns:
             bool: True if Octave is available, False otherwise
         """
-        from core.octave_manager import OctaveManager
+        from basisremy.core.octave_manager import OctaveManager
 
         manager = OctaveManager()
         docker_available = manager.check_docker_availability()

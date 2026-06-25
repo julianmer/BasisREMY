@@ -1,5 +1,5 @@
 ####################################################################################################
-#                                       backends/custom_backends.py                                #
+#                                           custom_backends.py                                     #
 ####################################################################################################
 #                                                                                                  #
 # Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
@@ -21,7 +21,7 @@ import os
 import numpy as np
 
 # own
-from backends.base import Backend
+from basisremy.backends.base import Backend
 
 
 #**************************************************************************************************#
@@ -216,6 +216,11 @@ class CustomSLaser(Backend):
         if self.octave is None:
             raise RuntimeError("Octave not initialized. Call initialize_octave() first.")
 
+        # Fetch FID-A and the sLASER (jbss) toolbox on first use
+        # (no-op in a source checkout).
+        from basisremy.core.externals import ensure
+        ensure('fidA')
+        ensure('jbss')
         self.octave.eval("warning('off', 'all');")
         self.octave.addpath('./externals/fidA/inputOutput/')
         self.octave.addpath('./externals/fidA/processingTools/')

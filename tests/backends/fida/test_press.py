@@ -10,7 +10,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from core.basisremy import BasisREMY
+from basisremy.core.basisremy import BasisREMY
 
 @pytest.mark.backend
 @pytest.mark.lcmodel
@@ -53,20 +53,15 @@ class TestLCModelPRESS:
         print("Running PRESS simulation...")
         result = basisremy.backend.run_simulation(test_params)
 
-        # Verify backend returned a non-empty FID for NAA and wrote
-        # an internal .RAW into its scratch workdir (export is now a
-        # post-step, not a backend concern).
+        # Verify backend returned a non-empty FID for NAA.
+        # The backend returns {metabolite: complex_numpy_array}; export to
+        # .RAW / .basis / etc. is handled separately by core/exporters.py.
         import numpy as np
-        assert 'NAA' in result and isinstance(result['NAA'], np.ndarray)
-        assert np.max(np.abs(result['NAA'])) > 0, "NAA FID is empty"
-        wd = basisremy.backend._workdir
-        assert wd and os.path.isdir(wd)
-        output_file = os.path.join(wd, 'NAA.RAW')
-        assert os.path.exists(output_file), (
-            f"intermediate .RAW missing in workdir {wd}")
-
-        file_size = os.path.getsize(output_file)
-        assert file_size > 0, f"Output file is empty: {output_file}"
+        assert 'NAA' in result, f"NAA missing from result keys: {list(result.keys())}"
+        fid = np.asarray(result['NAA'])
+        assert fid.ndim >= 1 and fid.size > 0, "NAA FID is empty"
+        assert np.max(np.abs(fid)) > 0, "NAA FID is all-zero"
+        file_size = fid.size * fid.itemsize
 
         print(f"\n✅ SUCCESS!")
         print(f"   Output: NAA.RAW ({file_size} bytes)")
