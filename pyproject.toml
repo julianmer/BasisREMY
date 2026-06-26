@@ -44,6 +44,12 @@ dev = [
 # desktop window (pywebview); the same user-facing command works under uvx.
 basisremy = "basisremy.__main__:main"
 
+[tool.setuptools]
+# Ship ONLY the data files explicitly listed under [tool.setuptools.package-data]
+# below. With the default (true), setuptools auto-bundles every VCS-tracked file
+# under the package, which would drag in all ~50 mouse-colour PNGs (~12 MB).
+include-package-data = false
+
 [tool.setuptools.packages.find]
 # Package the application code under basisremy/ (now including the docker runtime
 # and the vendored remy module). Only externals/ stays top-level: it is the large
@@ -54,9 +60,14 @@ include = ["basisremy*"]
 [tool.setuptools.package-data]
 # Ship the GUI image assets and bundled data files that live inside the package.
 basisremy = [
-    "assets/imgs/*.png",
-    # Theme-swapped header logos + watermark live in a sub-folder (recursive).
-    "assets/imgs/**/*.png",
+    # Only the four mouse colour variants the GUI actually loads (header logos +
+    # watermarks). The other top-level images (logo/workflow PNGs) are only used
+    # by README.md on GitHub and are never loaded at runtime, so they are left
+    # out to keep the wheel small (~1 MB instead of ~20 MB).
+    "assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_navy_blue.png",
+    "assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_sky_blue.png",
+    "assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_charcoal.png",
+    "assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_light_gray.png",
     "assets/*.md",
     # First-party Octave adapter scripts (run inside Octave/Docker at runtime).
     "adapters/backends/*.m",
