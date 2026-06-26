@@ -55,7 +55,12 @@ include = ["basisremy*"]
 # Ship the GUI image assets and bundled data files that live inside the package.
 basisremy = [
     "assets/imgs/*.png",
+    # Theme-swapped header logos + watermark live in a sub-folder (recursive).
+    "assets/imgs/**/*.png",
     "assets/*.md",
+    # First-party Octave adapter scripts (run inside Octave/Docker at runtime).
+    "adapters/backends/*.m",
+    "adapters/utils/*.m",
     # Vendored third-party MRSinMRS data + license (BSD-3, see remy/LICENSE).
     "remy/*.csv",
     "remy/LICENSE",
