@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "basisremy"
-version = "0.1.0"
+version = "0.1.1"
 description = "A tool for generating study-specific MR spectroscopy basis sets directly from raw MRS data."
 readme = "README.md"
 requires-python = ">=3.10"

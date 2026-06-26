@@ -1,11 +1,12 @@
 <div align="center">
-  <img src="basisremy/assets/imgs/basisremy_logo_round.png" alt="BasisREMY Logo" width="120" style="margin-bottom: -10px;"/>
+  <img src="https://raw.githubusercontent.com/julianmer/BasisREMY/main/basisremy/assets/imgs/basisremy_logo_round.png" alt="BasisREMY Logo" width="120" style="margin-bottom: -10px;"/>
   <h1 style="margin-top: 5px; margin-bottom: 5px;">BasisREMY</h1>
   <p style="margin-top: 0px;"><em>A Unified Framework for Study-Specific Basis Set Generation in MR Spectroscopy</em></p>
   
+  [![PyPI](https://img.shields.io/pypi/v/basisremy.svg)](https://pypi.org/project/basisremy/)
   [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
   [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
-  [![ISMRM 2026](https://img.shields.io/badge/ISMRM-Abstract%20%2301716-lightgrey.svg)](https://submissions.mirasmart.com/ISMRM2026/)
+  [![ISMRM 2026](https://img.shields.io/badge/ISMRM-Abstract%20%2301716-lightgrey.svg)](https://archive.ismrm.org)
 </div>
 
 ---
@@ -13,7 +14,7 @@
 A tool for generating study-specific basis sets directly from raw MRS data, integrating real pulse shapes and acquisition parameters. This project is in its early development stages, and contributions, testing, and feedback are highly welcomed!
 
 <div align="center">
-  <img src="basisremy/assets/imgs/basisremy_workflow_v2.png" alt="BasisREMY Workflow" width="750"/>
+  <img src="https://raw.githubusercontent.com/julianmer/BasisREMY/main/basisremy/assets/imgs/basisremy_workflow_v2.png" alt="BasisREMY Workflow" width="750"/>
 </div>
 
 ---
