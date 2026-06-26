@@ -54,15 +54,15 @@ def test_application_class_loads():
 
     This exercises the full import chain (basisremy.gui -> core -> backends ->
     externals) so packaging/path regressions are caught early. It is skipped
-    only when the Tk GUI toolkit itself is unavailable in the test environment.
+    only when the NiceGUI toolkit itself is unavailable in the test environment.
     """
     launcher = importlib.import_module("basisremy.__main__")
     launcher._prepare_runtime()
     try:
         app_cls = launcher._load_application()
     except ModuleNotFoundError as exc:
-        if "tkinter" in str(exc).lower():
-            pytest.skip(f"Tk GUI toolkit unavailable: {exc}")
+        if "nicegui" in str(exc).lower() or "webview" in str(exc).lower():
+            pytest.skip(f"NiceGUI toolkit unavailable: {exc}")
         raise
     assert isinstance(app_cls, type)
-    assert app_cls.__name__ == "Application"
+    assert app_cls.__name__ == "BasisREMYApp"

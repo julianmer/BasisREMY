@@ -11,5 +11,5 @@ pytest-xdist>=3.0.0
 pytest-timeout>=2.1.0
 scipy>=1.10.0
 spec2nii==0.8.7
-tkinterdnd2==0.4.2
-tkinterweb==3.25.14
+nicegui>=2.0.0
+pywebview>=5.0

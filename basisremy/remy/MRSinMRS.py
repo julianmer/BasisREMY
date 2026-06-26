@@ -5,8 +5,18 @@ __date__    = '2023/06/01'
 
 
 # from fpdf import FPDF
-from tkinter import filedialog 														# File Explorer through Tkinter
-import tkinter as tk     															# Graphical User Interface
+try:
+	from tkinter import filedialog 													# File Explorer through Tkinter
+	import tkinter as tk     														# Graphical User Interface
+except Exception: 																	# tkinter is optional: only the
+	filedialog = None 																# standalone REMY GUI below uses it.
+	class _TkStub: 																	# BasisREMY drives REMY by file path,
+		"""Placeholder so the standalone REMY ``Application`` class can be    # so the core never needs tkinter. The
+		*defined* (used as a base class) when tkinter is unavailable. The     # stub lets the class body import; it is
+		GUI is never instantiated by BasisREMY, so the stub is never used.""" # never instantiated without real tkinter.
+		def __getattr__(self, name): 												# Any attribute (tk.Tk, tk.W, …) resolves
+			return _TkStub 															# to this class so definitions succeed.
+	tk = _TkStub() 																	#
 import pandas as pd 																# DataFrames
 import numpy as np  																# Arrays
 import time as t0 																	# Timer

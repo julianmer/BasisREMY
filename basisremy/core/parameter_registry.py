@@ -211,11 +211,9 @@ REGISTRY: dict[str, ParamInfo] = {
     "Vendor Pulse File": ParamInfo(
         label="Vendor pulse file",
         description=(
-            "Vendor-confidential RF waveform that MRSCloud needs but does NOT "
-            "ship in its public repo (e.g. Philips_spredrex.pta, gtst1203_sp.pta, "
-            "Philips_GOIA_WURST_100pts.mat). Only required when a non-Universal_* "
-            "vendor is selected. The chosen file is staged into the per-run "
-            "scratch directory under the canonical filename MRSCloud expects."
+            "Vendor-confidential RF waveform that MRSCloud needs but does not "
+            "ship in its public repo. Only required when a non-Universal_* "
+            "vendor is selected."
         ),
         widget_hint="file",
     ),

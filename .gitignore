@@ -48,9 +48,6 @@ legacy/
 # Docker/Octave temporary files
 .octave_shared/
 
-# Dev: adapters symlink materialized at the runtime root by the launcher
-/adapters
-
 # Temporary files
 *.log
 *.tmp

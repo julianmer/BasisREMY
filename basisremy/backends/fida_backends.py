@@ -131,7 +131,9 @@ class FidaBackend(Backend):
             raise RuntimeError("Octave not initialized.")
         # Fetch FID-A on first use (no-op in a source checkout).
         from basisremy.core.externals import ensure
+        from basisremy.core.paths import octave_adapters_base
         ensure('fidA')
+        adapters_base = octave_adapters_base(self.octave)
         self.octave.eval("warning('off', 'all');")
         # First add the FID-A tree recursively so nested helpers (e.g.
         # rfPulseTools/mklassenTools/bes.m, used by io_loadRFwaveform for
@@ -145,8 +147,8 @@ class FidaBackend(Backend):
         #     calls plot()/input() for phase-modulated pulses, which fails
         #     in headless Docker Octave with "ft_text_renderer: invalid
         #     bounding box, cannot render, unable to create graphics handle").
-        self.octave.addpath('./adapters/backends/')
-        self.octave.addpath('./adapters/backends/fida/')
+        self.octave.addpath(adapters_base + '/backends/')
+        self.octave.addpath(adapters_base + '/backends/fida/')
 
     # -------------------------------------------------- REMY
     def parseREMY(self, MRSinMRS):

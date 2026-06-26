@@ -124,13 +124,15 @@ See the [Octave Setup Guide](basisremy/assets/OCTAVE_SETUP.md) for detailed inst
 
 ## Troubleshooting
 
-- **`ModuleNotFoundError: No module named 'tkinter'`** — Tkinter ships with
-  CPython but some distributions split it into a separate package:
-  - macOS (Homebrew Python): `brew install python-tk`
-  - Debian/Ubuntu: `sudo apt install python3-tk`
-  - Fedora: `sudo dnf install python3-tkinter`
-  - Windows: reinstall Python from [python.org](https://www.python.org/downloads/)
-    with the *"tcl/tk and IDLE"* option enabled.
+- **GUI doesn't open / `ModuleNotFoundError: No module named 'nicegui'`** — the
+  front-end is [NiceGUI](https://nicegui.io) shown in a native desktop window via
+  [pywebview](https://pywebview.flowrl.com). They install automatically with the
+  project (`uv sync` / `uvx --from . basisremy`); if you installed manually, run
+  `pip install nicegui pywebview`. These are pure-pip packages, so no system
+  `tcl/tk` is required.
+- **Window stays blank or pywebview errors** — without `pywebview` the UI falls
+  back to opening in your browser; install it (`pip install pywebview`) for the
+  native window. On Linux a system WebKitGTK package may be needed.
 - **Simulation fails / "Octave not found"** — start Docker Desktop/Engine, or
   install local Octave. See the [Octave Setup Guide](basisremy/assets/OCTAVE_SETUP.md).
 - **`uv: command not found`** — re-open your terminal after installing `uv`, or
@@ -185,15 +187,26 @@ python -m basisremy
 This will launch the BasisREMY GUI. (Inside the repo you can equivalently use `uv run basisremy`.)
 
 ### Usage Overview
-1. Data Selection (Tab 1):
-   * Drag and drop your MRS data file or click to select a file. 
-   * Click Process File to extract REMY data or Skip to proceed without processing.
-2. Parameter Configuration (Tab 2):
-   * Adjust parameters and select metabolites using the provided checkboxes. 
-   * Click Simulate Basis Set when all required parameters are provided.
-3. Basis Simulation (Tab 3):
-   * A progress bar will display the simulation status.
-   * Once complete, the basis set is created and an interactive plot is shown.
+
+BasisREMY guides you through a simple **three-step workflow**, shown as a numbered
+stepper at the top of the window (**Data → Parameters → Simulate**). You can click
+any completed step to go back and make changes. A light/dark theme toggle sits in
+the top-right corner and follows your system setting by default.
+
+1. **Data** — Drop your MRS data file onto the upload area (or click it to browse).
+   Click **Continue** to automatically read the file and pre-fill the acquisition
+   parameters, or **Skip** to configure everything manually.
+2. **Parameters** — Choose a simulation **backend** (grouped by category), review
+   the auto-filled parameters, and tick the **metabolites** to include (**Select
+   all** toggles the whole list). When the required fields are set, click
+   **Simulate basis set**.
+3. **Simulate** — A progress bar shows the simulation status. When it finishes,
+   an interactive spectrum plot appears and you can click **Export basis…** to
+   save the basis set in LCModel, jMRUI, FSL-MRS, or Osprey format.
+
+> Every input has a small **(?)** help icon — hover it for a short explanation of
+> that parameter.
+
 
 ### Examples (No GUI)
 

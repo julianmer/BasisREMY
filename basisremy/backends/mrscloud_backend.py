@@ -135,6 +135,13 @@ class MRSCloudBackend(Backend):
         self.category = 'MRSCloud'
         self.requires_octave = True
 
+        # Universal (bundled, vendor-agnostic) vs vendor-specific System
+        # options. Exposed in the GUI as a "Mode" selector; the choice filters
+        # which vendors appear in self.dropdown['System'] (see
+        # get_params_for_mode / set_mode below).
+        self.modes = ['Universal', 'Non-Universal']
+        self.current_mode = 'Universal'
+
         # Metabolite library
         self.metabs = dict(self._METABS_DEFAULT)
 
@@ -200,6 +207,15 @@ class MRSCloudBackend(Backend):
         }
 
     # --------------------------------------------------------------- mode/schema
+    def set_mode(self, mode):
+        """Switch between 'Universal' and 'Non-universal'. Clears the current
+        System so the user re-picks a vendor valid for the chosen mode."""
+        if mode not in self.modes:
+            raise ValueError(f"Unknown mode '{mode}'. Available: {self.modes}")
+        self.current_mode = mode
+        self.mandatory_params['System'] = None
+        return self.get_params_for_mode(mode)
+
     def get_params_for_mode(self, mode=None):
         """Return only the parameters relevant to the current Sequence /
         Localization / System combo so the GUI never shows fields MRSCloud
@@ -208,6 +224,27 @@ class MRSCloudBackend(Backend):
         seq    = (self.mandatory_params.get('Sequence')       or '').strip()
         loc    = (self.mandatory_params.get('Localization')   or '').strip()
         vendor = (self.mandatory_params.get('System')         or '').strip()
+
+        # ---- Universal vs vendor-specific System options --------------------
+        # An externally-set vendor (e.g. parsed from REMY) steers the mode so
+        # the System dropdown always contains the current value. In Universal
+        # mode only the two bundled universal vendors are offered, shown under
+        # the plain labels "Philips"/"Siemens" (the stored value stays
+        # Universal_* so MRSCloud uses the bundled univ_*.pta waveforms and
+        # never asks for a vendor pulse file).
+        _universal = ['Universal_Philips', 'Universal_Siemens']
+        _specific  = ['Philips', 'Siemens', 'GE']
+        if vendor in _universal:
+            self.current_mode = 'Universal'
+        elif vendor in _specific:
+            self.current_mode = 'Non-universal'
+        if self.current_mode == 'Universal':
+            self.dropdown['System'] = {
+                'Universal_Philips': 'Philips',
+                'Universal_Siemens': 'Siemens',
+            }
+        else:
+            self.dropdown['System'] = list(_specific)
 
         # ---- edited sequences restrict Localization to PRESS / sLASER -------
         if seq in ('MEGA', 'HERMES', 'HERCULES'):
@@ -395,10 +432,11 @@ class MRSCloudBackend(Backend):
             raise RuntimeError("Octave not initialized. Call initialize_octave() first.")
         # Fetch MRSCloud on first use (no-op in a source checkout).
         from basisremy.core.externals import ensure
+        from basisremy.core.paths import octave_adapters_base
         ensure('mrscloud')
         self.octave.eval("warning('off', 'all');")
         # adapters/backends contains our mrscloud_run_metab.m wrapper
-        self.octave.addpath('./adapters/backends/')
+        self.octave.addpath(octave_adapters_base(self.octave) + '/backends/')
         # Pull in MRSCloud (functions + bundled FID-A) recursively
         self.octave.addpath(self.octave.genpath('./externals/mrscloud/functions/'))
         self.octave.addpath(self.octave.genpath('./externals/mrscloud/pulses_universal/'))

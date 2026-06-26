@@ -27,8 +27,8 @@ dependencies = [
     "pyMapVBVD==0.6.1",
     "scipy>=1.10.0",
     "spec2nii==0.8.7",
-    "tkinterdnd2==0.4.2",
-    "tkinterweb==3.25.14",
+    "nicegui>=2.0.0",
+    "pywebview>=5.0",
 ]
 
 [project.optional-dependencies]
@@ -40,9 +40,8 @@ dev = [
 ]
 
 [project.scripts]
-# Single, stable command. The launcher currently starts the Tkinter GUI; a
-# future NiceGUI front-end can be swapped in behind this same entry point
-# without changing the user-facing command.
+# Single, stable command. The launcher starts the NiceGUI front-end in a native
+# desktop window (pywebview); the same user-facing command works under uvx.
 basisremy = "basisremy.__main__:main"
 
 [tool.setuptools.packages.find]

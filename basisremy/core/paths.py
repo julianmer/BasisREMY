@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 from pathlib import Path
 
 # Directory holding the package's own Octave adapter scripts. These ship inside
@@ -64,33 +63,27 @@ def externals_root() -> Path:
     return runtime_root() / "externals"
 
 
-def ensure_adapters() -> Path:
-    """Make the bundled adapter scripts available at ``runtime_root()/adapters``.
+def octave_adapters_base(octave) -> str:
+    """Return the path prefix the Octave backends should ``addpath`` for adapters.
 
-    The Octave backends reference ``./adapters/...`` relative to the working
-    directory (which is the runtime root and, for Docker, the mounted volume),
-    so the package's adapters must be reachable there.
+    The bundled adapter scripts live inside the package (:data:`ADAPTERS_DIR`)
+    and never need to be copied or symlinked next to the working directory:
 
-    In a source checkout the adapters already live under the runtime root, so a
-    relative symlink is used (single source of truth). For an installed copy the
-    adapters sit in ``site-packages`` outside the runtime root, so they are
-    copied in.
+      * Local Octave runs in-process, so it uses the package's absolute path
+        directly.
+      * The Docker runtime makes the adapters available through its
+        ``/workspace`` bind-mount and exposes the matching ``addpath`` prefix
+        (relative to the ``/workspace`` working dir) as the ``ADAPTERS_MOUNT``
+        instance attribute.
+
+    The Docker runtime sets ``ADAPTERS_MOUNT`` per instance, so read it from the
+    instance ``__dict__`` rather than via ``getattr``: the local Octave object
+    (``oct2py.Oct2Py``) forwards unknown attribute access into the Octave
+    session, which would otherwise mask the absent attribute.
     """
-    root = runtime_root()
-    target = root / "adapters"
-    if target.exists():
-        return target
-
-    root.mkdir(parents=True, exist_ok=True)
-
-    if ADAPTERS_DIR.is_relative_to(root):
-        # Source checkout: a relative symlink keeps a single source of truth and
-        # works inside the Docker mount (the target is under the same root).
-        try:
-            target.symlink_to(os.path.relpath(ADAPTERS_DIR, root))
-            return target
-        except OSError:
-            pass  # Fall back to copying if symlinks are not permitted.
-
-    shutil.copytree(ADAPTERS_DIR, target)
-    return target
+    mount = octave.__dict__.get("ADAPTERS_MOUNT")
+    if not mount:
+        mount = getattr(type(octave), "ADAPTERS_MOUNT", None)
+    if mount:
+        return mount
+    return str(ADAPTERS_DIR)

@@ -219,6 +219,7 @@ class CustomSLaser(Backend):
         # Fetch FID-A and the sLASER (jbss) toolbox on first use
         # (no-op in a source checkout).
         from basisremy.core.externals import ensure
+        from basisremy.core.paths import octave_adapters_base
         ensure('fidA')
         ensure('jbss')
         self.octave.eval("warning('off', 'all');")
@@ -226,7 +227,7 @@ class CustomSLaser(Backend):
         self.octave.addpath('./externals/fidA/processingTools/')
         self.octave.addpath('./externals/fidA/simulationTools/')
         self.octave.addpath('./externals/jbss/')
-        self.octave.addpath(self.octave.genpath('./adapters/'))
+        self.octave.addpath(self.octave.genpath(octave_adapters_base(self.octave)))
 
     def run_simulation(self, params, progress_callback=None, stop_event=None):
         # Initialize Octave if not already done

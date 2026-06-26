@@ -10,992 +10,1156 @@
 #          step in the process, starting with the data selection and REMY extraction,              #
 #          continuing with the parameter configuration, and ending with the basis set simulation.   #
 #                                                                                                  #
+#          NiceGUI front-end: a sleek, pure-web UI that runs in a native desktop window            #
+#          (via pywebview) and installs cleanly under uvx — no system tcl/tk required. The         #
+#          server runs on localhost, so local data files are read in place by path; nothing         #
+#          is uploaded or copied.                                                                  #
+#                                                                                                  #
 ####################################################################################################
 
 
 #*************#
 #   imports   #
 #*************#
-import matplotlib.pyplot as plt
-import numpy as np
 import threading
-import tkinter as tk
-
 from pathlib import Path
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from matplotlib.figure import Figure
+import matplotlib
+matplotlib.use("Agg")  # NiceGUI renders figures to SVG; no interactive backend needed
+import matplotlib.pyplot as plt
+import numpy as np
 
-from PIL import Image, ImageTk
-
-from tkinter import filedialog, ttk
-from tkinterdnd2 import TkinterDnD, DND_FILES
-from tkinterweb import HtmlFrame
+from nicegui import app, ui
 
 # own
 from basisremy.core.basisremy import BasisREMY
-from basisremy.gui.help_widget import LabelWithHelp
-from basisremy.gui.export_dialog import ExportDialog
+from basisremy.gui.help_widget import label_with_help
+from basisremy.gui.local_file_picker import LocalFilePicker
+from basisremy.gui.export_dialog import open_export_dialog
+
+
+# Brand palette sampled from the BasisREMY mouse logo (deep teal-navy + slate).
+PRIMARY = "#15627f"
+PRIMARY_DARK = "#0a3a4f"
+ASSETS = Path(__file__).resolve().parent.parent / "assets" / "imgs"
+
+# Values that count as "not filled in" for validation / dropdown placeholders.
+_UNSET = (None, "", "missing input", "Select option")
+
+
+# File suffixes / names that BasisREMY's REMY reader can actually parse. Used to
+# filter the data-file picker so users can only pick processable files.
+_MRS_SUFFIXES = {".dat", ".ima", ".rda", ".spar", ".7", ".nii"}
+
+
+def _is_mrs_file(p: Path) -> bool:
+    name = p.name.lower()
+    if name.endswith(".nii.gz"):
+        return True
+    if p.suffix.lower() in _MRS_SUFFIXES:
+        return True
+    return "method" in name or "2dseq" in name
+
+
+# Global stylesheet: minimal, modern, theme-aware (light + system/dark). All
+# colours come from CSS variables that flip under Quasar's ``body--dark`` class.
+_GLOBAL_CSS = f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {{
+  /* sampled from the mouse logo: deep teal-navy + slate, on a soft grey page */
+  --br-primary: {PRIMARY};
+  --br-primary-strong: #0c4257;
+  --br-ink: #0a2c3b;
+  --br-tint: rgba(21,98,127,0.10);
+  --br-tint-strong: rgba(21,98,127,0.16);
+  --br-bg: #f5f8fa;
+  --br-surface: #ffffff;
+  --br-fg: #0e2630;
+  --br-muted: #5e7280;
+  --br-line: #e7edf2;
+  --br-field: #eef3f7;
+  --br-hover: rgba(21,98,127,0.06);
+  --br-step-bg: #e8eef3;
+  --br-step-fg: #93a3af;
+  --br-shadow: 0 1px 2px rgba(10,44,59,.05), 0 8px 24px -14px rgba(10,44,59,.20);
+  --br-wm-a: #0a3a4f;
+  --br-wm-b: #2f93b8;
+}}
+.body--dark {{
+  --br-primary: #5cb6d8;
+  --br-primary-strong: #82c9e4;
+  --br-ink: #cfe3ee;
+  --br-tint: rgba(92,182,216,0.14);
+  --br-tint-strong: rgba(92,182,216,0.22);
+  --br-bg: #0a1016;
+  --br-surface: #121b24;
+  --br-fg: #e6eef3;
+  --br-muted: #8195a2;
+  --br-line: #1e2a34;
+  --br-field: #161f29;
+  --br-hover: rgba(255,255,255,0.045);
+  --br-step-bg: #1b2530;
+  --br-step-fg: #6f7d8a;
+  --br-shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px -18px rgba(0,0,0,.65);
+  --br-wm-a: #8fd2ec;
+  --br-wm-b: #5cb6d8;
+}}
+
+html, body {{
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--br-bg);
+  color: var(--br-fg);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}}
+body, .body--dark {{ background: var(--br-bg); color: var(--br-fg); }}
+.q-page, .q-layout {{ background: var(--br-bg); }}
+.material-icons {{ font-family: 'Material Icons' !important; }}
+::selection {{ background: var(--br-tint); }}
+
+/* ---- header ---------------------------------------------------------- */
+.br-header {{
+  border-bottom: 1px solid var(--br-line);
+  background: var(--br-surface);
+}}
+.br-wordmark {{
+  background: linear-gradient(95deg, var(--br-wm-a), var(--br-wm-b));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: -0.03em;
+}}
+/* brand mouse — a dark mouse in light mode, a light mouse in dark mode */
+.br-logo {{ height: 40px; width: auto; display: inline-block; }}
+.br-logo-dark {{ display: none; }}
+.body--dark .br-logo-light {{ display: none; }}
+.body--dark .br-logo-dark {{ display: inline-block; }}
+
+/* faint mouse watermark — sits quietly behind the content */
+.br-watermark {{
+  position: fixed; right: -34px; bottom: -46px;
+  width: 320px; height: auto; opacity: .05;
+  pointer-events: none; z-index: 0; user-select: none;
+}}
+.br-wm-dark {{ display: none; }}
+.body--dark .br-wm-light {{ display: none; }}
+.body--dark .br-wm-dark {{ display: block; }}
+
+/* ---- structure ------------------------------------------------------- */
+.br-hairline {{ height: 1px; width: 100%; background: var(--br-line); }}
+.br-section-title {{
+  font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--br-muted);
+}}
+.br-legend {{ border-left: 1px solid var(--br-line); }}
+.br-muted {{ color: var(--br-muted); }}
+
+/* keep fixed Quasar grey text readable in dark mode */
+.body--dark .text-grey-9, .body--dark .text-grey-8 {{ color: var(--br-fg) !important; }}
+.body--dark .text-grey-7, .body--dark .text-grey-6 {{ color: var(--br-muted) !important; }}
+
+/* ---- sleek numbered stepper ----------------------------------------- */
+.br-stepper {{ user-select: none; }}
+.br-step {{
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  transition: background .15s ease;
+}}
+.br-step:hover {{ background: var(--br-hover); }}
+.br-step-num {{
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+  background: var(--br-step-bg); color: var(--br-step-fg);
+  transition: all .18s ease;
+}}
+.br-step-label {{
+  font-size: 14px; font-weight: 600; color: var(--br-step-fg);
+  transition: color .18s ease;
+}}
+.br-step.is-active .br-step-num {{
+  background: var(--br-primary); color: #fff;
+  box-shadow: 0 6px 16px -6px rgba(96,115,137,.85);
+}}
+.br-step.is-active .br-step-label {{ color: var(--br-fg); }}
+.br-step.is-done .br-step-num {{ background: var(--br-primary); color: #fff; }}
+.br-step.is-done .br-step-label {{ color: var(--br-fg); opacity: .75; }}
+.br-step.is-locked {{ cursor: default; }}
+.br-step.is-locked:hover {{ background: transparent; }}
+.br-step-line {{
+  width: 44px; height: 2px; border-radius: 2px;
+  background: var(--br-line); transition: background .18s ease;
+}}
+.br-step-line.is-done {{ background: var(--br-primary); }}
+
+/* ---- dropzone -------------------------------------------------------- */
+.br-drop {{
+  border: 1.5px dashed var(--br-line); border-radius: 20px;
+  background: var(--br-surface);
+  transition: border-color .18s ease, background .18s ease,
+              transform .18s ease, box-shadow .18s ease;
+}}
+.br-drop:hover {{
+  border-color: var(--br-primary);
+  background: var(--br-tint);
+  transform: translateY(-2px);
+  box-shadow: var(--br-shadow);
+}}
+.br-icon-badge {{
+  width: 60px; height: 60px; border-radius: 18px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--br-tint);
+}}
+
+/* ---- selected-file card --------------------------------------------- */
+.br-filecard {{
+  border: 1px solid var(--br-line); border-radius: 16px;
+  background: var(--br-surface); padding: 13px 14px;
+  box-shadow: var(--br-shadow);
+}}
+.br-file-ic {{
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--br-tint);
+}}
+
+/* ---- soft filled controls ------------------------------------------- */
+.q-field--filled .q-field__control,
+.body--dark .q-field--filled .q-field__control {{
+  background: var(--br-field);
+  border-radius: 10px;
+}}
+.q-field--filled .q-field__control:before,
+.q-field--filled .q-field__control:after {{ display: none; }}
+.q-field--filled.q-field--focused .q-field__control {{
+  box-shadow: 0 0 0 2px var(--br-tint-strong);
+}}
+.q-btn {{
+  border-radius: 10px; text-transform: none;
+  font-weight: 600; letter-spacing: 0;
+}}
+.q-btn.q-btn--standard {{ box-shadow: 0 12px 24px -16px var(--br-primary); }}
+.br-tab-panel-pad {{ padding: 44px 2px 12px; }}
+
+/* ---- settings-style cards & parameter rows -------------------------- */
+.br-card {{
+  border: 1px solid var(--br-line); border-radius: 16px;
+  background: var(--br-surface); overflow: hidden;
+  box-shadow: var(--br-shadow);
+}}
+.br-plist {{ display: flex; flex-direction: column; width: 100%; gap: 0 !important; }}
+.br-prow {{
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  padding: 0 16px; border-top: 1px solid var(--br-line);
+  min-height: 38px;
+  transition: background .12s ease;
+}}
+.br-prow:first-child {{ border-top: none; }}
+.br-prow:hover {{ background: var(--br-hover); }}
+.br-prow-label {{ flex: 1 1 auto; min-width: 0; font-size: 13px; }}
+.br-pfield {{ flex: 0 0 auto; width: 184px; }}
+/* wider selector fields for the Simulation Software / Mode pickers */
+.br-selfield {{ flex: 0 0 auto; width: 280px; }}
+/* compact, low-profile fields inside settings rows (overrides Quasar's 40px) */
+.br-prow .q-field--filled .q-field__control {{ background: var(--br-field); }}
+.br-prow .q-field__control {{
+  min-height: 30px !important; height: 30px !important; padding: 0 10px !important;
+}}
+.br-prow .q-field__control-container {{ padding-top: 0 !important; min-height: 30px; }}
+.br-prow .q-field__native, .br-prow .q-field__input {{
+  min-height: 30px !important; height: 30px !important;
+  padding: 0; font-size: 13px; line-height: 30px;
+}}
+.br-prow .q-field__marginal {{ height: 30px; }}
+/* drop the reserved hint/error row so settings rows stay tight */
+.br-prow .q-field__bottom {{ display: none !important; }}
+.br-prow .q-field--with-bottom {{ padding-bottom: 0 !important; }}
+.br-card-head {{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 14px 7px;
+}}
+/* two-column settings layout: top-aligned so cards keep their natural
+   height (no stretched empty space under the shorter column) */
+.br-pgrid {{
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 32px; align-items: start; width: 100%;
+}}
+.br-pgrid--single {{ grid-template-columns: minmax(0, 560px); }}
+/* dense metabolite grid */
+.br-metab .q-checkbox {{ min-height: 0; }}
+.br-metab .q-checkbox__inner {{ font-size: 30px; }}
+.br-metab .q-checkbox__label {{ font-size: 13px; padding-left: 2px; }}
+</style>
+"""
 
 
 #**************************************************************************************************#
-#                                           Application                                            #
+#                                         BasisREMYApp                                              #
 #**************************************************************************************************#
 #                                                                                                  #
-# The GUI application for the BasisREMY tool. Each tab is a different step in the process,         #
-# starting with the data selection and REMY extraction, continuing with the parameter              #
-# configuration, and ending with the basis set simulation.                                          #
+# Builds the whole single-page UI. One instance is created per client connection (in native        #
+# mode there is exactly one). All simulation state lives on the instance.                          #
 #                                                                                                  #
 #**************************************************************************************************#
-class Application(TkinterDnD.Tk):
+class BasisREMYApp:
 
-    def __init__(self):
-        super().__init__()
-
-        # initialize data backend
+    def __init__(self) -> None:
+        # data backend
         self.BasisREMY = BasisREMY()
 
-        # define a fixed color palette
-        self.main_color = "#607389"   # primary buttons and highlights
-        self.bg_1_color = "#f0f0f0"   # window and frame background
-        self.bg_2_color = "#e0e0e0"   # secondary panels
-        self.bg_3_color = "#f0f0f0"   # other levels
-        self.text_color = "#000000"   # always black text
-
-        # set overall widget foreground/background
-        self.option_add("*Foreground", self.text_color)
-        self.option_add("*Background", self.bg_1_color)
-        self.option_add("*Entry.InsertBackground", self.text_color)   # for entry cursor
-        self.option_add("*Checkbutton.SelectColor", self.bg_3_color)   # for checkbutton
-
-        # configure ttk theme to a fixed one
-        style = ttk.Style(self)
-        style.theme_use('clam')  # a neutral, simple theme
-
-        # override ttk widget styling
-        style.configure('.', background=self.bg_1_color, foreground=self.text_color)
-        style.configure('TFrame', background=self.bg_1_color)
-        style.configure('TLabel', background=self.bg_1_color, foreground=self.text_color)
-        style.configure('TButton', background=self.main_color, foreground=self.text_color)
-        style.configure('TCheckbutton', background=self.bg_1_color, foreground=self.text_color)
-        style.configure('TEntry', fieldbackground=self.bg_2_color, foreground=self.text_color)
-        style.configure('TCombobox', fieldbackground=self.bg_2_color, foreground=self.text_color)
-        style.configure('TNotebook', background=self.bg_1_color)
-        style.configure('TNotebook.Tab', font=("Arial", 12, "normal"), background=self.bg_2_color,
-                        foreground=self.text_color)
-
-        # setup window
-        self.windowLength = 800
-        self.windowHeight = 700
-        self.title("BasisREMY")
-        self.geometry("{}x{}".format(self.windowLength, self.windowHeight))
-        self.configure(bg=self.bg_1_color)
-
-        # create UI elements
-        self.create_widgets()
-
-    def create_widgets(self):
-        # bundled images live in <project root>/assets/imgs, one level up from
-        # this gui/ package, so the GUI works regardless of the working dir.
-        assets = Path(__file__).resolve().parent.parent / "assets" / "imgs"
-
-        # create a canvas for the header
-        header_canvas = tk.Canvas(self, width=self.windowLength, height=100, highlightthickness=0)
-        header_canvas.pack(fill=tk.X)
-
-        # load the header image
-        header_image = Image.open(assets / "basisremy_header.png")
-        header_image = header_image.resize((1600, 100))
-        header_photo = ImageTk.PhotoImage(header_image)
-
-        # place the image on the canvas
-        header_canvas.create_image(0, 0, anchor="nw", image=header_photo)
-        header_canvas.image = header_photo  # keep a reference to prevent garbage collection
-
-        # add centered text on top of the image
-        header_canvas.create_text(
-            self.windowLength // 2 + 50, 50,  # x, y position (middle of header + offset for logo)
-            text="A tool for generating study-specific basis sets directly from raw MRS data.",
-            fill="white",
-            font=("Arial", 16, "bold"),
-            width=self.windowLength - 300,  # wrap text if too long
-            justify="center"
-        )
-
-        # add logo
-        logo_image = Image.open(assets / "basisremy_logo.png")
-        logo_image = logo_image.resize((100, 100))
-        logo_photo = ImageTk.PhotoImage(logo_image)
-        logo_label = tk.Label(self, image=logo_photo, bg="#f0f0f0")
-        logo_label.image = logo_photo  # keep a reference to prevent garbage collection
-        logo_label.place(x=0, y=0)
-
-        # notebook (tabbed interface)
-        self.notebook = ttk.Notebook(self)
-        self.notebook.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)
-
-        # tab frames
-        self.tab1 = ttk.Frame(self.notebook)
-        self.tab2 = ttk.Frame(self.notebook)
-        self.tab3 = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab1, text="Data Selection", state="normal")
-        self.notebook.add(self.tab2, text="Parameter Configuration", state="disabled")
-        self.notebook.add(self.tab3, text="Basis Simulation", state="disabled")
-
-        # Track whether the current basis set is still valid for the params
-        # on screen.  Set True after a successful simulation, False whenever
-        # the user navigates back to tab2 (edit params) from tab3.
+        # selection / simulation state
+        self.selected_file: str | None = None
+        self.basis_set: dict | None = None
         self._basis_set_valid = False
 
-        # Simulation cancellation: a threading.Event that run_simulation_with_progress
-        # checks between metabolites.  Set it to stop the current run early.
+        # simulation threading
         self._sim_stop_event = threading.Event()
-        self._sim_thread = None   # reference to the in-flight thread (if any)
+        self._sim_thread: threading.Thread | None = None
+        self._sim_timer = None
+        self._sim_step = 0
+        self._sim_total = 1
+        self._sim_done = False
+        self._sim_error: Exception | None = None
 
-        # Watch tab switches so we can invalidate when going backwards.
-        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+        # widget handles rebuilt on every backend/mode change
+        self.metab_checks: dict = {}
+        self.simulate_button = None
 
-        self.tab1_widgets()
-        self.tab2_widgets()
-        self.tab3_widgets()
+        # step navigation state (custom sleek stepper drives the tab panels)
+        self._current_step = "data"
+        self._step_unlocked = {"data": True, "params": False, "sim": False}
+        self._step_items: dict = {}
+        self._step_nums: dict = {}
+        self._step_labels: dict = {}
+        self._step_lines: list = []
 
-        # apply custom styles to tabs
-        style = ttk.Style()
-        style.configure("TNotebook.Tab",
-                        font=("Arial", 12))  # set the font size and style for the tabs
+        self._build()
 
-        self.update()
-        # self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
+    # ============================================================== top-level UI
+    def _build(self) -> None:
+        # Theme controller: start on the system preference (auto); the header
+        # toggle flips between explicit light / dark.
+        self.darkmode = ui.dark_mode(value=None)
 
-    # ------------------------------------------------------------------ tab navigation
-    def _on_tab_changed(self, event=None):
-        """Called whenever the notebook switches tabs.
+        # Decorative brand mouse, faint, fixed in the lower-right corner.
+        ui.html(
+            '<img src="/assets/basisremy_mouse_all_colors/png/'
+            'basisremy_mouse_charcoal.png" class="br-watermark br-wm-light" alt="" />'
+            '<img src="/assets/basisremy_mouse_all_colors/png/'
+            'basisremy_mouse_light_gray.png" class="br-watermark br-wm-dark" alt="" />'
+        )
 
-        Rule: if the user navigates *back* to tab2 (Parameter Configuration)
-        from tab3 (Basis Simulation), the previously computed basis set is no
-        longer guaranteed to match the current parameters — mark it stale and
-        lock tab3 so they must re-simulate before going forward again.
-        """
+        self._header()
+
+        with ui.column().classes(
+            "w-full max-w-4xl mx-auto px-6 pt-6 pb-10 gap-2 relative z-10"
+        ):
+            self._stepper()
+
+            # Hidden Quasar tabs act purely as the controller for the panels;
+            # navigation happens through the custom stepper above.
+            with ui.tabs().classes("hidden") as self.tabs:
+                self.tab1 = ui.tab("data")
+                self.tab2 = ui.tab("params")
+                self.tab3 = ui.tab("sim")
+
+            with ui.tab_panels(self.tabs, value="data").classes(
+                "w-full bg-transparent"
+            ) as self.panels:
+                with ui.tab_panel("data").classes("br-tab-panel-pad"):
+                    self._build_tab1()
+                self.panel2 = ui.tab_panel("params").classes("br-tab-panel-pad")
+                self.panel3 = ui.tab_panel("sim").classes("br-tab-panel-pad")
+
+            self.panels.on_value_change(self._on_tab_changed)
+
+        self._build_tab2()
+        self._build_tab3_progress()
+        self._refresh_stepper()
+
+    def _header(self) -> None:
+        with ui.element("div").classes("br-header w-full relative z-10"):
+            with ui.row().classes(
+                "w-full max-w-4xl mx-auto items-center no-wrap px-6 py-3 gap-2.5"
+            ):
+                ui.html(
+                    '<img src="/assets/basisremy_mouse_all_colors/png/'
+                    'basisremy_mouse_navy_blue.png" class="br-logo br-logo-light" '
+                    'alt="BasisREMY" />'
+                    '<img src="/assets/basisremy_mouse_all_colors/png/'
+                    'basisremy_mouse_sky_blue.png" class="br-logo br-logo-dark" '
+                    'alt="BasisREMY" />'
+                ).classes("shrink-0 leading-none")
+                ui.label("BasisREMY").classes(
+                    "br-wordmark text-xl font-extrabold leading-none"
+                )
+                ui.space()
+                toggle = ui.button(
+                    icon="dark_mode", on_click=self._toggle_theme
+                ).props("flat round dense").classes("br-muted")
+                toggle.bind_icon_from(
+                    self.darkmode, "value",
+                    backward=lambda v: "light_mode" if v else "dark_mode",
+                )
+                toggle.tooltip("Toggle light / dark theme")
+
+    async def _toggle_theme(self) -> None:
+        # ``darkmode`` starts in auto mode (value=None), where Quasar resolves the
+        # theme client-side. Read the rendered state and flip to the explicit
+        # opposite so the first press always works.
+        is_dark = await ui.run_javascript(
+            "document.body.classList.contains('body--dark')"
+        )
+        self.darkmode.value = not is_dark
+
+    # ============================================================== stepper
+    def _stepper(self) -> None:
+        steps = [("data", "Data"), ("params", "Parameters"), ("sim", "Simulate")]
+        with ui.row().classes("br-stepper items-center justify-center w-full py-1"):
+            for i, (key, label) in enumerate(steps):
+                if i > 0:
+                    self._step_lines.append(
+                        ui.element("div").classes("br-step-line")
+                    )
+                item = ui.row().classes("br-step").on(
+                    "click", lambda k=key: self._step_click(k)
+                )
+                with item:
+                    self._step_nums[key] = ui.label(str(i + 1)).classes("br-step-num")
+                    self._step_labels[key] = ui.label(label).classes("br-step-label")
+                self._step_items[key] = item
+
+    def _refresh_stepper(self) -> None:
+        order = ["data", "params", "sim"]
         try:
-            current = self.notebook.index(self.notebook.select())
+            current = self.panels.value or self._current_step
+        except Exception:
+            current = self._current_step
+        cur_i = order.index(current) if current in order else 0
+
+        for i, key in enumerate(order):
+            item = self._step_items.get(key)
+            num = self._step_nums.get(key)
+            if item is None or num is None:
+                continue
+            item.classes(remove="is-active is-done is-locked")
+            if key == current:
+                item.classes(add="is-active")
+                num.set_text(str(i + 1))
+            elif self._step_unlocked.get(key) and i < cur_i:
+                item.classes(add="is-done")
+                num.set_text("✓")
+            elif self._step_unlocked.get(key):
+                num.set_text(str(i + 1))
+            else:
+                item.classes(add="is-locked")
+                num.set_text(str(i + 1))
+
+        for i, line in enumerate(self._step_lines):
+            line.classes(remove="is-done")
+            if self._step_unlocked.get(order[i + 1]):
+                line.classes(add="is-done")
+
+    def _step_click(self, key: str) -> None:
+        if self._step_unlocked.get(key):
+            self._goto(key)
+
+    def _unlock(self, key: str) -> None:
+        self._step_unlocked[key] = True
+        self._refresh_stepper()
+
+    def _lock(self, key: str) -> None:
+        self._step_unlocked[key] = False
+        self._refresh_stepper()
+
+    # ============================================================== tab navigation
+    def _on_tab_changed(self, _event=None) -> None:
+        """Invalidate stale results when the user steps back to edit params."""
+        try:
+            current = self.panels.value
         except Exception:
             return
+        self._current_step = current
 
-        if current == 1:
-            # Arrived at Parameter Configuration — invalidate any existing results.
+        if current == "params":
             if self._basis_set_valid:
                 self._basis_set_valid = False
-                # Disable tab3 so the user cannot jump straight back to stale results.
-                self.notebook.tab(2, state="disabled")
-                # Re-enable the Simulate button (it may have been hidden if we got here
-                # programmatically; validate_inputs will set the correct state).
-                try:
-                    self.validate_inputs()
-                except Exception:
-                    pass
+                self._step_unlocked["sim"] = False
+                self.validate_inputs()
 
-            # Cancel any in-flight simulation immediately.
+            # cancel any in-flight simulation immediately
             if self._sim_thread is not None and self._sim_thread.is_alive():
                 print("⏹  Cancelling simulation (user navigated back)…")
                 self._sim_stop_event.set()
-                # Best-effort: kill the Octave process inside Docker so the
-                # blocking exec_run() call in docker_octave.py returns quickly.
                 try:
                     octave = self.BasisREMY.backend.octave
-                    if octave is not None and hasattr(octave, 'kill_running_processes'):
+                    if octave is not None and hasattr(octave, "kill_running_processes"):
                         octave.kill_running_processes()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     print(f"  (Could not kill Docker Octave process: {e})")
 
-    def tab1_widgets(self):
-        # drag and drop area
-        drag_area = tk.Label(self.tab1, text="Select File!\n\nDrag and Drop Files Here...",
-                             relief="solid", width=50, height=12, bg=self.bg_2_color,
-                             font=("Arial bold", 12))
-        drag_area.pack(padx=1, pady=1, expand=True)
-        drag_area.drop_target_register(DND_FILES)
-        drag_area.dnd_bind('<<Drop>>', self.on_drop)
-        drag_area.bind("<Button-1>", self.select_file)  # bind left-click to select_file
+        self._refresh_stepper()
 
-        # file label
-        self.file_label = tk.Label(self.tab1, text="No file selected.", bg=self.bg_1_color,
-                                   font=("Arial italic", 12))
-        self.file_label.pack(pady=5)
+    def _goto(self, value: str) -> None:
+        self.panels.set_value(value)
 
-        # process button
-        self.process_button = tk.Button(self.tab1, text="Process File", command=self.process_file,
-                                        state=tk.DISABLED, bg=self.main_color, fg=self.text_color,
-                                        font=("Arial", 12, "bold"))
-        self.process_button.pack(pady=5)
+    # ============================================================== TAB 1
+    def _build_tab1(self) -> None:
+        with ui.column().classes("w-full items-center gap-5 pt-6"):
+            self._data_body = ui.column().classes(
+                "w-full max-w-md items-stretch gap-3"
+            )
+            self._render_data_body()
 
-        # skip button
-        self.skip_button = tk.Button(self.tab1, text="Skip", command=self.skip_file,
-                                     state=tk.NORMAL, bg=self.main_color, fg=self.text_color,
-                                     font=("Arial", 12, "bold"))
-        self.skip_button.pack(pady=5)
+            with ui.row().classes("items-center gap-1"):
+                self.process_button = ui.button(
+                    "Continue", on_click=self._process_file
+                ).props("color=primary unelevated icon-right=arrow_forward")
+                self.process_button.disable()
+                ui.button("Skip", on_click=self._skip_file).props(
+                    "flat color=primary"
+                )
 
-    def tab2_widgets(self):
-        # clear existing widgets in tab2 (and 3 for returns)
-        self.reset_tab(self.tab2)
-        # Reset per-field state that lives on `self`. Without this, switching
-        # backend leaves stale StringVars from the previous backend's pulse
-        # pickers in `self.file_vars`, which can be picked up by lambdas
-        # whose widgets have already been destroyed.
-        self.file_vars = {}
+    def _render_data_body(self) -> None:
+        self._data_body.clear()
+        with self._data_body:
+            if self.selected_file:
+                self._file_card()
+            else:
+                self._dropzone()
 
-        # backend toggle — two-level cascade: Category → Backend
-        backend_frame = tk.Frame(self.tab2)
-        backend_frame.pack(fill=tk.X, padx=10, pady=(10, 0))
+    def _dropzone(self) -> None:
+        drop = ui.column().classes(
+            "br-drop w-full items-center justify-center cursor-pointer py-14 gap-3"
+        )
+        with drop:
+            with ui.element("div").classes("br-icon-badge"):
+                ui.icon("upload_file").classes("text-2xl").style("color:var(--br-primary)")
+            ui.label("Drop MRS data or click to browse").classes(
+                "text-sm font-medium br-muted"
+            )
+        drop.on("click", self._pick_data_file)
 
-        current_category = self.BasisREMY.get_current_category()
-        # Only show categories that have at least one backend registered.
-        category_options = [c for c in self.BasisREMY.CATEGORY_ORDER
-                            if self.BasisREMY.categories.get(c)]
-        # Append any extra categories that may have been registered out of band
-        for c in self.BasisREMY.categories:
-            if c not in category_options and self.BasisREMY.categories[c]:
+    def _file_card(self) -> None:
+        name = Path(self.selected_file).name
+        folder = str(Path(self.selected_file).parent)
+        with ui.row().classes("br-filecard w-full items-center gap-3 no-wrap"):
+            with ui.element("div").classes("br-file-ic"):
+                ui.icon("description").classes("text-xl").style("color:var(--br-primary)")
+            with ui.column().classes("min-w-0 grow gap-0"):
+                ui.label(name).classes("text-sm font-semibold truncate w-full")
+                ui.label(folder).classes("text-xs br-muted truncate w-full")
+            ui.button(
+                icon="close", on_click=self._clear_file
+            ).props("flat round dense").classes("br-muted shrink-0")
+
+    def _clear_file(self) -> None:
+        self.selected_file = None
+        self.process_button.disable()
+        self._render_data_body()
+
+    async def _pick_data_file(self) -> None:
+        path = await LocalFilePicker(
+            "~", title="Select MRS data file", show_file=_is_mrs_file
+        )
+        if path:
+            self.selected_file = path
+            self.process_button.enable()
+            self._render_data_body()
+
+    def _process_file(self) -> None:
+        if not self.selected_file:
+            ui.notify("No file selected.", type="warning")
+            return
+        print(f"Processing file: {self.selected_file}")
+        try:
+            MRSinMRS = self.BasisREMY.runREMY(self.selected_file)
+            params, opt = self.BasisREMY.backend.parseREMY(MRSinMRS)
+            self.BasisREMY.backend.mandatory_params.update(params)
+            self.BasisREMY.backend.optional_params.update(opt)
+            self.BasisREMY._last_mrsinmrs = MRSinMRS
+        except Exception as exc:  # noqa: BLE001
+            ui.notify(f"Could not read file: {exc}", type="negative")
+            print(f"REMY error: {exc}")
+            return
+
+        self._build_tab2()
+        self._unlock("params")
+        self._goto("params")
+
+    def _skip_file(self) -> None:
+        self._unlock("params")
+        self._goto("params")
+
+    # ============================================================== TAB 2
+    def _build_tab2(self) -> None:
+        self.panel2.clear()
+        self.metab_checks = {}
+        self.simulate_button = None
+        backend = self.BasisREMY.backend
+
+        # Settle mode-dependent state (current_mode, dropdown options,
+        # file_selection) BEFORE drawing the selectors so the Mode picker and
+        # the parameter list below it stay consistent (e.g. a parsed Philips
+        # vendor steers MRSCloud to Non-universal up front).
+        params_to_show = backend.get_params_for_mode()
+
+        with self.panel2:
+            with ui.column().classes("w-full gap-6"):
+                self._backend_selectors()
+
+                self._pgrid = ui.element("div").classes("br-pgrid")
+                with self._pgrid:
+                    with ui.column().classes("gap-2 min-w-0"):
+                        ui.label("Parameters").classes("br-section-title")
+                        self.params_col = ui.column().classes(
+                            "br-card br-plist w-full"
+                        )
+                    self._metabs_wrap = ui.column().classes("gap-2 min-w-0")
+                    with self._metabs_wrap:
+                        self.metabs_col = ui.column().classes("w-full gap-0")
+
+                # Per-backend mode selector. For single-backend software
+                # (FSL-MRS, MRSCloud) the mode now lives in the selectors card
+                # above, so only show it here for multi-backend software
+                # (e.g. FID-A's semi-LASER Standard / Phase-cycled).
+                cat_backends = self.BasisREMY.categories.get(
+                    self.BasisREMY.get_current_category(), []
+                )
+                if len(cat_backends) > 1 and len(backend.modes) > 1:
+                    with self.params_col:
+                        with ui.element("div").classes("br-prow"):
+                            ui.label("Mode").classes(
+                                "br-prow-label text-sm font-semibold"
+                            )
+                            ui.select(
+                                backend.modes,
+                                value=backend.current_mode,
+                                on_change=lambda e: self._change_mode(e.value),
+                            ).props("filled dense").classes("br-pfield")
+
+                for key, value in params_to_show.items():
+                    if key in backend.file_selection:
+                        self._param_file(key, value)
+                    elif key == "Metabolites":
+                        self._param_metabolites()
+                    elif key in backend.dropdown:
+                        self._param_dropdown(key, value)
+                    else:
+                        self._param_text(key, value)
+
+                # Hide the (empty) metabolite column for backends without a
+                # metabolite list so the parameters span a single tidy column.
+                if not self.metab_checks:
+                    self._metabs_wrap.set_visibility(False)
+                    self._pgrid.classes(add="br-pgrid--single")
+
+                ui.element("div").classes("br-hairline")
+                with ui.row().classes("w-full justify-between items-center"):
+                    ui.button("Back", icon="arrow_back",
+                              on_click=lambda: self._goto("data")).props("flat color=primary")
+                    self.simulate_button = ui.button(
+                        "Simulate basis set", icon="auto_awesome",
+                        on_click=self._simulate_basis,
+                    ).props("color=primary unelevated")
+                    self.simulate_button.disable()
+
+        self.validate_inputs()
+
+    # ---- backend / category selectors -------------------------------------
+    def _backend_selectors(self) -> None:
+        br = self.BasisREMY
+        current_category = br.get_current_category()
+        category_options = [c for c in br.CATEGORY_ORDER if br.categories.get(c)]
+        for c in br.categories:
+            if c not in category_options and br.categories[c]:
                 category_options.append(c)
 
-        tk.Label(backend_frame, text="Category:",
-                 font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 5))
-        self.category_var = tk.StringVar(value=current_category)
-        category_combo = ttk.Combobox(backend_frame, textvariable=self.category_var,
-                                      values=category_options, font=("Arial", 12),
-                                      state="readonly", width=12)
-        category_combo.pack(side=tk.LEFT, padx=(0, 15))
-
-        # Backend label + combo — only shown when the chosen category has
-        # more than one backend option. Single-backend categories (MRSCloud,
-        # FSL-MRS, Custom) don't need a sub-selector.
-        backend_label_widget = tk.Label(backend_frame, text="Backend:",
-                                        font=("Arial", 12, "bold"))
-        backend_label_widget.pack(side=tk.LEFT, padx=(0, 5))
-
-        # Display labels in the Backend combo use `display_name`, while we
-        # keep a mapping back to the canonical `name` for set_backend().
-        def _backends_for(cat):
-            names = self.BasisREMY.categories.get(cat, [])
-            label_to_name = {}
-            labels = []
+        def backends_for(cat):
+            names = br.categories.get(cat, [])
+            label_to_name, labels = {}, []
             for n in names:
-                b = self.BasisREMY.backends[n]
-                label = getattr(b, 'display_name', None) or b.name
+                b = br.backends[n]
+                label = getattr(b, "display_name", None) or b.name
                 label_to_name[label] = n
                 labels.append(label)
             return labels, label_to_name
 
-        def _set_backend_combo_visibility(labels):
-            """Show or hide the Backend widgets depending on choice count."""
-            if len(labels) > 1:
-                backend_label_widget.pack(side=tk.LEFT, padx=(0, 5))
-                backend_combo.pack(side=tk.LEFT)
-            else:
-                backend_label_widget.pack_forget()
-                backend_combo.pack_forget()
-
-        backend_labels, self._backend_label_map = _backends_for(current_category)
-        current_label = next(
-            (lbl for lbl, nm in self._backend_label_map.items()
-             if nm == self.BasisREMY.backend.name),
-            backend_labels[0] if backend_labels else '',
-        )
-        self.backend_var = tk.StringVar(value=current_label)
-        backend_combo = ttk.Combobox(backend_frame, textvariable=self.backend_var,
-                                     values=backend_labels, font=("Arial", 12),
-                                     state="readonly", width=32)
-        backend_combo.pack(side=tk.LEFT)
-        # Apply initial visibility
-        _set_backend_combo_visibility(backend_labels)
-
-        def _do_switch(target_name):
-            """Switch backend, checking Octave availability if needed."""
-            if target_name == self.BasisREMY.backend.name:
+        def do_switch(target_name) -> bool:
+            if target_name == br.backend.name:
                 return True
-            new_backend = self.BasisREMY.backends[target_name]
+            new_backend = br.backends[target_name]
             if new_backend.requires_octave and new_backend.octave is None:
-                if not self.check_octave_availability():
+                if not self._check_octave_availability():
                     return False
-            self.BasisREMY.set_backend(target_name)
+            br.set_backend(target_name)
             return True
 
-        def on_category_change(event=None):
-            cat = self.category_var.get()
-            labels, label_map = _backends_for(cat)
-            if not labels:
-                return
-            backend_combo['values'] = labels
-            self._backend_label_map = label_map
-            self.backend_var.set(labels[0])
-            _set_backend_combo_visibility(labels)
-            target_name = label_map[labels[0]]
-            if _do_switch(target_name):
-                self.tab2_widgets()
-            else:
-                self.category_var.set(self.BasisREMY.get_current_category())
+        with ui.column().classes("br-card br-plist w-full"):
+            with ui.element("div").classes("br-prow"):
+                ui.label("Simulation Software").classes(
+                    "br-prow-label text-sm font-semibold"
+                )
+                category_select = ui.select(
+                    category_options, value=current_category
+                ).props("filled dense").classes("br-selfield")
 
-        def on_backend_change(event=None):
-            label = self.backend_var.get()
-            target_name = self._backend_label_map.get(label)
+            labels, self._backend_label_map = backends_for(current_category)
+            current_label = next(
+                (lbl for lbl, nm in self._backend_label_map.items()
+                 if nm == br.backend.name),
+                labels[0] if labels else "",
+            )
+            backend_select = None
+            if len(labels) > 1:
+                # Multiple backends in this software (FID-A): the backend list
+                # IS the "Mode".
+                with ui.element("div").classes("br-prow"):
+                    ui.label("Mode").classes(
+                        "br-prow-label text-sm font-semibold"
+                    )
+                    backend_select = ui.select(
+                        labels, value=current_label
+                    ).props("filled dense").classes("br-selfield")
+            elif len(br.backend.modes) > 1:
+                # Single backend exposing several modes (FSL-MRS, MRSCloud):
+                # show the mode selector right under the software picker.
+                with ui.element("div").classes("br-prow"):
+                    ui.label("Mode").classes(
+                        "br-prow-label text-sm font-semibold"
+                    )
+                    ui.select(
+                        br.backend.modes,
+                        value=br.backend.current_mode,
+                        on_change=lambda e: self._change_mode(e.value),
+                    ).props("filled dense").classes("br-selfield")
+
+        def on_category_change(e) -> None:
+            cat = e.value
+            new_labels, label_map = backends_for(cat)
+            if not new_labels:
+                return
+            self._backend_label_map = label_map
+            target_name = label_map[new_labels[0]]
+            if do_switch(target_name):
+                self._build_tab2()
+            else:
+                category_select.value = br.get_current_category()
+
+        def on_backend_change(e) -> None:
+            target_name = self._backend_label_map.get(e.value)
             if target_name is None:
                 return
-            if _do_switch(target_name):
-                self.tab2_widgets()
+            if do_switch(target_name):
+                self._build_tab2()
             else:
                 cur = next((lbl for lbl, nm in self._backend_label_map.items()
-                            if nm == self.BasisREMY.backend.name), label)
-                self.backend_var.set(cur)
+                            if nm == br.backend.name), e.value)
+                backend_select.value = cur
 
-        category_combo.bind("<<ComboboxSelected>>", on_category_change)
-        backend_combo.bind("<<ComboboxSelected>>", on_backend_change)
+        category_select.on_value_change(on_category_change)
+        if backend_select is not None:
+            backend_select.on_value_change(on_backend_change)
 
-        # create a container frame to hold both parameter and metabolite sections
-        container = tk.Frame(self.tab2)
-        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def _change_mode(self, mode: str) -> None:
+        self.BasisREMY.backend.set_mode(mode)
+        self._build_tab2()
 
-        # create the parameters frame (left side)
-        params_frame = tk.Frame(container)
-        params_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-
-        # create the metabolites frame (right side)
-        metabs_frame = tk.Frame(container)
-        metabs_frame.grid(row=0, column=1, sticky="nsew")
-
-        # configure grid weights for responsive resizing
-        container.columnconfigure(0, weight=1)
-        container.columnconfigure(1, weight=1)
-        container.rowconfigure(0, weight=1)
-
-        # function to update mandatory_params when an Entry or Combobox changes
-        def update_param(key, var):
-            val = var.get()
-            # Store in mandatory or optional params depending on where the key lives
-            if key in self.BasisREMY.backend.mandatory_params:
-                self.BasisREMY.backend.mandatory_params[key] = val
-            elif key in self.BasisREMY.backend.optional_params:
-                self.BasisREMY.backend.optional_params[key] = val
-            self.validate_inputs()
-
-            # Some keys change which OTHER fields are visible (e.g. picking
-            # MEGA reveals editing fields, picking Philips reveals the
-            # vendor pulse picker). Backends declare these in
-            # `schema_affecting_keys`; rebuild the panel so the UI matches.
-            schema_keys = getattr(self.BasisREMY.backend,
-                                  'schema_affecting_keys', set())
-            if key in schema_keys:
-                self.tab2_widgets()
-
-        # Mode selector - only shown if backend has more than one mode
+    # ---- individual parameter widgets -------------------------------------
+    def _update_param(self, key: str, value) -> None:
         backend = self.BasisREMY.backend
-        has_modes = len(backend.modes) > 1
+        if key in backend.mandatory_params:
+            backend.mandatory_params[key] = value
+        elif key in backend.optional_params:
+            backend.optional_params[key] = value
+        self.validate_inputs()
+        if key in getattr(backend, "schema_affecting_keys", set()):
+            self._build_tab2()
 
-        if has_modes:
-            mode_frame = tk.Frame(params_frame)
-            mode_frame.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+    def _param_text(self, key, value) -> None:
+        with self.params_col:
+            with ui.element("div").classes("br-prow"):
+                label_with_help(key).classes("br-prow-label")
+                inp = ui.input(
+                    value="" if value is None else str(value),
+                ).props("filled dense").classes("br-pfield")
+                inp.on_value_change(lambda e, k=key: self._update_param(k, e.value))
 
-            tk.Label(mode_frame, text="Mode:", font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+    def _param_dropdown(self, key, value) -> None:
+        backend = self.BasisREMY.backend
+        options = backend.dropdown[key]
+        # ``options`` may be a list (label == value) or a dict (value -> label).
+        keys = list(options)
+        initial = str(value) if (
+            value is not None and str(value) in [str(k) for k in keys]
+        ) else None
+        with self.params_col:
+            with ui.element("div").classes("br-prow"):
+                label_with_help(key).classes("br-prow-label")
+                sel = ui.select(options, value=initial).props(
+                    "filled dense"
+                ).classes("br-pfield")
+                sel.on_value_change(lambda e, k=key: self._update_param(k, e.value))
 
-            self.mode_var = tk.StringVar(value=backend.current_mode)
-            mode_combo = ttk.Combobox(mode_frame, textvariable=self.mode_var,
-                                      values=backend.modes, font=("Arial", 12), state="readonly")
-            mode_combo.pack(side=tk.LEFT)
+    def _param_file(self, key, value) -> None:
+        backend = self.BasisREMY.backend
+        with self.params_col:
+            with ui.element("div").classes("br-prow"):
+                label_with_help(key).classes("br-prow-label")
+                with ui.row().classes("br-pfield items-center gap-1 no-wrap"):
+                    inp = ui.input(
+                        value="" if value in _UNSET else str(value),
+                    ).props("filled dense").classes("grow min-w-0")
+                    inp.on_value_change(lambda e, k=key: self._update_param(k, e.value))
 
-            def on_mode_change(event=None):
-                new_mode = self.mode_var.get()
-                backend.set_mode(new_mode)
-                self.tab2_widgets()  # Rebuild with new mode params
+                    async def browse(k=key, field=inp) -> None:
+                        path = await LocalFilePicker("~", title=f"Select {k}")
+                        if path:
+                            field.value = path
+                            self._update_param(k, path)
 
-            mode_combo.bind("<<ComboboxSelected>>", on_mode_change)
-            row = 1
+                    ui.button(icon="folder_open", on_click=browse).props(
+                        "flat dense round color=primary"
+                    )
+
+    def _param_metabolites(self) -> None:
+        backend = self.BasisREMY.backend
+        selected = backend.mandatory_params.get("Metabolites", [])
+        with self.metabs_col:
+            with ui.row().classes("items-center justify-between w-full"):
+                ui.label("Metabolites").classes("br-section-title")
+                ui.button("Select all", on_click=self._toggle_all_metabs).props(
+                    "flat dense color=primary"
+                ).classes("text-xs")
+            self.metab_checks = {}
+            with ui.element("div").classes("br-card br-metab w-full px-3 py-1.5"):
+                with ui.grid(columns=2).classes("gap-x-3 gap-y-0 w-full"):
+                    for metab in backend.metabs:
+                        cb = ui.checkbox(metab, value=metab in selected).props(
+                            "dense"
+                        ).classes("text-sm")
+                        cb.on_value_change(self._update_metabs)
+                        self.metab_checks[metab] = cb
+
+    def _toggle_all_metabs(self) -> None:
+        target = not all(cb.value for cb in self.metab_checks.values())
+        for cb in self.metab_checks.values():
+            cb.value = target
+        self._update_metabs()
+
+    def _update_metabs(self, _event=None) -> None:
+        selected = [m for m, cb in self.metab_checks.items() if cb.value]
+        self.BasisREMY.backend.mandatory_params["Metabolites"] = selected
+        self.validate_inputs()
+
+    # ---- validation -------------------------------------------------------
+    def validate_inputs(self) -> None:
+        if self.simulate_button is None:
+            return
+        backend = self.BasisREMY.backend
+        all_filled = all(
+            backend.mandatory_params[key] not in _UNSET
+            for key in backend.mandatory_params
+            if key != "Metabolites"
+        )
+        if self.metab_checks:
+            at_least_one = any(cb.value for cb in self.metab_checks.values())
         else:
-            row = 0
-
-        # Get parameters to display based on current mode
-        params_to_show = backend.get_params_for_mode()
-
-        # populate the parameters frame
-        for key, value in params_to_show.items():
-            if key in self.BasisREMY.backend.file_selection:
-                # label + help icon for the path (file)
-                label = LabelWithHelp(params_frame, key, bg=self.bg_1_color)
-                label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
-
-                # stringVar for the selected path. We keep a per-key dict so
-                # backends with multiple pulse-file pickers (e.g. MEGA-PRESS:
-                # refoc + edit) don't share a single StringVar. `self.file_var`
-                # remains for backwards compat; it always points at the most
-                # recently created field.
-                if not hasattr(self, 'file_vars'):
-                    self.file_vars = {}
-                self.file_var = tk.StringVar(value="missing input")
-                self.file_vars[key] = self.file_var
-
-                entry = tk.Entry(params_frame, textvariable=self.file_var, font=("Arial", 12))
-                entry.grid(row=row, column=1, padx=(10, 0), pady=5, sticky="ew")
-
-                # IMPORTANT: bind `key` and `var` as default args so the
-                # closure captures THIS iteration's values. Without this
-                # the loop's `key` reference is shared across all picker
-                # buttons and Browse always writes to the loop's last
-                # parameter (the infamous "Tau 2 := pulse path" bug).
-                def select_path(key=key, var=self.file_var):
-                    file_path = filedialog.askopenfilename()
-                    if file_path:
-                        var.set(file_path)
-                        self.BasisREMY.backend.mandatory_params[key] = file_path
-                    else:
-                        var.set("missing input")
-                        self.BasisREMY.backend.mandatory_params[key] = None
-                    self.validate_inputs()
-
-                button = tk.Button(params_frame, text="Browse", command=select_path)
-                button.grid(row=row, column=2, padx=0, pady=5)
-
-                # automatically update backend dict on any entry edit
-                self.file_var.trace_add('write', lambda *args, key=key,
-                                                        var=self.file_var: update_param(key, var))
-
-            elif key == 'Metabolites':
-                # populate the metabolites frame
-                metabs_label = tk.Label(metabs_frame, text="Select Metabolites:", font=("Arial", 12, "bold"))
-                metabs_label.grid(row=0, column=0, columnspan=5, pady=5)
-
-                # "All" toggle: flips every checkbox to all-on or all-off in
-                # one click. We avoid trace storms by temporarily disabling
-                # the per-var trace inside `update_metabs` via a guard flag.
-                self._metabs_toggle_state = True   # next click → select all
-                def toggle_all_metabs():
-                    target = self._metabs_toggle_state
-                    self._metabs_bulk_update = True
-                    try:
-                        for v in self.metab_vars.values():
-                            v.set(target)
-                    finally:
-                        self._metabs_bulk_update = False
-                    # run the consolidated update once instead of N times
-                    selected = [m for m, v in self.metab_vars.items() if v.get()]
-                    self.BasisREMY.backend.mandatory_params['Metabolites'] = selected
-                    self.validate_inputs()
-                    # flip for next click; relabel button accordingly
-                    self._metabs_toggle_state = not target
-                    all_btn.config(text="Deselect All" if target else "Select All")
-
-                all_btn = tk.Button(metabs_frame, text="Select All",
-                                    command=toggle_all_metabs)
-                all_btn.grid(row=0, column=4, sticky="e", padx=5, pady=5)
-
-                self._metabs_bulk_update = False
-                self.metab_vars = {}
-                row = 1
-                col = 0
-                for metab in self.BasisREMY.backend.metabs:
-                    # create checkbox for each metabolite
-                    var = tk.BooleanVar(value=metab in self.BasisREMY.backend.mandatory_params.get('Metabolites', []))
-                    checkbutton = tk.Checkbutton(metabs_frame, text=metab, variable=var)
-                    checkbutton.grid(row=row, column=col, sticky="w", padx=5, pady=2)
-                    self.metab_vars[metab] = var
-
-                    # arrange checkbuttons in a grid with 5 columns
-                    col += 1
-                    if col == 5:
-                        col = 0
-                        row += 1
-
-                # update mandatory_params with selected metabolites
-                def update_metabs(*args):
-                    # Suppressed during the "All" bulk toggle — we update
-                    # once at the end of toggle_all_metabs() instead.
-                    if getattr(self, '_metabs_bulk_update', False):
-                        return
-                    selected_metabs = [metab for metab, var in self.metab_vars.items() if var.get()]
-                    self.BasisREMY.backend.mandatory_params['Metabolites'] = selected_metabs
-                    self.validate_inputs()
-                    # Keep the All-toggle label in sync with the actual state.
-                    if all(v.get() for v in self.metab_vars.values()):
-                        self._metabs_toggle_state = False
-                        all_btn.config(text="Deselect All")
-                    else:
-                        self._metabs_toggle_state = True
-                        all_btn.config(text="Select All")
-
-                # Initial label reflects the current selection.
-                if self.metab_vars and all(v.get() for v in self.metab_vars.values()):
-                    self._metabs_toggle_state = False
-                    all_btn.config(text="Deselect All")
-
-                # trace variable changes to update the list
-                for var in self.metab_vars.values():
-                    var.trace_add('write', update_metabs)
-
-            elif key in self.BasisREMY.backend.dropdown:
-                # label + help icon for dropdown parameters
-                label = LabelWithHelp(params_frame, key, bg=self.bg_1_color)
-                label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
-
-                # StringVar for the Combobox. Use "Select option" as the
-                # placeholder when nothing is set so the user knows they
-                # have to pick one (instead of the cryptic "missing input").
-                allowed = list(self.BasisREMY.backend.dropdown[key])
-                if value is not None and str(value) in allowed:
-                    initial = str(value)
-                else:
-                    initial = "Select option"
-                var = tk.StringVar(value=initial)
-
-                # Combobox for dropdown parameters. Readonly so users can
-                # only choose values the backend understands (free-typing
-                # caused MRSCloud crashes when 'PRESS' was typed into the
-                # Sequence box, which expects UnEdited/MEGA/HERMES/HERCULES).
-                combobox = ttk.Combobox(params_frame, textvariable=var,
-                                        values=allowed,
-                                        font=("Arial", 12), state="readonly")
-                combobox.grid(row=row, column=1, padx=(10, 0), pady=5, sticky="ew")
-
-                # trace changes to the StringVar
-                var.trace_add('write', lambda *args, key=key, var=var: update_param(key, var))
-
-            else:
-                # label + help icon for other parameters
-                label = LabelWithHelp(params_frame, key, bg=self.bg_1_color)
-                label.grid(row=row, column=0, padx=0, pady=5, sticky="e")
-
-                # StringVar for the Entry
-                var = tk.StringVar(value=str(value) if value is not None else "missing input")
-
-                # entry for other parameters
-                entry = tk.Entry(params_frame, textvariable=var, font=("Arial", 12))
-                entry.grid(row=row, column=1, padx=(10, 0), pady=5, sticky="ew")
-
-                # trace changes to the StringVar
-                var.trace_add('write', lambda *args, key=key, var=var: update_param(key, var))
-
-            row += 1
-
-        # the Simulate Basis Set button
-        self.simulate_button = tk.Button(
-            self.tab2,
-            text="Simulate Basis Set",
-            command=self.simulate_basis,
-            bg=self.main_color,
-            fg=self.text_color,
-            font=("Arial", 12, "bold"),
-            state=tk.DISABLED,
-        )
-        self.simulate_button.pack(pady=5)
-
-        # the back button
-        self.back_button = tk.Button(
-            self.tab2,
-            text="Back",
-            command=lambda: self.notebook.select(0),
-            bg=self.main_color,
-            fg=self.text_color,
-            font=("Arial", 12, "bold"),
-        )
-        self.back_button.pack(pady=5)
-
-        # All widgets built and bound — refresh the simulate-button state so
-        # it lights up immediately when defaults / REMY-parsed values already
-        # satisfy validation (otherwise the user would have to touch a field
-        # for nothing).
-        try:
-            self.validate_inputs()
-        except Exception:
-            pass
-
-    def tab3_widgets(self):
-        # clear existing widgets in tab3.
-        self.reset_tab(self.tab3)
-
-        # create the simulation progress area
-        self.simulation_status_label = tk.Label(self.tab3, text="Simulating basis set...", font=("Arial", 16, "bold"))
-        self.simulation_status_label.pack(pady=10)
-
-        self.progress_frame = tk.Frame(self.tab3)
-        self.progress_frame.pack(fill=tk.X, padx=10, pady=10)
-
-        self.progress = ttk.Progressbar(self.progress_frame, orient="horizontal", length=400, mode="determinate")
-        self.progress.pack(pady=10)
-
-        self.progress_label = tk.Label(self.progress_frame, text="0%", font=("Arial", 12, "bold"))
-        self.progress_label.pack(pady=10)
-
-        # container for the plot and checkboxes (populated after simulation)
-        self.plot_container = tk.Frame(self.tab3)
-        self.plot_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
-        # the back button remains visible.
-        self.back_button = tk.Button(
-            self.tab3,
-            text="Back",
-            command=lambda: self.notebook.select(1),
-            bg=self.main_color,
-            fg=self.text_color,
-            font=("Arial", 12, "bold")
-        )
-        self.back_button.pack(pady=5)
-
-    def reset_tab(self, tab):
-        # clear existing widgets in the specified tab
-        for widget in tab.winfo_children(): widget.destroy()
-
-    def on_drop(self, event):
-        # files are dragged and dropped into the drag area
-        file_path = event.data
-        self.file_label.config(text=f"Selected File: {file_path}")
-        self.process_button.config(state=tk.NORMAL)   # enable the process button
-
-    def select_file(self, event=None):
-        # files are selected using the file dialog
-        file_path = filedialog.askopenfilename(
-            title="Select MRS Data File",
-            filetypes=[("All Files", "*")]
-        #     filetypes=[
-        #         ("MRS Data Files", (
-        #             "*.7", "*.ima", "*.rda", "*.dat",
-        #             "*.spar", "*method", "*2dseq", "*.nii", "*.nii.gz"
-        #         ))
-        #     ]
-        )
-        if file_path:
-            self.file_label.config(text=f"Selected File: {file_path}")
-            self.process_button.config(state=tk.NORMAL)   # enable the process button
+            at_least_one = True
+        if all_filled and at_least_one:
+            self.simulate_button.enable()
         else:
-            self.file_label.config(text="No file selected.")
-            self.process_button.config(state=tk.DISABLED)
+            self.simulate_button.disable()
 
-    def process_file(self):
-        # process button is clicked -> extract REMY and skip to config tab
-        file_path = self.file_label.cget("text").replace("Selected File: ", "")
-        if file_path:
-            print(f"Processing file: {file_path}")
-
-            # run REMY on the selected file
-            MRSinMRS = self.BasisREMY.runREMY(file_path)
-            params, opt = self.BasisREMY.backend.parseREMY(MRSinMRS)
-
-            # update the mandatory parameters
-            self.BasisREMY.backend.mandatory_params.update(params)
-            self.BasisREMY.backend.optional_params.update(opt)
-
-            # update the parameter configuration tab
-            self.tab2_widgets()
-
-            # move to the next tab
-            self.notebook.tab(1, state="normal")
-            self.notebook.select(1)
-
-        else:
-            print("No file selected.")
-
-    def skip_file(self):
-        # skip to the next tab without processing the file
-        self.notebook.tab(1, state="normal")
-        self.notebook.select(1)
-
-    def check_octave_availability(self):
-        """
-        Check if Octave is available (Docker or local).
-        Show a dialog with instructions if not available.
-
-        Returns:
-            bool: True if Octave is available, False otherwise
-        """
+    # ============================================================== Octave check
+    def _check_octave_availability(self) -> bool:
         from basisremy.core.octave_manager import OctaveManager
 
         manager = OctaveManager()
-        docker_available = manager.check_docker_availability()
-        local_available = manager.check_local_octave_availability()
-
-        if docker_available or local_available:
+        if manager.check_docker_availability() or manager.check_local_octave_availability():
             return True
 
-        # Neither is available - show helpful dialog
         instructions = manager._get_installation_instructions()
-
-        # Create a custom dialog with the instructions
-        dialog = tk.Toplevel(self)
-        dialog.title("Octave Runtime Required")
-        dialog.geometry("700x500")
-        dialog.configure(bg=self.bg_1_color)
-
-        # Make it modal
-        dialog.transient(self)
-        dialog.grab_set()
-
-        # Add text widget with scrollbar for instructions
-        frame = tk.Frame(dialog, bg=self.bg_1_color)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        scrollbar = tk.Scrollbar(frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        text = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scrollbar.set,
-                      font=("Courier", 10), bg="white", fg="black")
-        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=text.yview)
-
-        text.insert("1.0", instructions)
-        text.config(state=tk.DISABLED)
-
-        # Add close button
-        close_btn = tk.Button(dialog, text="OK", command=dialog.destroy,
-                            bg=self.main_color, fg=self.text_color,
-                            font=("Arial", 12, "bold"))
-        close_btn.pack(pady=10)
-
+        dialog = ui.dialog()
+        with dialog, ui.card().classes(
+            "w-[680px] max-w-full gap-3 p-6 rounded-2xl"
+        ).style("box-shadow:0 24px 60px -30px rgba(16,24,40,.5)"):
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.icon("info").classes("text-2xl").style("color:var(--br-primary)")
+                ui.label("Octave runtime required").classes(
+                    "text-lg font-bold text-grey-9"
+                )
+            with ui.scroll_area().classes("w-full h-96").style(
+                "border:1px solid var(--br-line);border-radius:12px;"
+            ):
+                ui.label(instructions).classes(
+                    "text-xs whitespace-pre font-mono p-3"
+                )
+            with ui.row().classes("w-full justify-end"):
+                ui.button("OK", on_click=dialog.close).props("color=primary unelevated")
+        dialog.open()
         return False
 
-    def validate_inputs(self):
-        # check if all mandatory parameters are filled
-        _UNSET = (None, "", "missing input", "Select option")
-        all_params_filled = all(
-            self.BasisREMY.backend.mandatory_params[key] not in _UNSET
-            for key in self.BasisREMY.backend.mandatory_params
-            if key != 'Metabolites'
-        )
+    # ============================================================== TAB 3
+    def _build_tab3_progress(self) -> None:
+        self.panel3.clear()
+        with self.panel3:
+            self.tab3_container = ui.column().classes("w-full items-center gap-6 py-2")
+            with self.tab3_container:
+                with ui.column().classes(
+                    "items-center gap-4 py-12 w-full max-w-sm"
+                ) as self._progress_box:
+                    ui.spinner("dots", size="lg").style("color:var(--br-primary)")
+                    self.sim_status = ui.label("Simulating basis set…").classes(
+                        "text-base font-semibold text-grey-9"
+                    )
+                    self.progress = ui.linear_progress(
+                        value=0, show_value=False
+                    ).classes("w-full").props("instant-feedback rounded size=8px")
+                    self.progress_label = ui.label("0%").classes(
+                        "text-sm text-grey-6"
+                    )
+                self.results_container = ui.column().classes("w-full gap-4")
+            ui.element("div").classes("br-hairline")
+            with ui.row().classes("w-full justify-start"):
+                ui.button("Back", icon="arrow_back",
+                          on_click=lambda: self._goto("params")).props("flat color=primary")
 
-        # check if at least one metabolite is selected
-        at_least_one_metab_selected = any(var.get() for var in self.metab_vars.values())
+    def _simulate_basis(self) -> None:
+        backend = self.BasisREMY.backend
+        if backend.requires_octave and backend.octave is None:
+            if not self._check_octave_availability():
+                return
 
-        # enable the simulate button if both conditions are met
-        if all_params_filled and at_least_one_metab_selected:
-            self.simulate_button.config(state=tk.NORMAL)
-        else:
-            self.simulate_button.config(state=tk.DISABLED)
-
-    def simulate_basis(self):
-        # Check if Octave is available before proceeding
-        if self.BasisREMY.backend.requires_octave and self.BasisREMY.backend.octave is None:
-            if not self.check_octave_availability():
-                return  # Don't proceed if Octave is not available
-
-        # Always reset tab3 to the clean progress-bar state before starting a
-        # new run so old results (plot + checkboxes) are never visible while a
-        # new simulation is in flight.
+        # reset tab3 to a clean progress state
         self._basis_set_valid = False
-        self.tab3_widgets()
+        self.basis_set = None
+        self._build_tab3_progress()
+        self._progress_box.set_visibility(True)
 
-        # move to the next tab
-        self.notebook.tab(2, state="normal")
-        self.notebook.select(2)
+        self._unlock("sim")
+        self._goto("sim")
 
         print("Simulating basis set with the following parameters:")
-        for key, value in self.BasisREMY.backend.mandatory_params.items():
+        for key, value in backend.mandatory_params.items():
             print(f"{key}: {value}")
 
-        # initialize the progress bar
-        self.progress["value"] = 0
-        self.progress["maximum"] = len(self.BasisREMY.backend.mandatory_params['Metabolites'])
+        metabs = backend.mandatory_params.get("Metabolites", [])
+        self._sim_step = 0
+        self._sim_total = max(1, len(metabs))
+        self._sim_done = False
+        self._sim_error = None
+        self.progress.set_value(0)
+        self.progress_label.set_text("0%")
 
-        # run the simulation in a separate thread to keep the GUI responsive
         self._sim_stop_event.clear()
-        self._sim_thread = threading.Thread(
-            target=self.run_simulation_with_progress,
-            args=(self.on_simulation_complete,),
-            daemon=True,
-        )
+        self._sim_thread = threading.Thread(target=self._run_simulation, daemon=True)
         self._sim_thread.start()
 
-    def run_simulation_with_progress(self, callback):
-        def progress_callback(step, total_steps):
-            # update the progress bar
-            self.progress["value"] = step
-            self.progress_label.config(text=f"{step * 100 // total_steps}%")
+        self._sim_timer = ui.timer(0.1, self._poll_simulation)
 
-            # update the GUI
-            self.update_idletasks()
+    def _run_simulation(self) -> None:
+        backend = self.BasisREMY.backend
+
+        def progress_callback(step, total_steps):
+            self._sim_step = step
+            self._sim_total = max(1, total_steps)
 
         try:
-            # run the simulation with the progress callback
-            basis = self.BasisREMY.backend.run_simulation(
-                self.BasisREMY.backend.mandatory_params,
+            basis = backend.run_simulation(
+                backend.mandatory_params,
                 progress_callback,
                 stop_event=self._sim_stop_event,
             )
-        except Exception as e:
+        except Exception as exc:  # noqa: BLE001
             if self._sim_stop_event.is_set():
                 print("⏹  Simulation cancelled.")
             else:
-                raise
+                self._sim_error = exc
+            self._sim_done = True
             return
 
         if self._sim_stop_event.is_set():
             print("⏹  Simulation cancelled.")
+            self._sim_done = True
             return
 
-        self.after(0, callback, basis)
-
-    def on_simulation_complete(self, basis):
-        print("Simulation complete.")
         self.basis_set = basis
-        # Mark the basis set as valid for the current parameters.
-        # _on_tab_changed will clear this flag if the user goes back to edit params.
+        self._sim_done = True
+
+    def _poll_simulation(self) -> None:
+        # live progress
+        frac = self._sim_step / self._sim_total if self._sim_total else 0
+        self.progress.set_value(frac)
+        self.progress_label.set_text(f"{int(frac * 100)}%")
+
+        if not self._sim_done:
+            return
+
+        # finished — stop polling
+        if self._sim_timer is not None:
+            self._sim_timer.deactivate()
+            self._sim_timer = None
+
+        if self._sim_stop_event.is_set():
+            return
+
+        if self._sim_error is not None:
+            ui.notify(f"Simulation failed: {self._sim_error}", type="negative")
+            self._progress_box.set_visibility(False)
+            with self.results_container:
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("error").classes("text-2xl").style("color:#c2453c")
+                    ui.label("Simulation failed — see the console for details.").classes(
+                        "text-sm font-semibold text-grey-9"
+                    )
+            print(f"Simulation error: {self._sim_error}")
+            return
+
+        print("Simulation complete.")
         self._basis_set_valid = True
+        self._render_results()
 
-        # remove simulation progress widgets.
-        self.simulation_status_label.pack_forget()
-        self.progress_frame.pack_forget()
+    def _render_results(self) -> None:
+        # hide the progress widgets
+        self._progress_box.set_visibility(False)
 
-        # create a container frame for both the plot and the checkboxes.
-        plot_frame = tk.Frame(self.plot_container)
-        plot_frame.pack(fill=tk.BOTH, expand=True)
-
-        # left frame for the canvas.
-        canvas_frame = tk.Frame(plot_frame)
-        canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # right frame for the merged legend (checkboxes with color patches).
-        checkbox_frame = tk.Frame(plot_frame)
-        checkbox_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=1)
-
-        # create a smaller matplotlib figure.
-        self.figure = Figure(figsize=(6, 2), dpi=100)
-        self.figure.patch.set_alpha(0.0)  # set figure background to be transparent
-        self.ax = self.figure.add_subplot(111)
-        self.ax.set_facecolor(self.bg_1_color)  # set axes background to be the same as the GUI
-        # self.ax.set_title("Basis Simulation Results")
-        self.ax.set_xlabel("Chemical Shift [ppm]")
-
-        # no y-axis ticks or labels.
-        self.ax.set_yticks([])
-        self.ax.set_yticklabels([])
-
-        # embed the Matplotlib canvas in the left frame.
-        self.canvas = FigureCanvasTkAgg(self.figure, master=canvas_frame)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        self.canvas.get_tk_widget().configure(bg=self.bg_1_color)
-
-        # create the toolbar but overlay it on top of the canvas.
-        self.toolbar = NavigationToolbar2Tk(self.canvas, canvas_frame, pack_toolbar=False)
-        self.toolbar.update()
-        self.toolbar.place(in_=self.canvas.get_tk_widget(), relx=0, rely=0)
-
-        # create checkboxes merged with a color patch (serving as the legend).
         self.checkbox_vars = {}
         self.metab_colors = {}
-        # get the default color cycle from Matplotlib.
-        default_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-        for i, metab in enumerate(self.basis_set.keys()):
-            # assign a color to this metabolite.
-            color = default_colors[i % len(default_colors)]
-            self.metab_colors[metab] = color
+        default_colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
-            var = tk.BooleanVar(value=True)
-            self.checkbox_vars[metab] = var
+        with self.results_container:
+            with ui.row().classes("items-center gap-2 self-start"):
+                ui.icon("check_circle").classes("text-xl").style("color:#3f8f5b")
+                ui.label("Basis set ready").classes(
+                    "text-base font-bold text-grey-9"
+                )
 
-            # create a frame row for the color patch and the checkbutton.
-            row_frame = tk.Frame(checkbox_frame)
-            row_frame.pack(anchor='w')
+            with ui.row().classes("w-full no-wrap gap-6 items-start"):
+                # plot on the left
+                with ui.column().classes("grow min-w-0"):
+                    self.plot = ui.matplotlib(figsize=(7, 3)).classes("w-full")
+                    fig = self.plot.figure
+                    fig.patch.set_alpha(0.0)
+                    self.ax = fig.add_subplot(111)
 
-            # create a small label as a color patch.
-            color_patch = tk.Label(row_frame, bg=color, width=2, height=1, font=("Arial", 3))
-            color_patch.pack(side=tk.LEFT, padx=5)
+                # legend / metabolite toggles on the right
+                with ui.column().classes(
+                    "br-legend gap-0 max-h-72 overflow-auto pl-4"
+                ):
+                    for i, metab in enumerate(self.basis_set.keys()):
+                        color = default_colors[i % len(default_colors)]
+                        self.metab_colors[metab] = color
+                        with ui.row().classes("items-center gap-2 no-wrap"):
+                            ui.element("div").style(
+                                f"width:11px;height:11px;border-radius:3px;"
+                                f"background:{color};"
+                            )
+                            cb = ui.checkbox(metab, value=True).props("dense")
+                            cb.on_value_change(self._update_plot)
+                            self.checkbox_vars[metab] = cb
 
-            # create the checkbutton for the metabolite.
-            checkbutton = tk.Checkbutton(
-                row_frame,
-                text=metab,
-                variable=var,
-                command=self.update_plot
+            ui.button("Export basis…", icon="download",
+                      on_click=self._open_export_dialog).props(
+                "color=primary unelevated"
             )
-            checkbutton.pack(side=tk.LEFT)
 
-        # Export… button (unified exporter, see core/exporters.py)
-        self.export_button = tk.Button(
-            self.tab3,
-            text="Export Basis…",
-            command=self.open_export_dialog,
-            bg=self.main_color,
-            fg=self.text_color,
-            font=("Arial", 12, "bold"),
-        )
-        self.export_button.pack(pady=(8, 0))
+        self._update_plot()
 
-        # render the initial plot.
-        self.update_plot()
-
-    def open_export_dialog(self):
-        """Open the unified export dialog (LCModel / jMRUI / FSL-MRS / Osprey)."""
-        if not getattr(self, "basis_set", None):
+    def _open_export_dialog(self) -> None:
+        if not self.basis_set:
             return
-        ExportDialog(self, self.basis_set, self.BasisREMY.backend.mandatory_params)
+        open_export_dialog(self.basis_set, self.BasisREMY.backend.mandatory_params)
 
-    def update_plot(self):
-        # clear the axis and reapply basic settings.
+    def _update_plot(self, _event=None) -> None:
+        axis_col = "#8a95a3"  # neutral grey that reads on light and dark
         self.ax.clear()
-        # self.ax.set_title("Basis Simulation Results")
-        self.ax.set_facecolor(self.bg_1_color)
-        self.ax.set_xlabel("Chemical Shift [ppm]")
-
-        # no y-axis ticks or labels.
+        self.ax.set_facecolor("none")
+        self.ax.set_xlabel("Chemical shift [ppm]", color=axis_col)
         self.ax.set_yticks([])
         self.ax.set_yticklabels([])
+        for side in ("top", "right", "left"):
+            self.ax.spines[side].set_visible(False)
+        self.ax.spines["bottom"].set_color(axis_col)
+        self.ax.tick_params(colors=axis_col)
 
-        # compute ppm axis using cf (centre / Larmor frequency in Hz).
-        # Some backends (e.g. MRSCloud) intentionally don't expose Center Freq
-        # because it's derived from Field Strength internally — fall back to
-        # γ × B0 when the explicit value is missing.
         mp = self.BasisREMY.backend.mandatory_params
-        cf_raw = mp.get('Center Freq')
-        if cf_raw in (None, '', 'missing input'):
-            field_str = str(mp.get('Field Strength') or '3T').replace('T', '').strip()
+        cf_raw = mp.get("Center Freq")
+        if cf_raw in (None, "", "missing input"):
+            field_str = str(mp.get("Field Strength") or "3T").replace("T", "").strip()
             try:
                 b0 = float(field_str)
             except ValueError:
                 b0 = 3.0
-            cf = 42.577e6 * b0  # Hz
+            cf = 42.577e6 * b0
         else:
             cf = float(cf_raw) * (1e6 if float(cf_raw) < 1000 else 1.0)
-        bw = float(mp['Bandwidth'])
-        # We use the actual FID length (data.size) per metabolite when
-        # building the ppm axis below — backends like MRSCloud may return a
-        # different length than `Samples` if their internal grid disagrees.
+        bw = float(mp["Bandwidth"])
 
-        # plot each metabolite's data if its checkbox is selected.
-        for metab, var in self.checkbox_vars.items():
-            if var.get() and metab in self.basis_set:
+        for metab, cb in self.checkbox_vars.items():
+            if cb.value and metab in self.basis_set:
                 data = self.basis_set[metab]
-
-                # Ensure data is a proper numpy array
                 if not isinstance(data, np.ndarray):
                     try:
                         data = np.array(data, dtype=complex)
-                    except:
-                        print(f"Warning: Could not convert {metab} data to numpy array")
+                    except Exception:  # noqa: BLE001
                         continue
-
-                # Flatten if needed
                 if data.ndim > 1:
                     data = data.flatten()
-
-                # Check if data is empty
                 if data.size == 0:
-                    print(f"Warning: {metab} data is empty")
                     continue
-
                 try:
-                    # MRS convention: FFT the FID, then fftshift so frequency
-                    # 0 is centred. The ppm axis goes low→high; the x-axis is
-                    # inverted below (xlim 10→0) so high ppm appears on the
-                    # left, matching radiological MRS display convention.
-                    # NOTE: do NOT flip ppm_axis — flipping creates a spectral
-                    # mirror by misassigning FFT bins to the wrong ppm values.
                     ydata = np.real(np.fft.fftshift(np.fft.fft(data)))
                     npts = data.size
-                    # ppm axis: offset from carrier → absolute chemical shift.
-                    # The offset (+4.65) must match the centreFreq used during
-                    # simulation (MRSCloud adapter sets centreFreq = 4.65, the
-                    # standard water reference). A mismatch causes a rigid shift.
                     ppm_axis = np.linspace(-bw / 2, bw / 2, npts) / cf * 1e6 + 4.65
                     self.ax.plot(ppm_axis, ydata, color=self.metab_colors[metab])
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     print(f"Warning: Could not plot {metab}: {e}")
                     continue
 
-        # MRS convention: high ppm on the left, low ppm on the right.
-        # set_xlim(10, 0) with xmin > xmax is all matplotlib needs — do NOT
-        # also call invert_xaxis() because that would invert a second time
-        # and put the axis back to 0→10.
         self.ax.set_xlim(10, 0)
+        try:
+            self.ax.figure.tight_layout(pad=0.4)
+        except Exception:  # noqa: BLE001
+            pass
+        self.plot.update()
 
-        self.canvas.draw()
+
+#**************************************************************************************************#
+#                                          entry points                                            #
+#**************************************************************************************************#
+def build_page() -> None:
+    """Construct the single-page UI for one client connection."""
+    ui.colors(
+        primary=PRIMARY,
+        secondary=PRIMARY_DARK,
+        accent=PRIMARY,
+        dark="#0e1822",
+        positive="#3f8f5b",
+        negative="#c2453c",
+        info=PRIMARY,
+        warning="#c98a2b",
+    )
+    ui.add_head_html(_GLOBAL_CSS)
+    BasisREMYApp()
+
+
+def run_app(*, native: bool = True, show: bool = True, port: int = 8080) -> None:
+    """Configure routes and start the NiceGUI server.
+
+    In native mode a desktop window is opened via pywebview; otherwise the UI
+    is served in the default browser.
+    """
+    app.add_static_files("/assets", str(ASSETS))
+    ui.page("/")(build_page)
+    ui.run(
+        native=native,
+        title="BasisREMY",
+        window_size=(1100, 820) if native else None,
+        port=port,
+        show=show,
+        reload=False,
+        storage_secret="basisremy",
+    )

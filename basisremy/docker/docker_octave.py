@@ -30,6 +30,13 @@ import scipy.io
 #                                                                                                  #
 #**************************************************************************************************#
 class DockerOctave:
+    # Default ``addpath`` prefix for the bundled adapter scripts, relative to
+    # ``/workspace`` (the container working dir). ``__init__`` overrides this
+    # per instance based on where the adapters sit relative to the mounted
+    # project root (see the volume-mount block below); backends read the
+    # effective value via :func:`basisremy.core.paths.octave_adapters_base`.
+    ADAPTERS_MOUNT = 'adapters'
+
     def __init__(self, container_name='octave_runner', verbose=False):
         """
         Initialize Docker-based Octave runtime.
@@ -95,9 +102,54 @@ class DockerOctave:
         # Pull Octave image if not present
         self._ensure_octave_image()
 
+        # The bundled adapter scripts live inside the installed package. When
+        # the package sits inside the mounted project directory (the usual
+        # source-checkout case) they are already visible through the single
+        # /workspace mount, so we must NOT add a second bind-mount underneath
+        # /workspace: Docker Desktop for Mac silently shadows such nested
+        # mounts, leaving /workspace/adapters empty and the adapter scripts
+        # unreachable. Only when the adapters live outside the project root do
+        # we mount them separately.
+        from basisremy.core.paths import ADAPTERS_DIR
+
+        volumes = {
+            self.project_root: {'bind': '/workspace', 'mode': 'rw'},
+        }
+        adapters_rel = os.path.relpath(str(ADAPTERS_DIR), self.project_root)
+        if not adapters_rel.startswith(os.pardir) and not os.path.isabs(adapters_rel):
+            # Inside the project: reach the adapters via the /workspace mount.
+            self.ADAPTERS_MOUNT = adapters_rel.replace(os.sep, '/')
+        else:
+            # Outside the project: bind-mount them in at a dedicated location.
+            volumes[str(ADAPTERS_DIR)] = {'bind': '/workspace/adapters', 'mode': 'ro'}
+            self.ADAPTERS_MOUNT = 'adapters'
+
         # Check if the container exists
         try:
             self.container = self.client.containers.get(container_name)
+            # A container created by an older version — or one whose bind-mounts
+            # point at a stale host path — would not expose the current scripts.
+            # Validate every expected mount against the running container and
+            # recreate on any mismatch. Crucially, this also tears down legacy
+            # containers that still carry the broken nested /workspace/adapters
+            # mount (silently shadowed on Docker Desktop for Mac).
+            mounts = self.container.attrs.get('Mounts', [])
+            actual = {
+                m.get('Destination'): os.path.realpath(m.get('Source', ''))
+                for m in mounts
+            }
+            expected = {
+                spec['bind']: os.path.realpath(src)
+                for src, spec in volumes.items()
+            }
+            mounts_ok = actual == expected
+            if not mounts_ok:
+                print(
+                    f"Recreating Docker container '{container_name}' to refresh "
+                    "stale, missing, or obsolete volume mounts..."
+                )
+                self.container.remove(force=True)
+                raise docker.errors.NotFound('recreate')
             if self.container.status != 'running':
                 print(f"Starting existing Docker container '{container_name}'...")
                 self.container.start()
@@ -105,12 +157,13 @@ class DockerOctave:
                 print(f"Using existing Docker container '{container_name}'")
         except docker.errors.NotFound:
             print(f"Creating new Docker container '{container_name}' with Octave...")
-            # Mount the entire project directory to /workspace in the container
+            # Mount the project directory (plus the bundled adapters) into the
+            # container; working dir is /workspace so relative paths resolve.
             self.container = self.client.containers.run(
                 'basisremy-octave:latest',
                 name=container_name,
                 command='tail -f /dev/null',
-                volumes={self.project_root: {'bind': '/workspace', 'mode': 'rw'}},
+                volumes=volumes,
                 working_dir='/workspace',
                 detach=True
             )

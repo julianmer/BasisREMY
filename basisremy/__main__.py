@@ -9,8 +9,8 @@
 #          backends that use relative ``./externals`` and ``./output`` paths keep working exactly   #
 #          as before.                                                                               #
 #                                                                                                  #
-#          A future NiceGUI front-end can replace ``_start_tk_app`` behind this same entry point   #
-#          without changing the user-facing ``basisremy`` command.                                 #
+#          The front-end is NiceGUI: a pure-web UI shown in a native desktop window (pywebview),   #
+#          which installs cleanly under uvx with no system tcl/tk dependency.                      #
 #                                                                                                  #
 ####################################################################################################
 
@@ -34,25 +34,21 @@ def _find_project_root() -> Path:
 
 
 def _prepare_runtime() -> Path:
-    """Anchor the working directory and materialize the bundled adapters.
+    """Anchor the working directory at the runtime root.
 
     Returns the resolved runtime root.
     """
-    from basisremy.core.paths import ensure_adapters, runtime_root
+    from basisremy.core.paths import runtime_root
 
     root = runtime_root()
     root.mkdir(parents=True, exist_ok=True)
 
-    # The Octave backends reference ``./externals`` and ``./adapters`` relative
-    # to the working directory, and the Docker runtime mounts that directory
-    # into the container. So make the bundled adapters reachable under the
-    # runtime root and anchor the working directory there. (externals/ is
-    # fetched lazily per-backend; see basisremy.core.externals.)
-    try:
-        ensure_adapters()
-    except OSError:
-        pass
-
+    # The Octave backends reference ``./externals`` relative to the working
+    # directory, and the Docker runtime mounts that directory into the
+    # container, so anchor the working directory at the runtime root.
+    # (externals/ is fetched lazily per-backend; see basisremy.core.externals.
+    # The bundled adapters live inside the package and are referenced directly;
+    # see basisremy.core.paths.octave_adapters_base.)
     try:
         os.chdir(root)
     except OSError:
@@ -62,22 +58,22 @@ def _prepare_runtime() -> Path:
 
 
 def _load_application():
-    """Import and return the Tkinter ``Application`` class.
+    """Import and return the NiceGUI ``BasisREMYApp`` class.
 
     Kept separate from :func:`main` so smoke tests can verify the import/path
-    wiring without opening a window, and so a future NiceGUI front-end can be
-    slotted in here behind the same entry point.
+    wiring (basisremy.gui -> core -> backends -> externals) without opening a
+    window.
     """
-    from basisremy.gui.application import Application
+    from basisremy.gui.application import BasisREMYApp
 
-    return Application
+    return BasisREMYApp
 
 
-def _start_tk_app() -> None:
-    """Instantiate and run the Tkinter application main loop."""
-    Application = _load_application()
-    app = Application()
-    app.mainloop()
+def _start_gui() -> None:
+    """Launch the NiceGUI application in a native desktop window."""
+    from basisremy.gui.application import run_app
+
+    run_app(native=True)
 
 
 def _run_environment_check() -> int:
@@ -100,11 +96,17 @@ def _run_environment_check() -> int:
 
     # GUI toolkit -----------------------------------------------------------
     try:
-        import tkinter  # noqa: F401
-        tk_ok = True
+        import nicegui  # noqa: F401
+        gui_ok = True
     except Exception:
-        tk_ok = False
-    print(f"  tkinter (GUI)   : {_mark(tk_ok)}")
+        gui_ok = False
+    print(f"  nicegui (GUI)   : {_mark(gui_ok)}")
+    try:
+        import webview  # noqa: F401  (pywebview, for the native window)
+        native_ok = True
+    except Exception:
+        native_ok = False
+    print(f"  pywebview (win) : {_mark(native_ok)}")
 
     # Octave runtimes -------------------------------------------------------
     docker_ok = local_ok = False
@@ -120,8 +122,12 @@ def _run_environment_check() -> int:
     print(f"  local octave    : {_mark(local_ok)}")
     print("=" * 40)
 
-    if not tk_ok:
-        print("Note: the GUI needs Tkinter. See the README 'Troubleshooting' section.")
+    if not gui_ok:
+        print("Note: the GUI needs NiceGUI (pip install nicegui). "
+              "See the README 'Troubleshooting' section.")
+    if not native_ok:
+        print("Note: the native desktop window needs pywebview (pip install pywebview); "
+              "without it the UI opens in your browser.")
     if not (docker_ok or local_ok):
         print("Note: simulation backends need Docker OR a local Octave install.")
         print("      Data extraction and parameter configuration still work without them.")
@@ -142,7 +148,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--check", action="store_true",
-        help="Report the environment (Python, Tkinter, Docker/Octave) and exit, "
+        help="Report the environment (Python, NiceGUI, Docker/Octave) and exit, "
              "without launching the GUI.",
     )
     return parser
@@ -158,18 +164,20 @@ def main(argv: list[str] | None = None) -> int:
         return _run_environment_check()
 
     try:
-        _start_tk_app()
-    except ModuleNotFoundError as exc:  # most commonly missing Tkinter
+        _start_gui()
+    except ModuleNotFoundError as exc:  # most commonly missing nicegui / pywebview
         missing = getattr(exc, "name", "") or str(exc)
-        if missing in ("tkinter", "_tkinter") or "tkinter" in str(exc).lower():
+        if missing in ("nicegui",) or "nicegui" in str(exc).lower():
             sys.stderr.write(
-                "\nERROR: Tkinter is not available in this Python installation.\n"
-                "Tkinter ships with CPython but some distributions split it out.\n\n"
-                "  - macOS (Homebrew):   brew install python-tk\n"
-                "  - Debian/Ubuntu:      sudo apt install python3-tk\n"
-                "  - Fedora:             sudo dnf install python3-tkinter\n"
-                "  - Windows:            reinstall Python from python.org with the\n"
-                "                        'tcl/tk and IDLE' option enabled\n\n"
+                "\nERROR: NiceGUI is not installed in this Python environment.\n\n"
+                "  pip install nicegui pywebview\n"
+                "  (or 'uv sync' / 'uvx --from . basisremy' in the project)\n\n"
+            )
+            return 1
+        if missing in ("webview", "pywebview") or "webview" in str(exc).lower():
+            sys.stderr.write(
+                "\nERROR: pywebview is required for the native desktop window.\n\n"
+                "  pip install pywebview\n\n"
             )
             return 1
         sys.stderr.write(
