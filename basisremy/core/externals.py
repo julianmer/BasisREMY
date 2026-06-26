@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 
@@ -70,20 +72,47 @@ def ensure(name: str) -> str:
         f"Fetching '{name}' (one-time download from {url}). This may take a while...",
         file=sys.stderr,
     )
+    # Skip Git-LFS smudging during clone/checkout. Some upstreams (notably
+    # FID-A) keep large example datasets in LFS and occasionally exceed their
+    # LFS budget, which makes the smudge filter fail and aborts the whole
+    # clone. We only need the Octave/MATLAB source, not the LFS sample data,
+    # so disabling smudge keeps fetching robust regardless of LFS quota.
+    env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"}
     try:
         subprocess.run(
             ["git", "clone", "--quiet", url, str(dest)],
             check=True,
+            env=env,
         )
-        subprocess.run(
-            ["git", "-C", str(dest), "checkout", "--quiet", commit],
-            check=True,
-        )
+        # Pin to the recorded commit. Upstreams occasionally rewrite history and
+        # drop the pinned commit (it may also live on a branch the default clone
+        # didn't materialise). Try a direct fetch of the commit, and if it is
+        # genuinely gone, fall back to the cloned default branch with a warning
+        # so the backend still works instead of failing outright.
+        if subprocess.run(
+            ["git", "-C", str(dest), "checkout", "--quiet", commit], env=env
+        ).returncode != 0:
+            subprocess.run(
+                ["git", "-C", str(dest), "fetch", "--quiet", "origin", commit],
+                env=env,
+            )
+            if subprocess.run(
+                ["git", "-C", str(dest), "checkout", "--quiet", commit], env=env
+            ).returncode != 0:
+                print(
+                    f"  ⚠️  pinned commit {commit[:10]} for '{name}' is no longer "
+                    "available upstream; using the repository's default branch "
+                    "instead.",
+                    file=sys.stderr,
+                )
     except FileNotFoundError as exc:  # git not installed
         raise ExternalFetchError(
             "git is required to fetch simulation backends but was not found on PATH."
         ) from exc
     except subprocess.CalledProcessError as exc:
+        # Remove the partial checkout so the next attempt starts clean instead
+        # of tripping the is_present() short-circuit on a half-fetched dir.
+        shutil.rmtree(dest, ignore_errors=True)
         raise ExternalFetchError(
             f"Failed to fetch '{name}' from {url} (commit {commit[:10]}): {exc}"
         ) from exc
