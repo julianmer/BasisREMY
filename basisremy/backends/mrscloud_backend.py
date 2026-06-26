@@ -237,7 +237,7 @@ class MRSCloudBackend(Backend):
         if vendor in _universal:
             self.current_mode = 'Universal'
         elif vendor in _specific:
-            self.current_mode = 'Non-universal'
+            self.current_mode = 'Non-Universal'
         if self.current_mode == 'Universal':
             self.dropdown['System'] = {
                 'Universal_Philips': 'Philips',
