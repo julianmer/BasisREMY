@@ -207,13 +207,36 @@ class MRSCloudBackend(Backend):
         }
 
     # --------------------------------------------------------------- mode/schema
+    # Vendor equivalences across modes. A vendor with no counterpart in the
+    # target mode (e.g. GE has no Universal waveform) maps to None and clears.
+    _VENDOR_TO_UNIVERSAL = {
+        'Philips':           'Universal_Philips',
+        'Siemens':           'Universal_Siemens',
+        'Universal_Philips': 'Universal_Philips',
+        'Universal_Siemens': 'Universal_Siemens',
+        'GE':                None,
+    }
+    _VENDOR_TO_SPECIFIC = {
+        'Universal_Philips': 'Philips',
+        'Universal_Siemens': 'Siemens',
+        'Philips':           'Philips',
+        'Siemens':           'Siemens',
+        'GE':                'GE',
+    }
+
     def set_mode(self, mode):
-        """Switch between 'Universal' and 'Non-universal'. Clears the current
-        System so the user re-picks a vendor valid for the chosen mode."""
+        """Switch between 'Universal' and 'Non-Universal'. Keep the current
+        System selected by mapping it onto its equivalent in the new mode
+        (Philips <-> Universal_Philips, Siemens <-> Universal_Siemens); only
+        clear it when the vendor has no counterpart (e.g. GE in Universal)."""
         if mode not in self.modes:
             raise ValueError(f"Unknown mode '{mode}'. Available: {self.modes}")
         self.current_mode = mode
-        self.mandatory_params['System'] = None
+        vendor = self.mandatory_params.get('System')
+        if mode == 'Universal':
+            self.mandatory_params['System'] = self._VENDOR_TO_UNIVERSAL.get(vendor)
+        else:
+            self.mandatory_params['System'] = self._VENDOR_TO_SPECIFIC.get(vendor)
         return self.get_params_for_mode(mode)
 
     def get_params_for_mode(self, mode=None):

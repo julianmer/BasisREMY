@@ -124,32 +124,53 @@ class LocalFilePicker(ui.dialog):
         self.submit(str(self._path / name))
 
     # --------------------------------------------------------------- listing
+    @staticmethod
+    def _safe_is_dir(p: Path) -> bool:
+        """``Path.is_dir`` that never raises.
+
+        ``Path.is_dir`` re-raises ``OSError`` for errors it does not recognise
+        (e.g. ``[Errno 5] Input/output error`` from cloud-synced/dataless
+        placeholder files on macOS). Treat any such entry as a non-directory so
+        a single unreadable item cannot break the whole listing.
+        """
+        try:
+            return p.is_dir()
+        except OSError:
+            return False
+
     def _render(self) -> None:
         self._path_label.set_text(str(self._path))
         self._list.clear()
         try:
-            entries = sorted(
-                self._path.iterdir(),
-                key=lambda e: (not e.is_dir(), e.name.lower()),
-            )
+            raw_entries = list(self._path.iterdir())
         except (PermissionError, OSError) as exc:
             with self._list:
                 ui.label(f"Cannot open folder: {exc}").classes("text-red p-2")
             return
+
+        entries = sorted(
+            raw_entries,
+            key=lambda e: (not self._safe_is_dir(e), e.name.lower()),
+        )
 
         with self._list:
             with ui.list().props("dense").classes("w-full"):
                 for entry in entries:
                     if entry.name.startswith("."):
                         continue
-                    is_dir = entry.is_dir()
+                    is_dir = self._safe_is_dir(entry)
                     if self._dirs_only and not is_dir:
                         continue
-                    enabled = (
-                        is_dir
-                        or self._show_file is None
-                        or self._show_file(entry)
-                    )
+                    try:
+                        enabled = (
+                            is_dir
+                            or self._show_file is None
+                            or self._show_file(entry)
+                        )
+                    except OSError:
+                        # Unreadable entry (e.g. EIO from a cloud placeholder):
+                        # show it greyed-out rather than dropping the folder.
+                        enabled = False
                     self._row(entry, is_dir, enabled)
 
     def _row(self, entry: Path, is_dir: bool, enabled: bool = True) -> None:
