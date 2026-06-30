@@ -27,17 +27,9 @@ import hashlib as _hashlib
 import json as _json
 import os
 import subprocess
-import sys
 from typing import Any, Iterable
 
 import numpy as np
-
-from basisremy.core.paths import externals_root
-
-# Make sure the vendored fsl_mrs is importable
-_FSL_MRS_ROOT = str(externals_root() / "fsl_mrs")
-if _FSL_MRS_ROOT not in sys.path:
-    sys.path.insert(0, _FSL_MRS_ROOT)
 
 
 # ----------------------------- public surface --------------------------------
@@ -227,220 +219,117 @@ def _ensure_dir(p: str) -> None:
         os.makedirs(p, exist_ok=True)
 
 
+# ---- kbsct conversion toolbox bridge ---------------------------------------
+# All on-disk format writing is delegated to the MRS Basis Set Conversion
+# Toolbox (vendored as the ``kbsct`` git submodule under ``externals/``).
+# BasisREMY only adapts its ``{name: complex FID}`` representation into the
+# toolbox's per-metabolite "core" struct and calls the toolbox's tested writers,
+# so the exported files match that community-validated implementation.
+
+_KBSCT_WRITER_FILES = {
+    "lcmodel": "write_lcmodel.py",
+    "jmrui":   "write_jmrui.py",
+    "fslmrs":  "write_fsLmrs.py",
+    "osprey":  "write_osprey.py",
+}
+
+_KBSCT_MODULE_CACHE: dict[str, Any] = {}
+
+
+def _kbsct_writers_dir() -> str:
+    """Locate the toolbox ``writers/`` directory, fetching it if needed."""
+    from basisremy.core.externals import ensure
+    root = ensure("kbsct")
+    preferred = os.path.join(root, "basis_converter", "writers")
+    if os.path.isfile(os.path.join(preferred, "write_lcmodel.py")):
+        return preferred
+    # Layout-robust fallback: locate the writers package anywhere in the
+    # checkout so an upstream reorganisation doesn't break the export.
+    for dirpath, _dirs, files in os.walk(root):
+        if os.path.basename(dirpath) == "writers" and "write_lcmodel.py" in files:
+            return dirpath
+    raise RuntimeError(f"Could not find the kbsct 'writers' directory under {root}.")
+
+
+def _kbsct(module_key: str):
+    """Import a kbsct writer module by file path (cached)."""
+    mod = _KBSCT_MODULE_CACHE.get(module_key)
+    if mod is not None:
+        return mod
+    import importlib.util
+    fpath = os.path.join(_kbsct_writers_dir(), _KBSCT_WRITER_FILES[module_key])
+    spec = importlib.util.spec_from_file_location(f"kbsct_{module_key}", fpath)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load kbsct writer module at {fpath}.")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    _KBSCT_MODULE_CACHE[module_key] = mod
+    return mod
+
+
+def _to_core_list(basis: dict[str, np.ndarray], hdr: dict[str, Any]) -> list[dict]:
+    """Adapt a BasisREMY basis dict into kbsct 'core' structs.
+
+    Each core carries the keys the toolbox writers expect:
+    ``fid`` (complex FID), ``sw`` (spectral width, Hz), ``sf`` (Larmor
+    frequency, MHz), ``n`` (points) and ``name``.
+    """
+    sw = float(hdr["bandwidth"])
+    sf = float(hdr["centralFrequency"])   # Larmor frequency in MHz
+    n = int(hdr["points"])
+    return [
+        {"fid": np.asarray(fid).ravel(), "sw": sw, "sf": sf, "n": n, "name": str(name)}
+        for name, fid in basis.items()
+    ]
+
+
 # ---- LCModel .RAW per metabolite -------------------------------------------
 
-def _save_one_raw(fid: np.ndarray, filepath: str, hdr: dict, label: str) -> None:
-    with open(filepath, "w") as f:
-        f.write(" $NMID\n")
-        f.write(f" ID='{label}'\n")
-        f.write(" FMTDAT='(2E15.6)'\n")
-        f.write(" VOLUME=1.0\n")
-        f.write(" TRAMP=1.0\n")
-        f.write(" $END\n")
-        for pt in fid:
-            f.write(f" {pt.real:15.6E} {pt.imag:15.6E}\n")
-
-
 def _write_lcmodel_raw_folder(basis, out_dir, hdr, params):
-    for name, fid in basis.items():
-        _save_one_raw(fid, os.path.join(out_dir, f"{name}.RAW"),
-                      hdr, label=f"BasisREMY {name}")
+    _kbsct("lcmodel").write_lcmodel_raw_folder(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- LCModel .basis (single file) ------------------------------------------
-# Implements the LCModel BASIS file ASCII format. We construct it directly so
-# we don't have to depend on FSL-MRS scripts.
 
 def _write_lcmodel_basis(basis, out_file, hdr, params):
     if not out_file.lower().endswith(".basis"):
         out_file = out_file + ".basis"
-    _ensure_dir(os.path.dirname(out_file))
-
     seq = str(params.get("Sequence") or "PRESS")
-    te = hdr["echotime"] if hdr["echotime"] is not None else 30.0
-    bw = hdr["bandwidth"]
-    cf = hdr["centralFrequency"]
-    npts = hdr["points"]
-
-    with open(out_file, "w") as f:
-        # SEQPAR section
-        f.write(" $SEQPAR\n")
-        f.write(f"  ECHOT  = {te:.4f}\n")
-        f.write(f"  HZPPPM = {cf:.4f}\n")
-        f.write(f"  SEQ    = '{seq}'\n")
-        f.write(" $END\n")
-        # BASIS1 header
-        f.write(" $BASIS1\n")
-        f.write(f"  FMTBAS = '(2E15.6)'\n")
-        f.write(f"  IDBASI = 'BasisREMY'\n")
-        f.write(f"  BADELT = {1.0/bw:.6E}\n")
-        f.write(f"  NDATAB = {npts}\n")
-        f.write(" $END\n")
-        # one BASIS section per metabolite
-        for name, fid in basis.items():
-            fid = fid[:npts] if fid.size >= npts else np.pad(fid, (0, npts - fid.size))
-            f.write(" $BASIS\n")
-            f.write(f"  ID     = '{name}'\n")
-            f.write(f"  METABO = '{name}'\n")
-            f.write(f"  CONC   = 1.0\n")
-            f.write(f"  TRAMP  = 1.0\n")
-            f.write(f"  VOLUME = 1.0\n")
-            f.write(f"  ISHIFT = 0\n")
-            f.write(" $END\n")
-            for pt in fid:
-                f.write(f" {pt.real:15.6E} {pt.imag:15.6E}\n")
+    _kbsct("lcmodel").write_lcmodel_basis(
+        _to_core_list(basis, hdr), out_file,
+        te=hdr["echotime"], seq=seq,
+        description=f"BasisREMY {seq} basis",
+    )
 
 
 # ---- jMRUI text format -----------------------------------------------------
 
 def _write_jmrui_folder(basis, out_dir, hdr, params):
-    bw = hdr["bandwidth"]
-    cf_hz = hdr["centralFrequency"] * 1e6   # MHz -> Hz
-    dwell_ms = 1000.0 / bw                  # ms
-    for name, fid in basis.items():
-        fp = os.path.join(out_dir, f"{name}.txt")
-        with open(fp, "w") as f:
-            f.write("jMRUI Data Textfile\n\n")
-            f.write(f"Filename: {name}.txt\n\n")
-            f.write(f"PointsInDataset: {fid.size}\n")
-            f.write(f"DatasetsInFile: 1\n")
-            f.write(f"SamplingInterval: {dwell_ms:.6E}\n")
-            f.write(f"ZeroOrderPhase: 0E0\n")
-            f.write(f"BeginTime: 0E0\n")
-            f.write(f"TransmitterFrequency: {cf_hz:.6E}\n")
-            f.write(f"MagneticField: {_b0_from_params(params):.4f}\n")
-            f.write(f"TypeOfNucleus: {hdr['nucleus']}\n")
-            f.write(f"NameOfPatient: BasisREMY\n")
-            f.write(f"DateOfExperiment: {_dt.date.today().isoformat()}\n")
-            f.write(f"Spectrometer: BasisREMY-simulated\n")
-            f.write(f"AdditionalInfo: metabolite={name}\n\n")
-            f.write("Signal and FFT\n")
-            f.write("sig(real)\tsig(imag)\tfft(real)\tfft(imag)\n")
-            # fftshift(fft()) → spectrum from low freq (low ppm) to high freq
-            # (high ppm). jMRUI reads this column positionally and inverts
-            # the ppm axis on display, so the order is consistent.
-            spec = np.fft.fftshift(np.fft.fft(fid))
-            for fp_t, fp_w in zip(fid, spec):
-                f.write(f"{fp_t.real:.6E}\t{fp_t.imag:.6E}\t{fp_w.real:.6E}\t{fp_w.imag:.6E}\n")
+    _kbsct("jmrui").write_jmrui_folder(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- FSL-MRS JSON basis directory ------------------------------------------
-# Uses the FSL-MRS write_fsl_basis_file helper if available, otherwise writes
-# a minimal JSON directly compatible with fsl_mrs.utils.mrs_io.fsl_io.readFSLBasis.
 
 def _write_fsl_json_folder(basis, out_dir, hdr, params):
-    b0 = _b0_from_params(params)
-    info = f"BasisREMY simulated basis ({params.get('Sequence', '?')}, " \
-           f"TE={hdr['echotime']}ms, B0={b0:.2f}T)"
-
-    # Try FSL-MRS helper for full compatibility
-    try:
-        from basisremy.core.externals import ensure as _ensure_external
-        _ensure_external('fsl_mrs')
-        from fsl_mrs.utils.mrs_io.fsl_io import write_fsl_basis_file
-        # Header that write_fsl_basis_file expects
-        fsl_hdr = {
-            "centralFrequency": hdr["centralFrequency"],
-            "bandwidth":        hdr["bandwidth"],
-            "dwelltime":        hdr["dwelltime"],
-            "fwhm":             hdr["fwhm"],
-        }
-        for name, fid in basis.items():
-            write_fsl_basis_file(fid, name, fsl_hdr, out_dir, info=info)
-        # Ensure the top-level keys the test (and FSL-MRS readers) expect
-        # are always present regardless of the helper's output schema.
-        for name in basis:
-            fp = os.path.join(out_dir, f"{name}.json")
-            if os.path.isfile(fp):
-                try:
-                    with open(fp) as _f:
-                        _payload = _json.load(_f)
-                    changed = False
-                    if "centralFrequency" not in _payload:
-                        _payload["centralFrequency"] = hdr["centralFrequency"]
-                        changed = True
-                    if "spectralwidth" not in _payload:
-                        _payload["spectralwidth"] = hdr["bandwidth"]
-                        changed = True
-                    if changed:
-                        with open(fp, "w") as _f:
-                            _json.dump(_payload, _f, indent=2)
-                except Exception:
-                    pass
-        return
-    except Exception:
-        pass
-
-    # Fallback: write minimal JSON files directly (matches readFSLBasis layout)
-    for name, fid in basis.items():
-        fp = os.path.join(out_dir, f"{name}.json")
-        payload = {
-            "basis": {
-                "basis_re": fid.real.tolist(),
-                "basis_im": fid.imag.tolist(),
-                "basis_name": name,
-                "basis_centre": 4.65,
-                "basis_width": hdr["fwhm"],
-            },
-            "MM": False,
-            "info": info,
-            "seq": {
-                "TE": hdr["echotime"],
-                "B0": b0,
-                "SequenceName": params.get("Sequence"),
-                "Nucleus": hdr["nucleus"],
-            },
-            "spectralwidth": hdr["bandwidth"],
-            "centralFrequency": hdr["centralFrequency"],
-            "dwelltime": hdr["dwelltime"],
-        }
-        with open(fp, "w") as f:
-            _json.dump(payload, f, indent=2)
+    _kbsct("fslmrs").write_fsLmrs_folder(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- Osprey .mat ------------------------------------------------------------
+# Note: the toolbox's Osprey writer is not a 1:1 dump — it applies metabolite
+# name-mapping, DC-correction, proton-equivalent rescaling and adds a synthetic
+# H2O peak to produce an Osprey-compatible BASIS struct. ``add_mm=False`` keeps
+# it from also injecting parametric MM/Lip basis functions.
 
 def _write_osprey_mat(basis, out_file, hdr, params):
     if not out_file.lower().endswith(".mat"):
         out_file = out_file + ".mat"
     _ensure_dir(os.path.dirname(out_file))
-    try:
-        from scipy.io import savemat
-    except ImportError as e:
-        raise RuntimeError("scipy is required for Osprey .mat export") from e
-
-    names = list(basis.keys())
-    fids = np.column_stack([basis[n] for n in names])  # (Npts, Nmetabs)
-    bw = hdr["bandwidth"]
-    cf = hdr["centralFrequency"]
-    npts = hdr["points"]
-
-    spec = np.fft.fftshift(np.fft.fft(fids, axis=0), axes=0)
-    t = np.arange(npts) / bw
-
-    # ppm axis: f_offset [Hz] / cf [MHz] = ppm directly (unit convenience).
-    # Result goes from ~(4.65 - bw/(2cf)) to ~(4.65 + bw/(2cf)) ppm
-    # (low ppm → high ppm). Osprey inverts the x-axis on its own display.
-    ppm_axis = np.linspace(-bw / 2, bw / 2, npts) / cf + 4.65
-
-    BASIS = {
-        "fids": fids.astype(np.complex128),
-        "specs": spec.astype(np.complex128),
-        "name": np.array(names, dtype=object),
-        "t": t,
-        "ppm": ppm_axis,
-        "spectralwidth": float(bw),
-        "dwelltime": float(1.0 / bw),
-        "n": int(npts),
-        "linewidth": float(hdr["fwhm"]),
-        "Bo": _b0_from_params(params),
-        "centerFreq": float(cf),
-        "te": float(hdr["echotime"] or 0.0),
-        "seq": str(params.get("Sequence") or ""),
-        "nMets": len(names),
-        "sz": np.array(fids.shape, dtype=np.int32),
-    }
-    savemat(out_file, {"BASIS": BASIS}, do_compression=True, oned_as="column")
+    _kbsct("osprey").write_osprey(
+        _to_core_list(basis, hdr), out_file,
+        target_n=0, add_mm=False,
+        te=float(hdr["echotime"] or 0.0),
+        sequence=str(params.get("Sequence") or "unedited"),
+    )
 
 
 # ---- Reproducibility sidecar -----------------------------------------------

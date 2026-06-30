@@ -203,7 +203,10 @@ the top-right corner and follows your system setting by default.
    **Simulate basis set**.
 3. **Simulate** — A progress bar shows the simulation status. When it finishes,
    an interactive spectrum plot appears and you can click **Export basis…** to
-   save the basis set in LCModel, jMRUI, FSL-MRS, or Osprey format.
+   save the basis set in LCModel, jMRUI, FSL-MRS, or Osprey format. Format
+   writing is handled by the bundled
+   [MRS Basis Set Conversion Toolbox](https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox)
+   (vendored as the `externals/kbsct` submodule).
 
 > Every input has a small **(?)** help icon — hover it for a short explanation of
 > that parameter.
@@ -231,7 +234,8 @@ The project will build upon the methodologies used in existing tools. Some refer
 - [FID-A](https://github.com/CIC-methods/FID-A) and related literature ([mrm.26091](https://doi.org/10.1002/mrm.26091))
 - [FSL-MRS](https://github.com/wtclarke/fsl_mrs) and related literature ([mrm.28630](https://doi.org/10.1002/mrm.28630))
 - [MRSCloud](https://github.com/shui5/MRSCloud) and related literature ([mrm.29370](https://doi.org/10.1002/mrm.29370))
-- [BasisSetSimulation](https://github.com/arcj-hub/BasisSetSimulation/tree/main)
+- [MRS Basis Set Conversion Toolbox](https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox)
+- [Custom Basis Set Simulation](https://github.com/arcj-hub/BasisSetSimulation/tree/main)
 
 ---
 

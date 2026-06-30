@@ -10,3 +10,6 @@
 [submodule "externals/mrscloud"]
 	path = externals/mrscloud
 	url = https://github.com/shui5/MRSCloud.git
+[submodule "externals/kbsct"]
+	path = externals/kbsct
+	url = https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox.git

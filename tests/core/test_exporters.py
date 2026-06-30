@@ -148,10 +148,11 @@ class TestExportFormats:
         text = open(out).read()
         assert ' $SEQPAR' in text
         assert ' $BASIS1' in text
-        # one $BASIS section per metabolite
+        # kbsct writes a $NMUSED fitting-defaults block + a $BASIS block per metab
+        assert ' $NMUSED' in text
         assert text.count(' $BASIS\n') == 2
-        assert "ID     = 'NAA'" in text
-        assert "ID     = 'Cr'" in text
+        assert "ID='NAA'" in text
+        assert "ID='Cr'" in text
         # sidecar
         sidecar = tmp_path / 'basis_sidecar.json'
         assert sidecar.exists()
@@ -187,20 +188,18 @@ class TestExportFormats:
     def test_fsl_json_folder(self, tmp_path, params):
         out_dir = tmp_path / 'fsl'
         export(_synthetic_basis(), str(out_dir), 'fsl_json', params)
-        # FSL writer may produce .json or .basis (FSL helper) — accept either
-        json_files = list(out_dir.glob('*.json'))
-        basis_files = list(out_dir.glob('*.basis')) + list(out_dir.glob('*.BASIS'))
-        # at least one of the two layouts must exist for each metab
-        if json_files:
-            for f in json_files:
-                if f.name == 'basis_sidecar.json':
-                    continue
-                payload = json.loads(f.read_text())
-                assert 'centralFrequency' in payload
-                assert 'spectralwidth' in payload
-        else:
-            assert len(basis_files) >= 2, \
-                f"Expected per-metab files, got {[p.name for p in out_dir.iterdir()]}"
+        # kbsct FSL-MRS writer produces one <metab>.json per metabolite, each
+        # holding a 'basis' block (real/imag FID) and a 'meta' block.
+        json_files = [f for f in out_dir.glob('*.json')
+                      if f.name != 'basis_sidecar.json']
+        assert len(json_files) >= 2, \
+            f"Expected per-metab files, got {[p.name for p in out_dir.iterdir()]}"
+        for f in json_files:
+            payload = json.loads(f.read_text())
+            assert 'basis' in payload
+            b = payload['basis']
+            assert 'basis_re' in b and 'basis_im' in b
+            assert b['basis_name'] in {'NAA', 'Cr'}
 
     def test_osprey_mat(self, tmp_path, params):
         scipy_io = pytest.importorskip('scipy.io')
@@ -213,8 +212,13 @@ class TestExportFormats:
         # struct keys
         for required in ('fids', 'specs', 'name', 'ppm', 'Bo', 'centerFreq', 'n'):
             assert required in b, f"Osprey BASIS struct missing key {required!r}"
-        # fids shape: (npts, nmetabs)
-        assert b['fids'].shape == (64, 2)
+        # fids shape: (npts, nmetabs). The kbsct Osprey writer appends a
+        # synthetic H2O peak, so there is at least one column per input metab.
+        assert b['fids'].shape[0] == 64
+        assert b['fids'].shape[1] >= 2
+        # names may be char-array padded on the MATLAB round-trip -> strip.
+        names = [str(x).strip() for x in np.atleast_1d(b['name'])]
+        assert 'NAA' in names and 'Cr' in names
         # Bo should be sensible (>0) regardless of which params style we used
         assert float(b['Bo']) > 0
 

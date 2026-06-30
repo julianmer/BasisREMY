@@ -39,6 +39,12 @@ REGISTRY: dict[str, tuple[str, str]] = {
         "https://github.com/shui5/MRSCloud.git",
         "8877e3fdc2bf31e85256de25d85ef659d8272cfc",
     ),
+    # MRS Basis Set Conversion Toolbox — used by core.exporters to write the
+    # various basis-set formats (LCModel / jMRUI / FSL-MRS / Osprey).
+    "kbsct": (
+        "https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox.git",
+        "53925137e29fbefd6582171595af59665edd3f9f",
+    ),
 }
 
 
