@@ -222,6 +222,74 @@ class TestExportFormats:
         # Bo should be sensible (>0) regardless of which params style we used
         assert float(b['Bo']) > 0
 
+    def test_fida_mat_folder(self, tmp_path, params):
+        scipy_io = pytest.importorskip('scipy.io')
+        out_dir = tmp_path / 'fida'
+        out = export(_synthetic_basis(), str(out_dir), 'fida_mat', params)
+        assert os.path.isdir(out)
+        for name in ('NAA', 'Cr'):
+            fp = out_dir / f'{name}.mat'
+            assert fp.exists(), f'{name}.mat missing'
+            loaded = scipy_io.loadmat(str(fp), simplify_cells=True)
+            assert any(not k.startswith('__') for k in loaded)
+        assert (out_dir / 'basis_sidecar.json').exists()
+
+    def test_inspector_mat(self, tmp_path, params):
+        scipy_io = pytest.importorskip('scipy.io')
+        out = export(_synthetic_basis(), str(tmp_path / 'basis.mat'),
+                     'inspector_mat', params)
+        assert os.path.exists(out)
+        loaded = scipy_io.loadmat(out, simplify_cells=True)
+        assert any(not k.startswith('__') for k in loaded)
+        assert (tmp_path / 'basis_sidecar.json').exists()
+
+    def test_profit_mat(self, tmp_path, params):
+        scipy_io = pytest.importorskip('scipy.io')
+        out = export(_synthetic_basis(), str(tmp_path / 'basis.mat'),
+                     'profit_mat', params)
+        assert os.path.exists(out)
+        loaded = scipy_io.loadmat(out, simplify_cells=True)
+        assert any(not k.startswith('__') for k in loaded)
+        assert (tmp_path / 'basis_sidecar.json').exists()
+
+    def test_marss_mat_folder(self, tmp_path, params):
+        scipy_io = pytest.importorskip('scipy.io')
+        out_dir = tmp_path / 'marss'
+        out = export(_synthetic_basis(), str(out_dir), 'marss_mat', params)
+        assert os.path.isdir(out)
+        for name in ('NAA', 'Cr'):
+            fp = out_dir / f'{name}.mat'
+            assert fp.exists(), f'{name}.mat missing'
+            loaded = scipy_io.loadmat(str(fp), simplify_cells=True)
+            assert any(not k.startswith('__') for k in loaded)
+        assert (out_dir / 'basis_sidecar.json').exists()
+
+    def test_mrscloud_mat_folder(self, tmp_path, params):
+        scipy_io = pytest.importorskip('scipy.io')
+        out_dir = tmp_path / 'mrscloud'
+        out = export(_synthetic_basis(), str(out_dir), 'mrscloud_mat', params)
+        assert os.path.isdir(out)
+        for name in ('NAA', 'Cr'):
+            fp = out_dir / f'{name}.mat'
+            assert fp.exists(), f'{name}.mat missing'
+            loaded = scipy_io.loadmat(str(fp), simplify_cells=True)
+            assert any(not k.startswith('__') for k in loaded)
+        assert (out_dir / 'basis_sidecar.json').exists()
+
+    def test_spinwizard_folder(self, tmp_path, params):
+        out_dir = tmp_path / 'spinwizard'
+        export(_synthetic_basis(), str(out_dir), 'spinwizard', params)
+        # JET/SpinWizard: one extension-less two-column ASCII file per metab,
+        # plus index/parameter text files.
+        for name in ('NAA', 'Cr'):
+            fp = out_dir / name
+            assert fp.exists(), f'{name} metabolite file missing'
+            cols = fp.read_text().splitlines()[0].split()
+            assert len(cols) == 2, 'expected real/imag two-column FID'
+        assert (out_dir / 'LCMBasisSet.txt').exists()
+        assert (out_dir / 'BasisSetParameters.txt').exists()
+        assert (out_dir / 'basis_sidecar.json').exists()
+
     def test_unknown_format_raises(self, tmp_path):
         with pytest.raises(ValueError):
             export(_synthetic_basis(), str(tmp_path / 'x'), 'not_a_format', {})
@@ -245,6 +313,8 @@ class TestSidecar:
     def test_supported_formats_constant(self):
         assert set(SUPPORTED_FORMATS) == {
             'lcmodel_basis', 'lcmodel_raw', 'jmrui_txt', 'fsl_json', 'osprey_mat',
+            'fida_mat', 'inspector_mat', 'profit_mat', 'marss_mat',
+            'mrscloud_mat', 'spinwizard',
         }
 
 

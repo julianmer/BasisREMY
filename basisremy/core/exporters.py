@@ -40,6 +40,12 @@ SUPPORTED_FORMATS = (
     "jmrui_txt",       # folder of <metab>.txt files
     "fsl_json",        # folder of <metab>.json files (FSL-MRS basis dir)
     "osprey_mat",      # single .mat with Osprey-style BASIS struct
+    "fida_mat",        # folder of <metab>.mat files (FID-A structs)
+    "inspector_mat",   # single .mat (INSPECTOR lcmBasis struct)
+    "profit_mat",      # single .mat (ProFit basis struct)
+    "marss_mat",       # folder of <metab>.mat files (MARSS exptDat structs)
+    "mrscloud_mat",    # folder of <metab>.mat files (MRSCloud structs)
+    "spinwizard",      # folder of SpinWizard/JET two-column ASCII files
 )
 
 # Human-friendly labels for the GUI dropdown
@@ -49,6 +55,12 @@ FORMAT_LABELS = {
     "jmrui_txt":     "jMRUI .txt (one file per metabolite)",
     "fsl_json":      "FSL-MRS .json basis directory",
     "osprey_mat":    "Osprey .mat (BASIS struct)",
+    "fida_mat":      "FID-A .mat (one file per metabolite)",
+    "inspector_mat": "INSPECTOR .mat (single file)",
+    "profit_mat":    "ProFit .mat (single file)",
+    "marss_mat":     "MARSS .mat (one file per metabolite)",
+    "mrscloud_mat":  "MRSCloud .mat (one file per metabolite)",
+    "spinwizard":    "SpinWizard / JET (folder)",
 }
 
 FORMAT_EXTENSIONS = {
@@ -57,6 +69,12 @@ FORMAT_EXTENSIONS = {
     "jmrui_txt":     "",            # directory
     "fsl_json":      "",            # directory
     "osprey_mat":    ".mat",
+    "fida_mat":      "",            # directory
+    "inspector_mat": ".mat",
+    "profit_mat":    ".mat",
+    "marss_mat":     "",            # directory
+    "mrscloud_mat":  "",            # directory
+    "spinwizard":    "",            # directory
 }
 
 
@@ -101,6 +119,22 @@ def export(basis: dict[str, np.ndarray],
         _write_fsl_json_folder(basis, out, hdr, params)
     elif fmt == "osprey_mat":
         _write_osprey_mat(basis, out, hdr, params)
+    elif fmt == "fida_mat":
+        _ensure_dir(out)
+        _write_fida_folder(basis, out, hdr, params)
+    elif fmt == "inspector_mat":
+        _write_inspector_mat(basis, out, hdr, params)
+    elif fmt == "profit_mat":
+        _write_profit_mat(basis, out, hdr, params)
+    elif fmt == "marss_mat":
+        _ensure_dir(out)
+        _write_marss_folder(basis, out, hdr, params)
+    elif fmt == "mrscloud_mat":
+        _ensure_dir(out)
+        _write_mrscloud_folder(basis, out, hdr, params)
+    elif fmt == "spinwizard":
+        _ensure_dir(out)
+        _write_spinwizard_folder(basis, out, hdr, params)
 
     # Always emit a reproducibility sidecar
     sidecar_dir = out if os.path.isdir(out) else os.path.dirname(out)
@@ -227,10 +261,16 @@ def _ensure_dir(p: str) -> None:
 # so the exported files match that community-validated implementation.
 
 _KBSCT_WRITER_FILES = {
-    "lcmodel": "write_lcmodel.py",
-    "jmrui":   "write_jmrui.py",
-    "fslmrs":  "write_fsLmrs.py",
-    "osprey":  "write_osprey.py",
+    "lcmodel":   "write_lcmodel.py",
+    "jmrui":     "write_jmrui.py",
+    "fslmrs":    "write_fsLmrs.py",
+    "osprey":    "write_osprey.py",
+    "fida":      "write_fida.py",
+    "inspector": "write_inspector.py",
+    "profit":    "write_profit.py",
+    "marss":     "write_marss.py",
+    "mrscloud":  "write_mrscloud.py",
+    "spinwizard": "write_spinwizard.py",
 }
 
 _KBSCT_MODULE_CACHE: dict[str, Any] = {}
@@ -330,6 +370,46 @@ def _write_osprey_mat(basis, out_file, hdr, params):
         te=float(hdr["echotime"] or 0.0),
         sequence=str(params.get("Sequence") or "unedited"),
     )
+
+
+# ---- FID-A .mat (one file per metabolite) ----------------------------------
+
+def _write_fida_folder(basis, out_dir, hdr, params):
+    _kbsct("fida").write_fida_folder(_to_core_list(basis, hdr), out_dir)
+
+
+# ---- INSPECTOR .mat (single file) ------------------------------------------
+
+def _write_inspector_mat(basis, out_file, hdr, params):
+    if not out_file.lower().endswith(".mat"):
+        out_file = out_file + ".mat"
+    _kbsct("inspector").write_inspector(_to_core_list(basis, hdr), out_file)
+
+
+# ---- ProFit .mat (single file) ---------------------------------------------
+
+def _write_profit_mat(basis, out_file, hdr, params):
+    if not out_file.lower().endswith(".mat"):
+        out_file = out_file + ".mat"
+    _kbsct("profit").write_profit(_to_core_list(basis, hdr), out_file)
+
+
+# ---- MARSS .mat (one file per metabolite) ----------------------------------
+
+def _write_marss_folder(basis, out_dir, hdr, params):
+    _kbsct("marss").write_marss_folder(_to_core_list(basis, hdr), out_dir)
+
+
+# ---- MRSCloud .mat (one file per metabolite) -------------------------------
+
+def _write_mrscloud_folder(basis, out_dir, hdr, params):
+    _kbsct("mrscloud").write_mrscloud_folder(_to_core_list(basis, hdr), out_dir)
+
+
+# ---- SpinWizard / JET (folder of two-column ASCII files) -------------------
+
+def _write_spinwizard_folder(basis, out_dir, hdr, params):
+    _kbsct("spinwizard").write_spinwizard(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- Reproducibility sidecar -----------------------------------------------

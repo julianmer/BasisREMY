@@ -42,7 +42,7 @@ class TestSchemaAware:
     def test_mega_shows_all_edit_fields(self, backend):
         backend.mandatory_params['Sequence'] = 'MEGA'
         # Need a vendor + localization compatible with editing
-        backend.mandatory_params['System'] = 'Universal_Philips'
+        backend.mandatory_params['System'] = 'Philips'
         backend.mandatory_params['Localization'] = 'PRESS'
         params = backend.get_params_for_mode()
         for k in ('Edit Target', 'Edit On', 'Edit Off', 'Edit Tp'):
@@ -51,7 +51,7 @@ class TestSchemaAware:
     @pytest.mark.parametrize("seq", ['HERMES', 'HERCULES'])
     def test_hermes_hercules_show_only_target_and_tp(self, backend, seq):
         backend.mandatory_params['Sequence'] = seq
-        backend.mandatory_params['System'] = 'Universal_Philips'
+        backend.mandatory_params['System'] = 'Philips'
         backend.mandatory_params['Localization'] = 'PRESS'
         params = backend.get_params_for_mode()
         assert 'Edit Target' in params
@@ -64,7 +64,7 @@ class TestSchemaAware:
     @pytest.mark.parametrize("seq", ['MEGA', 'HERMES', 'HERCULES'])
     def test_edited_seq_restricts_localization(self, backend, seq):
         backend.mandatory_params['Sequence'] = seq
-        backend.mandatory_params['System'] = 'Universal_Philips'
+        backend.mandatory_params['System'] = 'Philips'
         backend.get_params_for_mode()
         assert backend.dropdown['Localization'] == ['PRESS', 'sLASER'], \
             "Edited sequences must hide STEAM (7T only) from Localization choices"
@@ -76,7 +76,7 @@ class TestSchemaAware:
         backend.mandatory_params['Field Strength'] = '7T'
         backend.get_params_for_mode()  # establishes UnEdited state
         backend.mandatory_params['Sequence'] = 'MEGA'
-        backend.mandatory_params['System'] = 'Universal_Philips'
+        backend.mandatory_params['System'] = 'Philips'
         params = backend.get_params_for_mode()
         assert params['Localization'] == 'PRESS'
         assert backend.mandatory_params['Localization'] == 'PRESS'
@@ -94,16 +94,18 @@ class TestSchemaAware:
     def test_universal_vendor_no_picker(self, backend):
         backend.mandatory_params['Sequence'] = 'UnEdited'
         backend.mandatory_params['Localization'] = 'PRESS'
-        backend.mandatory_params['System'] = 'Universal_Philips'
+        backend.mandatory_params['System'] = 'Philips'
+        backend.current_mode = 'Universal'
         backend.get_params_for_mode()
         assert backend.file_selection == [], \
-            "Universal_Philips ships its own pulses — no picker should appear"
+            "Universal mode ships its own pulses — no picker should appear"
 
     def test_philips_vendor_shows_picker_when_pulses_missing(self, backend, tmp_path):
         """When the vendor-confidential pulse files aren't on disk, expose the picker."""
         backend.mandatory_params['Sequence'] = 'UnEdited'
         backend.mandatory_params['Localization'] = 'PRESS'
         backend.mandatory_params['System'] = 'Philips'
+        backend.current_mode = 'Non-Universal'
         # Force the missing-file check to look at an empty mrscloud root → all missing
         # Monkey-patch via the classmethod default arg
         original = MRSCloudBackend.missing_pulse_files

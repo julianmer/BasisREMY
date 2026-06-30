@@ -66,6 +66,11 @@ class MRSCloudBackend(Backend):
 
     _SEQUENCES     = ['UnEdited', 'MEGA', 'HERMES', 'HERCULES']
     _LOCALIZATIONS = ['PRESS', 'sLASER', 'STEAM_7T']
+    # Plain scanner vendors shown in the System dropdown. Universal-vs-vendor-
+    # specific is NOT a vendor — it is the Mode (see self.modes). The stored
+    # System value is always one of these; the Universal_* translation happens
+    # behind the scenes at run time (see _mrscloud_vendor / run_simulation).
+    _SYSTEMS       = ['Philips', 'Siemens', 'GE']
     _VENDORS       = ['Philips', 'Universal_Philips', 'Siemens', 'Universal_Siemens', 'GE']
 
     # ---- Pulse-file availability map ---------------------------------
@@ -149,7 +154,7 @@ class MRSCloudBackend(Backend):
         # panel whenever a key in `schema_affecting_keys` changes, so the
         # editing fields appear/disappear depending on `Sequence`.
         self.dropdown = {
-            'System':         list(self._VENDORS),
+            'System':         list(self._SYSTEMS),
             'Sequence':       list(self._SEQUENCES),
             'Localization':   list(self._LOCALIZATIONS),
             'Field Strength': ['1.5T', '3T', '7T'],
@@ -224,19 +229,29 @@ class MRSCloudBackend(Backend):
         'GE':                'GE',
     }
 
+    def _mrscloud_vendor(self, vendor=None, mode=None):
+        """Translate the stored plain vendor + Mode into the vendor label that
+        MRSCloud's load_parameters.m expects ('Philips' / 'Universal_Philips' /
+        ...). Universal mode maps Philips/Siemens onto their Universal_* bundled
+        waveforms; Non-Universal (and GE, which has no Universal set) keeps the
+        plain vendor. This is the only place the Universal_* name is produced."""
+        vendor = vendor if vendor is not None else self.mandatory_params.get('System')
+        mode = mode or self.current_mode
+        if not vendor:
+            return vendor
+        # Normalize any accidental Universal_* value back to the plain vendor.
+        plain = self._VENDOR_TO_SPECIFIC.get(vendor, vendor)
+        if mode == 'Universal':
+            return self._VENDOR_TO_UNIVERSAL.get(plain) or plain
+        return plain
+
     def set_mode(self, mode):
-        """Switch between 'Universal' and 'Non-Universal'. Keep the current
-        System selected by mapping it onto its equivalent in the new mode
-        (Philips <-> Universal_Philips, Siemens <-> Universal_Siemens); only
-        clear it when the vendor has no counterpart (e.g. GE in Universal)."""
+        """Switch between 'Universal' and 'Non-Universal'. The stored System
+        (plain scanner vendor) is left untouched — the Universal_* translation
+        happens behind the scenes at run time. All other fields are preserved."""
         if mode not in self.modes:
             raise ValueError(f"Unknown mode '{mode}'. Available: {self.modes}")
         self.current_mode = mode
-        vendor = self.mandatory_params.get('System')
-        if mode == 'Universal':
-            self.mandatory_params['System'] = self._VENDOR_TO_UNIVERSAL.get(vendor)
-        else:
-            self.mandatory_params['System'] = self._VENDOR_TO_SPECIFIC.get(vendor)
         return self.get_params_for_mode(mode)
 
     def get_params_for_mode(self, mode=None):
@@ -248,26 +263,20 @@ class MRSCloudBackend(Backend):
         loc    = (self.mandatory_params.get('Localization')   or '').strip()
         vendor = (self.mandatory_params.get('System')         or '').strip()
 
-        # ---- Universal vs vendor-specific System options --------------------
-        # An externally-set vendor (e.g. parsed from REMY) steers the mode so
-        # the System dropdown always contains the current value. In Universal
-        # mode only the two bundled universal vendors are offered, shown under
-        # the plain labels "Philips"/"Siemens" (the stored value stays
-        # Universal_* so MRSCloud uses the bundled univ_*.pta waveforms and
-        # never asks for a vendor pulse file).
-        _universal = ['Universal_Philips', 'Universal_Siemens']
-        _specific  = ['Philips', 'Siemens', 'GE']
-        if vendor in _universal:
+        # ---- System (plain vendor) + Mode (Universal / Non-Universal) -------
+        # System always stores the plain scanner vendor; the Mode decides
+        # whether the bundled Universal_* waveforms are used. Normalize any
+        # legacy Universal_* value back to the plain vendor (Mode now carries
+        # universality) so switching modes never loses the stored System.
+        if vendor in ('Universal_Philips', 'Universal_Siemens'):
+            vendor = self._VENDOR_TO_SPECIFIC[vendor]
+            self.mandatory_params['System'] = vendor
             self.current_mode = 'Universal'
-        elif vendor in _specific:
+        # GE has no Universal waveform set — force Non-Universal when selected.
+        if vendor == 'GE':
             self.current_mode = 'Non-Universal'
-        if self.current_mode == 'Universal':
-            self.dropdown['System'] = {
-                'Universal_Philips': 'Philips',
-                'Universal_Siemens': 'Siemens',
-            }
-        else:
-            self.dropdown['System'] = list(_specific)
+        # The System dropdown always lists the plain scanner vendors.
+        self.dropdown['System'] = list(self._SYSTEMS)
 
         # ---- edited sequences restrict Localization to PRESS / sLASER -------
         if seq in ('MEGA', 'HERMES', 'HERCULES'):
@@ -300,9 +309,11 @@ class MRSCloudBackend(Backend):
                 self.mandatory_params.pop(k, None)
 
         # ---- ask for the missing vendor pulse file when needed ---------------
+        # Only Non-Universal mode may need a vendor-confidential pulse file;
+        # Universal mode always uses the bundled univ_*.pta waveforms.
         cur_loc = params.get('Localization') or loc
         self.file_selection = []
-        if seq and vendor and cur_loc and vendor not in ('Universal_Philips', 'Universal_Siemens'):
+        if self.current_mode == 'Non-Universal' and seq and vendor and cur_loc:
             missing = self.missing_pulse_files(vendor, seq, cur_loc)
             if missing:
                 label = self._pulse_param_label
@@ -314,7 +325,7 @@ class MRSCloudBackend(Backend):
                 params.pop(self._pulse_param_label, None)
                 self.mandatory_params.pop(self._pulse_param_label, None)
         else:
-            # Universal vendor (bundled) or nothing selected yet — no picker.
+            # Universal mode (bundled) or nothing selected yet — no picker.
             params.pop(self._pulse_param_label, None)
             self.mandatory_params.pop(self._pulse_param_label, None)
 
@@ -335,10 +346,21 @@ class MRSCloudBackend(Backend):
         bfield = MRSinMRS.get('B0', None)
         protocol = MRSinMRS.get('Protocol', None)
 
+        # Vendor is parsed plainly (Philips / Siemens / GE). Universal-vs-
+        # vendor-specific is a Mode, not a vendor: default to Universal when the
+        # vendor has bundled universal waveforms; GE has none, so it stays
+        # Non-Universal. The stored System keeps the plain vendor either way.
+        vendor = self.parseSystem(MRSinMRS.get('Manufacturer', None))
+        plain  = self._VENDOR_TO_SPECIFIC.get(vendor, vendor)
+        if plain in ('Philips', 'Siemens'):
+            self.current_mode = 'Universal'
+        elif plain == 'GE':
+            self.current_mode = 'Non-Universal'
+
         mandatory = {
             'Sequence':       self.parseProtocol(protocol),
             'Localization':   self.parseLocalization(protocol),
-            'System':         self.parseSystem(MRSinMRS.get('Manufacturer', None)),
+            'System':         plain,
             'Field Strength': self._field_str_from_b0(bfield),
             'Samples':        MRSinMRS.get('NumberOfDatapoints', None),
             'Bandwidth':      MRSinMRS.get('SpectralWidth', None),
@@ -555,8 +577,10 @@ class MRSCloudBackend(Backend):
             except ValueError:
                 save_dir = save_dir.replace('\\', '/')
 
-        # Pull params into local strongly-typed variables.
-        vendor       = str(params.get('System')       or 'Universal_Philips')
+        # Pull params into local strongly-typed variables. The stored System is
+        # the plain scanner vendor; translate it (with the current Mode) into
+        # the label MRSCloud expects ('Philips' / 'Universal_Philips' / ...).
+        vendor       = self._mrscloud_vendor(params.get('System')) or 'Universal_Philips'
         sequence     = str(params.get('Sequence')     or 'UnEdited')
         localization = str(params.get('Localization') or 'PRESS')
 
