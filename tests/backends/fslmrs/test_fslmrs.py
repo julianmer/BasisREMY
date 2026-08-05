@@ -110,6 +110,25 @@ class TestFSLMRSBackend:
         parsed, _ = basisremy.backend.parseREMY({'B0': 3.0, 'TE': 35})
         assert abs(parsed['Center Freq'] - 42.577 * 3.0) < 0.01
 
+    def test_parse_remy_uses_defaults_for_blank_values(self, basisremy):
+        """Blank REMY strings should not block backend defaults."""
+        parsed, _ = basisremy.backend.parseREMY({
+            'NumberOfDatapoints': '',
+            'SpectralWidth': '',
+            'B0': '',
+            'TE': '',
+            'Nucleus': '',
+            'Center Freq': '',
+            'Protocol': '',
+        })
+
+        assert parsed['Samples'] == 2048
+        assert parsed['Bandwidth'] == 2000
+        assert parsed['Bfield'] == 3.0
+        assert parsed['TE'] == 35
+        assert parsed['Nucleus'] == '1H'
+        assert parsed['Center Freq'] == pytest.approx(42.577 * 3.0)
+
     def test_parse_protocol(self, basisremy):
         """Test protocol string parsing"""
         b = basisremy.backend
@@ -117,7 +136,9 @@ class TestFSLMRSBackend:
         assert b.parseProtocol('steam') == 'STEAM'
         assert b.parseProtocol('sLASER_test') == 'sLASER'
         assert b.parseProtocol('MEGA_PRESS') == 'MEGA-PRESS'
+        assert b.parseProtocol('MEGA_sLASER') == 'MEGA-sLASER'
         assert b.parseProtocol('HERMES') == 'HERMES'
+        assert b.parseProtocol('HERCULES') == 'HERCULES'
         assert b.parseProtocol('unknown') is None
 
     # ------------------------------------------------------------------
@@ -157,6 +178,18 @@ class TestFSLMRSBackend:
             f"rephaseAreas has {len(seq['rephaseAreas'])} entries but there are {n_rf} RF pulses"
         assert len(seq['CoherenceFilter']) == n_rf, \
             f"CoherenceFilter has {len(seq['CoherenceFilter'])} entries but there are {n_rf} RF pulses"
+
+    def test_generate_sequence_json_uses_edit_frequency(self, basisremy):
+        """Edited sequences should honor the GUI's `Edit Frequency` field."""
+        params = {
+            'Sequence': 'MEGA-PRESS', 'TE': 35, 'Bandwidth': 2000,
+            'Samples': 2048, 'Bfield': 3.0, 'Edit Frequency': 2.5,
+        }
+        seq = basisremy.backend._generate_sequence_json(params)
+
+        expected_hz = 2.5 * 3.0 * 42.577
+        assert seq['RF'][2]['frequencyOffset'] == pytest.approx(expected_hz)
+        assert seq['RF'][4]['frequencyOffset'] == pytest.approx(expected_hz)
 
     # ------------------------------------------------------------------
     #  Actual simulations (per sequence)
