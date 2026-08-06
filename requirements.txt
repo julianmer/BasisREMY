@@ -4,6 +4,7 @@ matplotlib==3.10.7
 numpy==2.3.3
 oct2py==5.8.0
 pandas==2.3.3
+pillow>=10.0.0
 pyMapVBVD==0.6.1
 pytest>=7.0.0
 pytest-cov>=4.0.0
