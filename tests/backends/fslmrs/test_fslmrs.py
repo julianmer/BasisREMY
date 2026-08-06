@@ -110,6 +110,25 @@ class TestFSLMRSBackend:
         parsed, _ = basisremy.backend.parseREMY({'B0': 3.0, 'TE': 35})
         assert abs(parsed['Center Freq'] - 42.577 * 3.0) < 0.01
 
+    def test_parse_remy_keeps_blank_required_values(self, basisremy):
+        """Blank REMY values mean the user must supply the missing parameter."""
+        parsed, _ = basisremy.backend.parseREMY({
+            'NumberOfDatapoints': '',
+            'SpectralWidth': '',
+            'B0': '',
+            'TE': '',
+            'Nucleus': '',
+            'Center Freq': '',
+            'Protocol': '',
+        })
+
+        assert parsed['Samples'] == ''
+        assert parsed['Bandwidth'] == ''
+        assert parsed['Bfield'] == ''
+        assert parsed['TE'] == ''
+        assert parsed['Nucleus'] == ''
+        assert parsed['Center Freq'] == ''
+
     def test_parse_protocol(self, basisremy):
         """Test protocol string parsing"""
         b = basisremy.backend
@@ -117,8 +136,17 @@ class TestFSLMRSBackend:
         assert b.parseProtocol('steam') == 'STEAM'
         assert b.parseProtocol('sLASER_test') == 'sLASER'
         assert b.parseProtocol('MEGA_PRESS') == 'MEGA-PRESS'
+        assert b.parseProtocol('MEGA_sLASER') == 'MEGA-sLASER'
         assert b.parseProtocol('HERMES') == 'HERMES'
+        assert b.parseProtocol('HERCULES') == 'HERCULES'
         assert b.parseProtocol('unknown') is None
+
+    def test_gating_params_are_rendered(self, basisremy):
+        """Required FSL-MRS fields should be editable in each mode."""
+        for mode in basisremy.backend.modes:
+            params = basisremy.backend.get_params_for_mode(mode)
+            assert 'Nucleus' in params
+            assert 'Center Freq' in params
 
     # ------------------------------------------------------------------
     #  denmatsim import
@@ -157,6 +185,18 @@ class TestFSLMRSBackend:
             f"rephaseAreas has {len(seq['rephaseAreas'])} entries but there are {n_rf} RF pulses"
         assert len(seq['CoherenceFilter']) == n_rf, \
             f"CoherenceFilter has {len(seq['CoherenceFilter'])} entries but there are {n_rf} RF pulses"
+
+    def test_generate_sequence_json_uses_edit_frequency(self, basisremy):
+        """Edited sequences should honor the GUI's `Edit Frequency` field."""
+        params = {
+            'Sequence': 'MEGA-PRESS', 'TE': 35, 'Bandwidth': 2000,
+            'Samples': 2048, 'Bfield': 3.0, 'Edit Frequency': 2.5,
+        }
+        seq = basisremy.backend._generate_sequence_json(params)
+
+        expected_hz = 2.5 * 3.0 * 42.577
+        assert seq['RF'][2]['frequencyOffset'] == pytest.approx(expected_hz)
+        assert seq['RF'][4]['frequencyOffset'] == pytest.approx(expected_hz)
 
     # ------------------------------------------------------------------
     #  Actual simulations (per sequence)
@@ -243,14 +283,18 @@ class TestFSLMRSIntegration:
         br.set_backend('FSL-MRS')
         parsed, opt = br.backend.parseREMY(params)
 
+        def value_or_default(key, default):
+            value = parsed.get(key, default)
+            return default if value in (None, '', 'missing input', 'Select option') else value
+
         sim_params = {
             'Sequence': parsed.get('Sequence') or 'PRESS',
-            'Samples': parsed.get('Samples', 2048),
-            'Bandwidth': parsed.get('Bandwidth', 2000),
-            'Bfield': parsed.get('Bfield', 3.0),
-            'TE': parsed.get('TE', 35),
-            'Nucleus': parsed.get('Nucleus', '1H'),
-            'Center Freq': parsed.get('Center Freq', 127.7),
+            'Samples': value_or_default('Samples', 2048),
+            'Bandwidth': value_or_default('Bandwidth', 2000),
+            'Bfield': value_or_default('Bfield', 3.0),
+            'TE': value_or_default('TE', 35),
+            'Nucleus': value_or_default('Nucleus', '1H'),
+            'Center Freq': value_or_default('Center Freq', 127.7),
             'Metabolites': ['NAA', 'Cr'],
         }
         result = br.backend.run_simulation(sim_params)

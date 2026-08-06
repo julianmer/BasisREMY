@@ -210,6 +210,8 @@ class FSLMRSBackend(Backend):
                 'TE':       self.mandatory_params['TE'],
                 'Samples':  self.mandatory_params['Samples'],
                 'Bandwidth': self.mandatory_params['Bandwidth'],
+                'Nucleus': self.mandatory_params['Nucleus'],
+                'Center Freq': self.mandatory_params['Center Freq'],
             }
             # Conditional fields — only show when relevant to the chosen
             # sequence so the parameter sheet stays uncluttered.
@@ -225,6 +227,8 @@ class FSLMRSBackend(Backend):
                 'Template File': self.optional_params['Template File'],
                 'Samples': self.mandatory_params['Samples'],
                 'Bandwidth': self.mandatory_params['Bandwidth'],
+                'Nucleus': self.mandatory_params['Nucleus'],
+                'Center Freq': self.mandatory_params['Center Freq'],
                 'Linewidth': self.optional_params['Linewidth'],
                 **common,
             }
@@ -234,10 +238,40 @@ class FSLMRSBackend(Backend):
                 'Custom Sequence': self.optional_params['Custom Sequence'],
                 'Samples': self.mandatory_params['Samples'],
                 'Bandwidth': self.mandatory_params['Bandwidth'],
+                'Nucleus': self.mandatory_params['Nucleus'],
+                'Center Freq': self.mandatory_params['Center Freq'],
                 **common,
             }
 
         return dict(self.mandatory_params)
+
+    @staticmethod
+    def _is_missing(value) -> bool:
+        """Return True for GUI/REMY placeholder values."""
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return value.strip().lower() in {"", "missing input", "select option"}
+        return False
+
+    @staticmethod
+    def _first_raw(source: dict, *keys, default=None):
+        """Return the first key present in *source*, preserving blank values."""
+        for key in keys:
+            if key in source:
+                return source[key]
+        return default
+
+    @classmethod
+    def _coerce_number_or_blank(cls, value, *, default=None, as_int=False):
+        """Coerce numeric REMY values, preserving blanks that need user input."""
+        if cls._is_missing(value):
+            return "" if default is None else default
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return value
+        return int(number) if as_int else number
 
     def parseREMY(self, MRSinMRS):
         """
@@ -253,20 +287,48 @@ class FSLMRSBackend(Backend):
         opt = {}
 
         # Required parameters
-        params['Samples'] = MRSinMRS.get('NumberOfDatapoints', MRSinMRS.get('Samples', 2048))
-        params['Bandwidth'] = MRSinMRS.get('SpectralWidth', MRSinMRS.get('Bandwidth', 2000))
-        params['Bfield'] = MRSinMRS.get('B0', MRSinMRS.get('Bfield', 3.0))
-        params['TE'] = MRSinMRS.get('TE', 35)
-        params['Nucleus'] = MRSinMRS.get('Nucleus', '1H')
+        params['Samples'] = self._coerce_number_or_blank(
+            self._first_raw(
+                MRSinMRS,
+                'NumberOfDatapoints',
+                'Samples',
+                default=self.mandatory_params['Samples'],
+            ),
+            as_int=True,
+        )
+        params['Bandwidth'] = self._coerce_number_or_blank(
+            self._first_raw(
+                MRSinMRS,
+                'SpectralWidth',
+                'Bandwidth',
+                default=self.mandatory_params['Bandwidth'],
+            )
+        )
+        params['Bfield'] = self._coerce_number_or_blank(
+            self._first_raw(
+                MRSinMRS,
+                'B0',
+                'Bfield',
+                default=self.mandatory_params['Bfield'],
+            )
+        )
+        params['TE'] = self._coerce_number_or_blank(
+            self._first_raw(MRSinMRS, 'TE', default=self.mandatory_params['TE'])
+        )
+        params['Nucleus'] = self._first_raw(
+            MRSinMRS, 'Nucleus', default=self.mandatory_params['Nucleus'],
+        )
 
         # Calculate center frequency from field strength if not provided
-        center_freq = MRSinMRS.get('Center Freq', None)
-        if center_freq is None:
+        center_freq = self._first_raw(MRSinMRS, 'Center Freq', 'centralFrequency')
+        if not self._is_missing(center_freq):
+            params['Center Freq'] = self._coerce_number_or_blank(center_freq)
+        elif not self._is_missing(params['Bfield']):
             # Calculate for 1H at given field strength
             # gamma_1H = 42.577 MHz/T
             params['Center Freq'] = 42.577 * float(params['Bfield'])
         else:
-            params['Center Freq'] = center_freq
+            params['Center Freq'] = ""
 
         # Sequence detection
         sequence = self.parseProtocol(MRSinMRS.get('Protocol', ''))
@@ -319,22 +381,7 @@ class FSLMRSBackend(Backend):
         Returns:
             str: Standardized sequence name or None
         """
-        protocol_upper = protocol.upper()
-
-        if 'MEGA' in protocol_upper:
-            return 'MEGA-PRESS'
-        elif 'HERMES' in protocol_upper:
-            return 'HERMES'
-        elif 'PRESS' in protocol_upper:
-            return 'PRESS'
-        elif 'STEAM' in protocol_upper:
-            return 'STEAM'
-        elif 'SLASER' in protocol_upper:
-            return 'sLASER'
-        elif 'LASER' in protocol_upper:
-            return 'LASER'
-
-        return None
+        return self.map_sequence_in(protocol)
 
     def _coerce_params(self, params: dict) -> dict:
         """Return a copy of *params* with all numeric fields cast to their
@@ -347,16 +394,16 @@ class FSLMRSBackend(Backend):
         """
         p = dict(params)
         float_keys = ('TE', 'Bfield', 'Bandwidth', 'TM', 'Edit Frequency',
-                      'Linewidth', 'Center Freq')
+                      'Edit_Frequency', 'Linewidth', 'Center Freq')
         int_keys   = ('Samples',)
         for k in float_keys:
-            if k in p and p[k] not in (None, '', 'missing input'):
+            if k in p and not self._is_missing(p[k]):
                 try:
                     p[k] = float(p[k])
                 except (TypeError, ValueError):
                     pass
         for k in int_keys:
-            if k in p and p[k] not in (None, '', 'missing input'):
+            if k in p and not self._is_missing(p[k]):
                 try:
                     p[k] = int(float(p[k]))
                 except (TypeError, ValueError):
@@ -508,7 +555,9 @@ class FSLMRSBackend(Backend):
         elif sequence == 'MEGA-PRESS':
             # MEGA-PRESS with ideal editing pulses
             # Default Siemens timing
-            edit_freq = params.get('Edit_Frequency', 1.9)  # ppm (for GABA)
+            edit_freq = params.get(
+                'Edit Frequency', params.get('Edit_Frequency', 1.9),
+            )  # ppm (for GABA)
             edit_freq_hz = edit_freq * bfield * 42.577  # Convert to Hz
 
             # Siemens timing (ms)
@@ -595,7 +644,9 @@ class FSLMRSBackend(Backend):
 
         elif sequence == 'MEGA-sLASER':
             # MEGA-sLASER: Combination of MEGA editing with sLASER localization
-            edit_freq = params.get('Edit_Frequency', 1.9)
+            edit_freq = params.get(
+                'Edit Frequency', params.get('Edit_Frequency', 1.9),
+            )
             edit_freq_hz = edit_freq * bfield * 42.577
 
             seq_def.update({
@@ -862,4 +913,3 @@ class FSLMRSBackend(Backend):
             # Write FID data (real, imag pairs)
             for point in fid:
                 f.write(f" {point.real:15.6E} {point.imag:15.6E}\n")
-
