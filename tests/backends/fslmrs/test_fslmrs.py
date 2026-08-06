@@ -198,6 +198,18 @@ class TestFSLMRSBackend:
         assert seq['RF'][2]['frequencyOffset'] == pytest.approx(expected_hz)
         assert seq['RF'][4]['frequencyOffset'] == pytest.approx(expected_hz)
 
+    @pytest.mark.parametrize('blank', ['', None, 'missing input'])
+    def test_generate_sequence_json_blank_edit_frequency(self, basisremy, blank):
+        """A cleared `Edit Frequency` must fall back, not raise TypeError."""
+        params = {
+            'Sequence': 'MEGA-PRESS', 'TE': 35, 'Bandwidth': 2000,
+            'Samples': 2048, 'Bfield': 3.0, 'Edit Frequency': blank,
+        }
+        seq = basisremy.backend._generate_sequence_json(params)
+
+        expected_hz = 1.9 * 3.0 * 42.577
+        assert seq['RF'][2]['frequencyOffset'] == pytest.approx(expected_hz)
+
     # ------------------------------------------------------------------
     #  Actual simulations (per sequence)
     # ------------------------------------------------------------------

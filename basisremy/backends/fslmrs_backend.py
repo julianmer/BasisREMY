@@ -320,7 +320,7 @@ class FSLMRSBackend(Backend):
         )
 
         # Calculate center frequency from field strength if not provided
-        center_freq = self._first_raw(MRSinMRS, 'Center Freq', 'centralFrequency')
+        center_freq = self._first_raw(MRSinMRS, 'Center Freq')
         if not self._is_missing(center_freq):
             params['Center Freq'] = self._coerce_number_or_blank(center_freq)
         elif not self._is_missing(params['Bfield']):
@@ -555,10 +555,10 @@ class FSLMRSBackend(Backend):
         elif sequence == 'MEGA-PRESS':
             # MEGA-PRESS with ideal editing pulses
             # Default Siemens timing
-            edit_freq = params.get(
-                'Edit Frequency', params.get('Edit_Frequency', 1.9),
-            )  # ppm (for GABA)
-            edit_freq_hz = edit_freq * bfield * 42.577  # Convert to Hz
+            edit_freq = params.get('Edit Frequency')
+            if self._is_missing(edit_freq):
+                edit_freq = self.optional_params['Edit Frequency']  # ppm (for GABA)
+            edit_freq_hz = float(edit_freq) * bfield * 42.577  # Convert to Hz
 
             # Siemens timing (ms)
             t1 = 4.545
@@ -644,10 +644,10 @@ class FSLMRSBackend(Backend):
 
         elif sequence == 'MEGA-sLASER':
             # MEGA-sLASER: Combination of MEGA editing with sLASER localization
-            edit_freq = params.get(
-                'Edit Frequency', params.get('Edit_Frequency', 1.9),
-            )
-            edit_freq_hz = edit_freq * bfield * 42.577
+            edit_freq = params.get('Edit Frequency')
+            if self._is_missing(edit_freq):
+                edit_freq = self.optional_params['Edit Frequency']
+            edit_freq_hz = float(edit_freq) * bfield * 42.577
 
             seq_def.update({
                 'RF': [
