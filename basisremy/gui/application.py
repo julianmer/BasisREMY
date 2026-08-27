@@ -948,9 +948,16 @@ class BasisREMYApp:
         with self.metabs_col:
             with ui.row().classes("items-center justify-between w-full"):
                 ui.label("Metabolites").classes("br-section-title")
-                ui.button("Select all", on_click=self._toggle_all_metabs).props(
-                    "flat dense color=primary"
-                ).classes("text-xs")
+                with ui.row().classes("gap-0"):
+                    ui.button("Default",
+                              on_click=lambda: self._set_metabs(None)).props(
+                        "flat dense color=primary").classes("text-xs")
+                    ui.button("None",
+                              on_click=lambda: self._set_metabs(False)).props(
+                        "flat dense color=primary").classes("text-xs")
+                    ui.button("All",
+                              on_click=lambda: self._set_metabs(True)).props(
+                        "flat dense color=primary").classes("text-xs")
             self.metab_checks = {}
             with ui.element("div").classes("br-card br-metab w-full px-3 py-1.5"):
                 with ui.grid(columns=2).classes("gap-x-3 gap-y-0 w-full"):
@@ -964,10 +971,11 @@ class BasisREMYApp:
                         cb.on_value_change(self._update_metabs)
                         self.metab_checks[metab] = cb
 
-    def _toggle_all_metabs(self) -> None:
-        target = not all(cb.value for cb in self.metab_checks.values())
-        for cb in self.metab_checks.values():
-            cb.value = target
+    def _set_metabs(self, value: 'bool | None') -> None:
+        """Set every metabolite checkbox: True=all, False=none, None=defaults."""
+        defaults = getattr(self.BasisREMY.backend, '_default_metabs', {})
+        for m, cb in self.metab_checks.items():
+            cb.value = defaults.get(m, False) if value is None else value
         self._update_metabs()
 
     def _update_metabs(self, _event=None) -> None:

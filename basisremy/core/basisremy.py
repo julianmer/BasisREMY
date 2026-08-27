@@ -69,6 +69,7 @@ class BasisREMY:
         for inst in self.backends.values():
             inst._defaults = (copy.deepcopy(inst.mandatory_params),
                               copy.deepcopy(inst.optional_params))
+            inst._default_metabs = dict(inst.metabs)
 
         # Group backends by their declared category. Order within a category
         # follows the registration order above.

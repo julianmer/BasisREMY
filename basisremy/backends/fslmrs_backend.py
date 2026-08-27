@@ -95,20 +95,24 @@ class FSLMRSBackend(Backend):
             'STEAM': 'STEAM_7T_11ms',
         }
 
-        # Default metabolites
-        # TODO: Add macromolecules sim parts
+        # Metabolites denmatsim can actually simulate (the 'sys*' systems in
+        # denmatsim/spinSystems.json) — anything else would always fail with
+        # "no spin system". TODO: Add macromolecules sim parts.
         self.default_metabolites = [
-            'Ala', 'Asc', 'Asp', 'Cr', 'GABA', 'GPC', 'GSH', 'Glc', 'Gln', 'Glu', 'Gly',
-            'Ins', 'Lac', 'NAA', 'NAAG', 'PCh', 'PCr', 'PE', 'Scyllo', 'Tau',
-            'Ace', 'Acn', 'Ala', 'Asc', 'Asp', 'Bet', 'bHB', 'bHG', 'Cit', 'Cr',
-            'Cystat', 'EtOH', 'GABA', 'Glc', 'Gln', 'Glu', 'Gly', 'GPC', 'GSH',
-            'Gua', 'HCar', 'Hist', 'Hypotau', 'Ins', 'Lac', 'Lip09', 'Lip13a',
-            'Lip13b', 'Lip20', 'NAA', 'NAAG', 'Oac', 'PCh', 'PCr', 'PE', 'Phenyl',
-            'Pyruv', 'Scyllo', 'Ser', 'Suc', 'Tau', 'Thr', 'Tyros'
+            'Ace', 'Ala', 'Asc', 'Asp', 'Cit', 'Cr', 'EtOH', 'GABA',
+            'GABA_gov', 'GPC', 'GSH', 'GSH_v2', 'Glc', 'Gln', 'Glu', 'Gly',
+            'H2O', 'Ins', 'Lac', 'NAA', 'NAAG', 'PCh', 'PCr', 'PE', 'Phenyl',
+            'Ref0ppm', 'Scyllo', 'Ser', 'Tau', 'Tyros', 'bHB', 'bHG',
         ]
 
-        # Metabolite selection for UI
-        self.metabs = {name: False for name in self.default_metabolites}
+        # Metabolite selection for UI — the standard 1H-MRS set starts on.
+        _default_on = {
+            'Ala', 'Asc', 'Asp', 'Cr', 'GABA', 'GPC', 'GSH', 'Glc', 'Gln',
+            'Glu', 'Gly', 'Ins', 'Lac', 'NAA', 'NAAG', 'PCh', 'PCr', 'PE',
+            'Scyllo', 'Tau',
+        }
+        self.metabs = {name: name in _default_on
+                       for name in self.default_metabolites}
 
         # Dropdown options (export-related options live in the Export dialog)
         self.dropdown = {

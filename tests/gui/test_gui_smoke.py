@@ -59,3 +59,15 @@ async def test_continue_disabled_without_file(user: User) -> None:
     await user.open('/')
     button = user.find('Continue').elements.pop()
     assert not button.enabled
+
+
+async def test_metab_buttons_all_none_default(user: User) -> None:
+    await user.open('/')
+    user.find('Skip').click()
+    await user.should_see('Metabolites')
+    user.find('None').click()
+    await user.should_see('Metabolites')
+    user.find('All').click()
+    await user.should_see('Metabolites')
+    user.find('Default').click()
+    await user.should_see('Metabolites')

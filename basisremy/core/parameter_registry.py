@@ -446,8 +446,10 @@ def get(param: str) -> ParamInfo:
 # Full names for the abbreviations the backends use. Display-only — the keys
 # passed to the simulation engines stay each library's own convention.
 METABOLITE_NAMES: dict[str, str] = {
+    # TODO (needs a human): meanings of 'Oac', 'AcO', 'Hist', 'EA' are
+    # unverified in the upstream sources — deliberately left without
+    # tooltips rather than guessed.
     "AcAc": "Acetoacetate",
-    "AcO": "Acetone",
     "Ace": "Acetate",
     "Acn": "Acetone",
     "Ala": "Alanine",
@@ -458,7 +460,6 @@ METABOLITE_NAMES: dict[str, str] = {
     "Cit": "Citrate",
     "Cr": "Creatine",
     "Cystat": "Cystathionine",
-    "EA": "Ethanolamine",
     "EtOH": "Ethanol",
     "GABA": "γ-Aminobutyric acid",
     "GABA_gov": "γ-Aminobutyric acid (Govindaraju values)",
@@ -473,7 +474,6 @@ METABOLITE_NAMES: dict[str, str] = {
     "Gua": "Guanidinoacetate",
     "H2O": "Water",
     "HCar": "Homocarnosine",
-    "Hist": "Histidine",
     "Hypotau": "Hypotaurine",
     "Ins": "myo-Inositol",
     "Lac": "Lactate",
