@@ -142,6 +142,130 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             sw_out = sw;
             cf_mhz = Bfield * 42.577;
 
+        % ----- semi-LASER shaped (Oz et al. 2018; one AFP waveform) ----
+        %   args: n, sw, Bfield, lw, te, pulse_path, tp,
+        %         thkX, thkY, fovX, fovY, nX, nY, flipAngle, centreFreq
+        case 'semilaser_shaped'
+            [n, sw, Bfield, lw, te, pulse_path, tp, ...
+             thkX, thkY, fovX, fovY, nX, nY, flipAngle, centreFreq] = ...
+                deal(varargin{1:15});
+            if ~exist(pulse_path, 'file')
+                error('fida_run/semilaser_shaped: pulse waveform not found: "%s"', pulse_path);
+            end
+            RF = io_loadRFwaveform(pulse_path, 'ref', 0);
+            gamma = 42577000;
+            % Gradient conventions from jbss run_mysLASERShaped_fast.m:
+            % GM (e.g. GOIA) pulses scale via the time*thickness product,
+            % conventional pulses via the time-bandwidth product.
+            if RF.isGM
+                Gx = (RF.tthk / (tp/1000)) / thkX;
+                Gy = (RF.tthk / (tp/1000)) / thkY;
+            else
+                Gx = (RF.tbw / (tp/1000)) / (gamma * thkX / 10000);
+                Gy = (RF.tbw / (tp/1000)) / (gamma * thkY / 10000);
+            end
+            if nX < 2; nX = 2; end
+            if nY < 2; nY = 2; end
+            x = linspace(-fovX/2, fovX/2, nX);
+            y = linspace(-fovY/2, fovY/2, nY);
+            accumFid = [];
+            for ix = 1:nX
+                for iy = 1:nY
+                    out = sim_semiLASER_shaped(n, sw, Bfield, lw, sys, te, ...
+                                               RF, tp, x(ix), y(iy), Gx, Gy, ...
+                                               flipAngle, centreFreq);
+                    if isempty(accumFid)
+                        accumFid = out.fids(:);
+                    else
+                        accumFid = accumFid + out.fids(:);
+                    end
+                end
+            end
+            accumFid = accumFid / (nX * nY);
+            fid_re = real(accumFid); fid_im = imag(accumFid);
+            npts   = numel(accumFid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
+        % ----- STEAM shaped (shaped 90s, per run_simSteamShaped.m) -----
+        %   args: n, sw, Bfield, lw, te, tm, pulse_path, tp,
+        %         thkX, thkY, fovX, fovY, nX, nY, flipAngle, centreFreq
+        case 'steam_shaped'
+            [n, sw, Bfield, lw, te, tm, pulse_path, tp, ...
+             thkX, thkY, fovX, fovY, nX, nY, flipAngle, centreFreq] = ...
+                deal(varargin{1:16});
+            if ~exist(pulse_path, 'file')
+                error('fida_run/steam_shaped: pulse waveform not found: "%s"', pulse_path);
+            end
+            RF = io_loadRFwaveform(pulse_path, 'exc', 0);
+            gamma = 42577000;
+            if RF.isGM
+                Gx = (RF.tthk / (tp/1000)) / thkX;
+                Gy = (RF.tthk / (tp/1000)) / thkY;
+            else
+                Gx = (RF.tbw / (tp/1000)) / (gamma * thkX / 10000);
+                Gy = (RF.tbw / (tp/1000)) / (gamma * thkY / 10000);
+            end
+            if nX < 2; nX = 2; end
+            if nY < 2; nY = 2; end
+            x = linspace(-fovX/2, fovX/2, nX);
+            y = linspace(-fovY/2, fovY/2, nY);
+            accumFid = [];
+            for ix = 1:nX
+                for iy = 1:nY
+                    out = sim_steam_shaped(n, sw, Bfield, lw, sys, te, tm, ...
+                                           RF, tp, x(ix), y(iy), Gx, Gy, ...
+                                           flipAngle, centreFreq);
+                    if isempty(accumFid)
+                        accumFid = out.fids(:);
+                    else
+                        accumFid = accumFid + out.fids(:);
+                    end
+                end
+            end
+            accumFid = accumFid / (nX * nY);
+            fid_re = real(accumFid); fid_im = imag(accumFid);
+            npts   = numel(accumFid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
+        % ----- Spin Echo shaped (1-D; subtractive [0,90] phase cycle) --
+        %   args: n, sw, Bfield, lw, te, pulse_path, tp, thk, fov, npos
+        case 'spinecho_shaped'
+            [n, sw, Bfield, lw, te, pulse_path, tp, thk, fov, npos] = ...
+                deal(varargin{1:10});
+            if ~exist(pulse_path, 'file')
+                error('fida_run/spinecho_shaped: pulse waveform not found: "%s"', pulse_path);
+            end
+            RF = io_loadRFwaveform(pulse_path, 'ref', 0);
+            gamma = 42577000;
+            if RF.isGM
+                G = (RF.tthk / (tp/1000)) / thk;
+            else
+                G = (RF.tbw / (tp/1000)) / (gamma * thk / 10000);
+            end
+            if npos < 2; npos = 2; end
+            pos = linspace(-fov/2, fov/2, npos);
+            phCyc = [0, 90];   % per run_simSpinEchoShaped.m: RP1 - RP2
+            accumFid = [];
+            for ip = 1:npos
+                out1 = sim_spinecho_shaped(n, sw, Bfield, lw, sys, te, ...
+                                           RF, tp, G, pos(ip), phCyc(1));
+                out2 = sim_spinecho_shaped(n, sw, Bfield, lw, sys, te, ...
+                                           RF, tp, G, pos(ip), phCyc(2));
+                posFid = out1.fids(:) - out2.fids(:);
+                if isempty(accumFid)
+                    accumFid = posFid;
+                else
+                    accumFid = accumFid + posFid;
+                end
+            end
+            accumFid = accumFid / npos;
+            fid_re = real(accumFid); fid_im = imag(accumFid);
+            npts   = numel(accumFid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
         % ----- MEGA-PRESS ideal (per-spin instantaneous editing) -------
         %   args: n, sw, Bfield, lw, t1..t5 [ms], editPpm, editBand, editOn
         %   The ideal editing pulse inverts every spin within
@@ -173,12 +297,55 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             sw_out = sw;
             cf_mhz = Bfield * 42.577;
 
+        % ----- MEGA-PRESS shaped-edit (ideal refoc; shaped editing) ----
+        %   Conventions from run_simMegaPressShapedEdit.m: edit pulse loaded
+        %   as 'inv', frequency-shifted to the ON/OFF target, [0,90]x[0,90,
+        %   180,270] edit phase cycle summed and averaged.
+        %   args: n, sw, Bfield, lw, t1..t5 [ms], edit_path, editTp,
+        %         editOnFreq, editOffFreq, centreFreq, edit_on_flag
+        case 'megapress_shapededit'
+            [n, sw, Bfield, lw, t1, t2, t3, t4, t5, edit_path, editTp, ...
+             editOnFreq, editOffFreq, centreFreq, editOn] = ...
+                deal(varargin{1:15});
+            if ~exist(edit_path, 'file')
+                error('fida_run/megapress_shapededit: edit pulse waveform not found: "%s"', edit_path);
+            end
+            taus = [t1 t2 t3 t4 t5];
+            editRF = io_loadRFwaveform(edit_path, 'inv', 0);
+            gamma = 42577000;
+            if editOn
+                targetFreq = editOnFreq;
+            else
+                targetFreq = editOffFreq;
+            end
+            editRFshift = rf_freqshift(editRF, editTp, ...
+                (centreFreq - targetFreq) * Bfield * gamma / 1e6);
+            editPhCyc1 = [0 90];
+            editPhCyc2 = [0 90 180 270];
+            accumFid = [];
+            for EP1 = 1:numel(editPhCyc1)
+                for EP2 = 1:numel(editPhCyc2)
+                    out = sim_megapress_shapedEdit(n, sw, Bfield, lw, taus, ...
+                        sys, editRFshift, editTp, ...
+                        editPhCyc1(EP1), editPhCyc2(EP2), centreFreq);
+                    if isempty(accumFid)
+                        accumFid = out.fids(:);
+                    else
+                        accumFid = accumFid + out.fids(:);
+                    end
+                end
+            end
+            accumFid = accumFid / (numel(editPhCyc1) * numel(editPhCyc2));
+            fid_re = real(accumFid); fid_im = imag(accumFid);
+            npts   = numel(accumFid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
         % ----- stubs ---------------------------------------------------
         % The Python side already raises NotImplementedError for these
         % kinds before reaching Octave, but we guard here as well so a
         % buggy caller gets a clear MATLAB-side error too.
-        case {'semilaser_shaped','steam_shaped','spinecho_shaped', ...
-              'megapress_shaped','megaspecial_shaped'}
+        case {'megapress_shaped','megaspecial_shaped'}
             error('fida_run: kind "%s" is a registered FID-A wrapper but the Octave-side branch is not implemented yet.', kind);
 
         otherwise

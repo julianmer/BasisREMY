@@ -1219,18 +1219,20 @@ class BasisREMYApp:
                     "text-base font-bold text-grey-9"
                 )
 
-            # Edited sequences return '<metab> (ON/OFF/DIFF)' entries — offer
-            # a sub-spectrum filter row above the plot.
-            self._subspec_filters = {}
-            if any(k.endswith((' (ON)', ' (OFF)', ' (DIFF)'))
-                   for k in self.basis_set):
+            # Edited sequences return '<metab> (ON/OFF/DIFF)' entries — show
+            # exactly one sub-spectrum at a time, switched with a toggle.
+            self._subspec_toggle = None
+            self._legend_rows = {}
+            subs = [s for s in ("DIFF", "ON", "OFF")
+                    if any(k.endswith(f" ({s})") for k in self.basis_set)]
+            if subs:
                 with ui.row().classes("items-center gap-4 self-start"):
-                    ui.label("Sub-spectra:").classes(
+                    ui.label("Sub-spectrum:").classes(
                         "text-sm font-semibold text-grey-8")
-                    for sub in ("DIFF", "ON", "OFF"):
-                        cb = ui.checkbox(sub, value=True).props("dense")
-                        cb.on_value_change(self._update_plot)
-                        self._subspec_filters[sub] = cb
+                    self._subspec_toggle = ui.toggle(
+                        subs, value=subs[0]).props("dense")
+                    self._subspec_toggle.on_value_change(
+                        self._on_subspec_switch)
 
             failures = getattr(self, "_sim_failures", None) or {}
             if failures:
@@ -1258,7 +1260,8 @@ class BasisREMYApp:
                     for i, metab in enumerate(self.basis_set.keys()):
                         color = default_colors[i % len(default_colors)]
                         self.metab_colors[metab] = color
-                        with ui.row().classes("items-center gap-2 no-wrap"):
+                        row = ui.row().classes("items-center gap-2 no-wrap")
+                        with row:
                             ui.element("div").style(
                                 f"width:11px;height:11px;border-radius:3px;"
                                 f"background:{color};"
@@ -1266,12 +1269,29 @@ class BasisREMYApp:
                             cb = ui.checkbox(metab, value=True).props("dense")
                             cb.on_value_change(self._update_plot)
                             self.checkbox_vars[metab] = cb
+                        self._legend_rows[metab] = row
+                        row.set_visibility(self._subspec_visible(metab))
 
             ui.button("Export basis…", icon="download",
                       on_click=self._open_export_dialog).props(
                 "color=primary unelevated"
             )
 
+        self._update_plot()
+
+    def _subspec_visible(self, name: str) -> bool:
+        """Only the toggled sub-spectrum is shown; plain entries always are."""
+        toggle = getattr(self, "_subspec_toggle", None)
+        if toggle is None:
+            return True
+        for sub in ("DIFF", "ON", "OFF"):
+            if name.endswith(f" ({sub})"):
+                return sub == toggle.value
+        return True
+
+    def _on_subspec_switch(self, _event=None) -> None:
+        for name, row in getattr(self, "_legend_rows", {}).items():
+            row.set_visibility(self._subspec_visible(name))
         self._update_plot()
 
     def _open_export_dialog(self) -> None:
@@ -1314,16 +1334,9 @@ class BasisREMYApp:
                 cf *= 1e6  # MHz → Hz
         bw = float(mp["Bandwidth"])
 
-        subspec_filters = getattr(self, "_subspec_filters", None) or {}
-
-        def _subspec_visible(name: str) -> bool:
-            for sub, fcb in subspec_filters.items():
-                if name.endswith(f" ({sub})"):
-                    return bool(fcb.value)
-            return True
-
         for metab, cb in self.checkbox_vars.items():
-            if cb.value and metab in self.basis_set and _subspec_visible(metab):
+            if (cb.value and metab in self.basis_set
+                    and self._subspec_visible(metab)):
                 data = self.basis_set[metab]
                 if not isinstance(data, np.ndarray):
                     try:

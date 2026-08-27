@@ -174,6 +174,32 @@ class FidaBackend(Backend):
     def parseProtocol(self, protocol):
         return protocol
 
+    # -------------------------------------------------- edited sub-spectra
+    def _run_on_off_subspectra(self, params, base_args,
+                               progress_callback=None, stop_event=None):
+        """Run each metabolite twice (edit ON / OFF) and return the flat
+        '<metab> (ON/OFF/DIFF)' basis convention used by edited backends."""
+        metabs = params.get('Metabolites') or []
+        basis = {}
+        for i, metab in enumerate(metabs):
+            if stop_event and stop_event.is_set():
+                print(f"  ⏹  Stopped before simulating {metab}.")
+                break
+            fids = {}
+            for label, flag in (('ON', 1), ('OFF', 0)):
+                results = self.octave.feval(
+                    'fida_run', metab, self._kind, *base_args, flag, nout=5,
+                )
+                fid_re, fid_im, _npts, _sw, _cf = results
+                fids[label] = (np.asarray(fid_re, dtype=float).flatten()
+                               + 1j * np.asarray(fid_im, dtype=float).flatten())
+            basis[f'{metab} (ON)'] = fids['ON']
+            basis[f'{metab} (OFF)'] = fids['OFF']
+            basis[f'{metab} (DIFF)'] = fids['ON'] - fids['OFF']
+            if progress_callback:
+                progress_callback(i + 1, len(metabs))
+        return basis
+
     # -------------------------------------------------- per-subclass hook
     def _build_args(self, params, metab):
         """Positional args (AFTER metab + kind) for ``fida_run.m``."""
@@ -423,8 +449,12 @@ class _Stub(FidaBackend):
     _is_stub = True
 
 
-class FidaSemiLaserShaped(_Stub):
-    """sim_semiLASER_shaped / _phCyc."""
+class FidaSemiLaserShaped(FidaBackend):
+    """sim_semiLASER_shaped: semi-LASER (Öz 2018) with one shaped AFP
+    waveform for both refocusing pairs + spatial grid."""
+
+    _kind = 'semilaser_shaped'
+
     def __init__(self):
         super().__init__()
         self.name, self.display_name = 'FidaSemiLaserShaped', 'semi-LASER shaped'
@@ -434,48 +464,197 @@ class FidaSemiLaserShaped(_Stub):
         self.mandatory_params = _shaped_params()
         self._refresh_metab_list()
 
+    def parseProtocol(self, protocol):
+        if protocol is None:
+            return None
+        p = str(protocol).lower()
+        return 'sLASER' if ('slaser' in p or 'semi' in p) else None
 
-class FidaSteamShaped(_Stub):
-    """sim_steam_shaped."""
+    def _stage_pulse(self, params):
+        pulse_src = params.get('Path to Pulse')
+        if not pulse_src:
+            raise ValueError(
+                f"{self.name}: 'Path to Pulse' is required (AFP waveform, "
+                f"e.g. a GOIA pulse).")
+        return self._make_relative(self._stage_into_workdir(pulse_src))
+
+    def _build_args(self, params, metab):
+        if self.current_mode != 'Standard':
+            raise NotImplementedError(
+                f"{self.name}: '{self.current_mode}' mode is not implemented "
+                f"yet — use Standard.")
+        return [
+            float(params['Samples']),
+            float(params['Bandwidth']),
+            float(params['Bfield']),
+            float(params.get('Linewidth') or 1.0),
+            float(params['TE']),
+            self._stage_pulse(params),
+            float(params.get('RefTp') or 5.0),
+            float(params.get('thkX') or 2.0),
+            float(params.get('thkY') or 2.0),
+            float(params.get('fovX') or 3.0),
+            float(params.get('fovY') or 3.0),
+            int(float(params.get('nX') or 8)),
+            int(float(params.get('nY') or 8)),
+            float(params.get('Flip Angle') or 180.0),
+            float(params.get('Sim Centre (ppm)') or 4.65),
+        ]
+
+
+class FidaSteamShaped(FidaBackend):
+    """sim_steam_shaped: STEAM with shaped 90° pulses + spatial grid."""
+
+    _kind = 'steam_shaped'
+
     def __init__(self):
         super().__init__()
         self.name, self.display_name = 'FidaSteamShaped', 'STEAM shaped'
         self.file_selection = ['Path to Pulse']
         self.mandatory_params = _shaped_params({'TM': 10.0})
+        # STEAM pulses are 90° excitations, not 180° refocusers
+        self.mandatory_params['Flip Angle'] = 90.0
         self._refresh_metab_list()
 
+    def parseProtocol(self, protocol):
+        if protocol is None:
+            return None
+        return 'STEAM' if 'steam' in str(protocol).lower() else None
 
-class FidaSpinEchoShaped(_Stub):
-    """sim_spinecho_shaped (1-D refocusing only)."""
+    def _build_args(self, params, metab):
+        pulse_src = params.get('Path to Pulse')
+        if not pulse_src:
+            raise ValueError(
+                f"{self.name}: 'Path to Pulse' is required (excitation waveform).")
+        pulse_path = self._make_relative(self._stage_into_workdir(pulse_src))
+        return [
+            float(params['Samples']),
+            float(params['Bandwidth']),
+            float(params['Bfield']),
+            float(params.get('Linewidth') or 1.0),
+            float(params['TE']),
+            float(params.get('TM') or 10.0),
+            pulse_path,
+            float(params.get('RefTp') or 5.0),
+            float(params.get('thkX') or 2.0),
+            float(params.get('thkY') or 2.0),
+            float(params.get('fovX') or 3.0),
+            float(params.get('fovY') or 3.0),
+            int(float(params.get('nX') or 8)),
+            int(float(params.get('nY') or 8)),
+            float(params.get('Flip Angle') or 90.0),
+            float(params.get('Sim Centre (ppm)') or 4.65),
+        ]
+
+
+class FidaSpinEchoShaped(FidaBackend):
+    """sim_spinecho_shaped: 1-D shaped refocusing with a subtractive
+    [0°, 90°] phase cycle (per FID-A's run_simSpinEchoShaped)."""
+
+    _kind = 'spinecho_shaped'
+
     def __init__(self):
         super().__init__()
         self.name, self.display_name = 'FidaSpinEchoShaped', 'Spin Echo shaped'
         self.file_selection = ['Path to Pulse']
         self.mandatory_params = _shaped_params()
-        for k in ('thkY', 'fovY', 'nY'):
+        for k in ('thkY', 'fovY', 'nY', 'Flip Angle'):
             self.mandatory_params.pop(k, None)
         self._refresh_metab_list()
 
+    def _build_args(self, params, metab):
+        pulse_src = params.get('Path to Pulse')
+        if not pulse_src:
+            raise ValueError(
+                f"{self.name}: 'Path to Pulse' is required (refocusing waveform).")
+        pulse_path = self._make_relative(self._stage_into_workdir(pulse_src))
+        return [
+            float(params['Samples']),
+            float(params['Bandwidth']),
+            float(params['Bfield']),
+            float(params.get('Linewidth') or 1.0),
+            float(params['TE']),
+            pulse_path,
+            float(params.get('RefTp') or 5.0),
+            float(params.get('thkX') or 2.0),
+            float(params.get('fovX') or 3.0),
+            int(float(params.get('nX') or 8)),
+        ]
 
-class FidaMegaPressShaped(_Stub):
-    """sim_megapress_shaped / _shapedEdit / _shapedRefoc."""
+
+class FidaMegaPressShaped(FidaBackend):
+    """sim_megapress_shapedEdit: MEGA-PRESS with a real (shaped, frequency-
+    shifted) editing pulse and ideal refocusing. The editing selectivity —
+    what defines a MEGA basis — comes from the actual waveform; each
+    metabolite yields '(ON)', '(OFF)', '(DIFF)' entries. Fully-shaped
+    refocusing (sim_megapress_shaped) stays a mode for later.
+    """
+
+    _kind = 'megapress_shapededit'
+
+    # run_simMegaPressShapedEdit.m timing at TE = 68 ms:
+    # excite – t1 – 180 – t2 – edit – t3 – 180 – t4 – edit – t5 – ADC
+    _TE68_TAUS = (5.0, 17.0, 17.0, 17.0, 12.0)
+
     def __init__(self):
         super().__init__()
         self.name, self.display_name = 'FidaMegaPressShaped', 'MEGA-PRESS shaped'
-        self.modes = ['Full shaped (refoc + edit)',
-                      'Edit-only shaped (ideal refoc)',
+        self.modes = ['Edit-only shaped (ideal refoc)',
+                      'Full shaped (refoc + edit)',
                       'Refoc-only shaped (ideal edit)']
-        self.current_mode = 'Full shaped (refoc + edit)'
-        self.file_selection = ['Path to Pulse', 'Edit Pulse Path']
-        self.mandatory_params = _shaped_params({
+        self.current_mode = 'Edit-only shaped (ideal refoc)'
+        self.file_selection = ['Edit Pulse Path']
+        self.mandatory_params = {
+            'Samples':   None, 'Bandwidth': None, 'Bfield': None,
+            'Linewidth': 1.0,  'TE':        None,   # 68 ms is the standard
             'Edit Pulse Path': None,
             'Edit Tp':         20.0,
-            'Edit On':         1.9,
+            'Edit On':         1.9,                 # ppm (GABA); 4.56 for GSH
             'Edit Off':        7.5,
-            'Edit Target':     'GABA',
-        })
-        self.dropdown = {'Edit Target': ['GABA', 'GSH', 'Lac', 'PE']}
+            'Sim Centre (ppm)': 4.65,
+            'Metabolites': [],
+        }
         self._refresh_metab_list()
+
+    def parseProtocol(self, protocol):
+        if protocol is None:
+            return None
+        return 'MEGA-PRESS' if 'mega' in str(protocol).lower() else None
+
+    def run_simulation(self, params, progress_callback=None, stop_event=None):
+        if self.current_mode != 'Edit-only shaped (ideal refoc)':
+            raise NotImplementedError(
+                f"{self.name}: '{self.current_mode}' mode is not implemented "
+                f"yet — use 'Edit-only shaped (ideal refoc)'.")
+        if self.octave is None:
+            print("Initializing Octave runtime...")
+            self.initialize_octave(prefer_docker=True)
+        self.setup_octave_paths()
+        self.ensure_workdir()
+
+        edit_src = params.get('Edit Pulse Path')
+        if not edit_src:
+            raise ValueError(
+                f"{self.name}: 'Edit Pulse Path' is required (editing waveform).")
+        edit_path = self._make_relative(self._stage_into_workdir(edit_src))
+
+        te = float(params['TE'])
+        scale = te / 68.0
+        taus = [t * scale for t in self._TE68_TAUS]
+        base_args = [
+            float(params['Samples']),
+            float(params['Bandwidth']),
+            float(params['Bfield']),
+            float(params.get('Linewidth') or 1.0),
+            *taus,
+            edit_path,
+            float(params.get('Edit Tp') or 20.0),
+            float(params.get('Edit On') or 1.9),
+            float(params.get('Edit Off') or 7.5),
+            float(params.get('Sim Centre (ppm)') or 4.65),
+        ]
+        return self._run_on_off_subspectra(params, base_args,
+                                           progress_callback, stop_event)
 
 
 class FidaMegaSpecialShaped(_Stub):
@@ -579,27 +758,8 @@ class FidaMegaPressIdeal(FidaBackend):
             float(params.get('Edit On') or 1.9),
             float(params.get('Edit Bandwidth (ppm)') or 1.0),
         ]
-
-        metabs = params.get('Metabolites') or []
-        basis = {}
-        for i, metab in enumerate(metabs):
-            if stop_event and stop_event.is_set():
-                print(f"  ⏹  Stopped before simulating {metab}.")
-                break
-            fids = {}
-            for label, flag in (('ON', 1), ('OFF', 0)):
-                results = self.octave.feval(
-                    'fida_run', metab, self._kind, *base_args, flag, nout=5,
-                )
-                fid_re, fid_im, _npts, _sw, _cf = results
-                fids[label] = (np.asarray(fid_re, dtype=float).flatten()
-                               + 1j * np.asarray(fid_im, dtype=float).flatten())
-            basis[f'{metab} (ON)'] = fids['ON']
-            basis[f'{metab} (OFF)'] = fids['OFF']
-            basis[f'{metab} (DIFF)'] = fids['ON'] - fids['OFF']
-            if progress_callback:
-                progress_callback(i + 1, len(metabs))
-        return basis
+        return self._run_on_off_subspectra(params, base_args,
+                                           progress_callback, stop_event)
 
 
 class FidaSpinEchoXN(FidaBackend):

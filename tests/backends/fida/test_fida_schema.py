@@ -27,6 +27,7 @@ from basisremy.backends.fida_backends import (
     FidaSemiLaserShaped,
     FidaSteamShaped,
     FidaMegaPressShaped,
+    FidaMegaSpecialShaped,
     FidaLaser,
     FidaSpinEchoXN,
     FidaOnePulse,
@@ -117,7 +118,7 @@ class TestPressShaped:
 
 # ============================================================ stubs
 @pytest.mark.parametrize("cls", [
-    FidaSemiLaserShaped, FidaSteamShaped, FidaMegaPressShaped,
+    FidaMegaSpecialShaped,
 ])
 def test_stub_run_raises_not_implemented(cls):
     b = cls()
@@ -130,6 +131,8 @@ def test_stub_run_raises_not_implemented(cls):
     (FidaLaser, 'laser'),
     (FidaSpinEchoXN, 'spinecho_xn'),
     (FidaOnePulse, 'onepulse'),
+    (FidaSemiLaserShaped, 'semilaser_shaped'),
+    (FidaSteamShaped, 'steam_shaped'),
 ])
 def test_phase1_kinds_are_wired(cls, kind):
     b = cls()
