@@ -254,7 +254,9 @@ class BasisREMY:
                     MRSinMRS = json.load(f)
             except Exception:
                 from nifti_mrs.nifti_mrs import NIFTI_MRS
-                MRSinMRS = NIFTI_MRS(import_fpath).hdr_ext
+                hdr = NIFTI_MRS(import_fpath).hdr_ext
+                # nifti_mrs >= 1.x returns a Hdr_Ext object, not a dict
+                MRSinMRS = hdr.to_dict() if hasattr(hdr, 'to_dict') else hdr
 
             # homogenize keys to be strings
             MRSinMRS = {str(k): str(v[0]) if isinstance(v, list) and len(v) == 1 else v for k, v in

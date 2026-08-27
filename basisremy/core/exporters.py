@@ -142,10 +142,18 @@ def export(basis: dict[str, np.ndarray],
         _ensure_dir(out)
         _write_spinwizard_folder(basis, out, hdr, params)
 
-    # Always emit a reproducibility sidecar
-    sidecar_dir = out if os.path.isdir(out) else os.path.dirname(out)
+    # Always emit a reproducibility sidecar. Folder formats keep the generic
+    # name inside their directory; single-file exports get a sidecar named
+    # after the output so two exports into one folder don't clobber each
+    # other's provenance record.
+    if os.path.isdir(out):
+        sidecar_dir, sidecar_name = out, "basis_sidecar.json"
+    else:
+        sidecar_dir = os.path.dirname(out)
+        stem = os.path.splitext(os.path.basename(out))[0]
+        sidecar_name = f"{stem}_sidecar.json"
     _ensure_dir(sidecar_dir)
-    sidecar_path = os.path.join(sidecar_dir, "basis_sidecar.json")
+    sidecar_path = os.path.join(sidecar_dir, sidecar_name)
     _write_sidecar(sidecar_path, fmt, out, basis, params, extra_metadata)
 
     return out
@@ -475,8 +483,8 @@ def _write_sidecar(path: str, fmt: str, output_path: str,
 
 
 def _basisremy_version() -> str:
-    # No proper packaging metadata yet — use a placeholder.
-    return "0.1.0-dev"
+    from basisremy import __version__
+    return __version__
 
 
 def _json_safe(v):

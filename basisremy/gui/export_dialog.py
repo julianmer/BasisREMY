@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import os
+import re
 import traceback
 
 from nicegui import run, ui
@@ -31,6 +32,26 @@ from basisremy.gui.ui_state import get_state, set_state
 
 
 _ACCENT = "var(--br-primary)"
+
+
+def _default_basename(params: dict) -> str:
+    """Descriptive default file name, e.g. 'PRESS_TE35_3T' (Osprey-style)."""
+    parts = []
+    seq = params.get("Sequence")
+    if seq and str(seq) not in ("None", ""):
+        parts.append(str(seq))
+    te = params.get("TE")
+    try:
+        parts.append(f"TE{float(te):g}")
+    except (TypeError, ValueError):
+        pass
+    b0 = params.get("Bfield") or str(params.get("Field Strength") or "").replace("T", "")
+    try:
+        parts.append(f"{float(b0):g}T")
+    except (TypeError, ValueError):
+        pass
+    name = "_".join(parts) or "basis"
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
 
 
 def open_export_dialog(basis: dict, params: dict) -> None:
@@ -64,7 +85,9 @@ def open_export_dialog(basis: dict, params: dict) -> None:
         # ---- output path ----
         path_input = ui.input(
             "Output path",
-            value=os.path.join(default_dir, "basis" + FORMAT_EXTENSIONS["lcmodel_basis"]),
+            value=os.path.join(default_dir,
+                               _default_basename(params)
+                               + FORMAT_EXTENSIONS["lcmodel_basis"]),
         ).classes("w-full")
 
         async def browse() -> None:
@@ -126,20 +149,28 @@ def open_export_dialog(basis: dict, params: dict) -> None:
                     ui.button("Overwrite",
                               on_click=lambda: confirm.submit(True)
                               ).props("color=primary")
-            return bool(await confirm)
+            result = bool(await confirm)  # Esc/outside-click → None → False
+            confirm.clear()  # closed dialogs are only hidden, not removed
+            return result
 
         async def do_export() -> None:
+            if getattr(do_export, "_busy", False):
+                return  # second click during a slow write
             fmt = fmt_select.value
             path = (path_input.value or "").strip()
             if not path:
                 ui.notify("Please choose an output path.", type="warning")
                 return
-            # exporters normalize a missing extension — check the real target
+            # normpath: a trailing separator must not dodge the overwrite
+            # check that export() (which abspath-normalizes) would then hit
+            path = os.path.normpath(path)
             ext = FORMAT_EXTENSIONS[fmt]
             final = path if (not ext or path.lower().endswith(ext)) else path + ext
             if ext and os.path.isfile(final):
                 if not await confirm_overwrite(final):
                     return
+            do_export._busy = True
+            export_btn.props("loading")
             try:
                 status.set_text(f"Writing {FORMAT_LABELS[fmt]}…")
                 status.style("color:#607389")
@@ -155,9 +186,13 @@ def open_export_dialog(basis: dict, params: dict) -> None:
                 status.set_text(f"✗ {exc}")
                 status.style("color:#c25450")
                 ui.notify(f"Export failed: {exc}", type="negative")
+            finally:
+                do_export._busy = False
+                export_btn.props(remove="loading")
 
         with ui.row().classes("w-full justify-end gap-2"):
             ui.button("Cancel", on_click=dialog.close).props("flat")
-            ui.button("Export", icon="save", on_click=do_export).props("color=primary")
+            export_btn = ui.button("Export", icon="save",
+                                   on_click=do_export).props("color=primary")
 
     dialog.open()

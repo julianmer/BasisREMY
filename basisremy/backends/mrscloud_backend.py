@@ -580,7 +580,11 @@ class MRSCloudBackend(Backend):
         # Pull params into local strongly-typed variables. The stored System is
         # the plain scanner vendor; translate it (with the current Mode) into
         # the label MRSCloud expects ('Philips' / 'Universal_Philips' / ...).
-        vendor       = self._mrscloud_vendor(params.get('System')) or 'Universal_Philips'
+        vendor       = self._mrscloud_vendor(params.get('System'))
+        if not vendor:
+            raise RuntimeError(
+                "MRSCloud: no System (scanner vendor) selected — choose "
+                "Philips, Siemens, or GE before simulating.")
         sequence     = str(params.get('Sequence')     or 'UnEdited')
         localization = str(params.get('Localization') or 'PRESS')
 
@@ -600,6 +604,10 @@ class MRSCloudBackend(Backend):
         te           = float(params.get('TE') or 35)
         samples      = int(float(params.get('Samples') or 0))
         bandwidth    = float(params.get('Bandwidth') or 0)
+        if samples <= 0 or bandwidth <= 0:
+            raise ValueError(
+                f"MRSCloud: Samples ({samples}) and Bandwidth ({bandwidth}) "
+                "must be set before simulating.")
         metabs       = list(params.get('Metabolites') or [])
         self.last_failures = {}   # metab -> reason, surfaced by the GUI
 

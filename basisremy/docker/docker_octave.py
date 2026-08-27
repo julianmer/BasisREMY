@@ -257,10 +257,18 @@ class DockerOctave:
         Returns the path string that can be used with addpath.
         This mimics Octave's genpath function.
         """
-        # Normalize path - remove leading './'
-        normalized_path = path.replace('\\', '/').lstrip('./')
+        # Normalize path - remove a leading './' (lstrip would also strip a
+        # leading '/' from absolute paths and mangle '../')
+        normalized_path = path.replace('\\', '/')
+        if normalized_path.startswith('./'):
+            normalized_path = normalized_path[2:]
         # Return genpath expression - this will be evaluated in Octave
-        return f"genpath('{normalized_path}')"
+        return f"genpath('{self._q(normalized_path)}')"
+
+    @staticmethod
+    def _q(s: str) -> str:
+        """Escape a string for an Octave single-quoted literal ('' = ')."""
+        return str(s).replace("'", "''")
 
     def addpath(self, path_or_genpath_result):
         """Add a path to Octave's search path (persistent)."""
@@ -270,8 +278,11 @@ class DockerOctave:
                 self.persistent_commands.append(f"addpath({path_or_genpath_result});")
             else:
                 # This is a regular path - normalize it
-                normalized_path = path_or_genpath_result.replace('\\', '/').lstrip('./')
-                self.persistent_commands.append(f"addpath('{normalized_path}');")
+                normalized_path = path_or_genpath_result.replace('\\', '/')
+                if normalized_path.startswith('./'):
+                    normalized_path = normalized_path[2:]
+                self.persistent_commands.append(
+                    f"addpath('{self._q(normalized_path)}');")
 
     def set_verbose(self, verbose):
         """Enable or disable verbose output."""
@@ -337,7 +348,7 @@ class DockerOctave:
                 # Remove leading './' to work from /workspace
                 if normalized_arg.startswith('./'):
                     normalized_arg = normalized_arg[2:]
-                assigns.append(f"{var} = '{normalized_arg}';")
+                assigns.append(f"{var} = '{self._q(normalized_arg)}';")
                 if show_output:
                     print(f"  arg{i} (str): {normalized_arg}")
             elif isinstance(arg, bool):
@@ -352,7 +363,7 @@ class DockerOctave:
                 # Check if it's a list of strings (e.g., metabolite names)
                 if arg and isinstance(arg[0], str):
                     # Create Octave cell array
-                    cell_items = ', '.join(f"'{item}'" for item in arg)
+                    cell_items = ', '.join(f"'{self._q(item)}'" for item in arg)
                     assigns.append(f"{var} = {{{cell_items}}};")
                     if show_output:
                         print(f"  arg{i} (list): {len(arg)} items")

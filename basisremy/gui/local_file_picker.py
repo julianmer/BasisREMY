@@ -46,6 +46,10 @@ class LocalFilePicker(ui.dialog):
                       always selectable).
     """
 
+    # The picker currently open (if any) — native file drops are routed here
+    # so a drop while browsing navigates the dialog instead of being ignored.
+    _active: 'LocalFilePicker | None' = None
+
     def __init__(
         self,
         directory: str = "~",
@@ -65,13 +69,14 @@ class LocalFilePicker(ui.dialog):
         self._dirs_only = dirs_only
         self._save_mode = save_mode
         self._show_file = show_file
+        self._highlight: str | None = None
 
         with self, ui.card().classes("w-[640px] max-w-full gap-2"):
             ui.label(title).classes("text-lg font-bold").style(f"color:{_ACCENT}")
 
             # current-path bar with an "up" button
             with ui.row().classes("items-center w-full no-wrap gap-2"):
-                ui.button(icon="arrow_upward", on_click=self._go_up) \
+                ui.button(icon="arrow_back", on_click=self._go_up) \
                     .props("flat dense round").tooltip("Parent folder")
                 ui.button(icon="home", on_click=self._go_home) \
                     .props("flat dense round").tooltip("Home")
@@ -100,6 +105,37 @@ class LocalFilePicker(ui.dialog):
                     ui.button("Save", on_click=self._confirm_save) \
                         .props("color=primary")
 
+        self._render()
+
+    # ------------------------------------------------------- open/close hooks
+    def open(self) -> None:
+        LocalFilePicker._active = self
+        super().open()
+
+    def close(self) -> None:
+        if LocalFilePicker._active is self:
+            LocalFilePicker._active = None
+        super().close()
+
+    @classmethod
+    def active(cls) -> 'LocalFilePicker | None':
+        """The currently open picker, if any."""
+        return cls._active
+
+    def show_dropped_path(self, path: str) -> None:
+        """Navigate to a path dropped onto the window while the picker is open.
+
+        The dialog stays open: it jumps to the dropped file's folder, shows
+        the file highlighted, and (in save mode) prefills the name field.
+        """
+        p = Path(path)
+        target = p if self._safe_is_dir(p) else p.parent
+        if not self._safe_is_dir(target):
+            return
+        self._path = target.resolve()
+        self._highlight = None if self._safe_is_dir(p) else p.name
+        if self._save_mode and self._highlight:
+            self._name_input.value = self._highlight
         self._render()
 
     # ------------------------------------------------------------------ nav
@@ -177,7 +213,10 @@ class LocalFilePicker(ui.dialog):
         def on_click() -> None:
             if is_dir:
                 self._enter(entry)
-            elif not self._save_mode:
+            elif self._save_mode:
+                # clicking an existing file prefills the name for overwriting
+                self._name_input.value = entry.name
+            else:
                 self.submit(str(entry))
 
         if not enabled:
@@ -189,7 +228,10 @@ class LocalFilePicker(ui.dialog):
                     ui.item_label("Unsupported format").props("caption")
             return
 
-        with ui.item(on_click=on_click).props("clickable"):
+        item = ui.item(on_click=on_click).props("clickable")
+        if self._highlight and entry.name == self._highlight:
+            item.props("active active-class=text-primary")
+        with item:
             with ui.item_section().props("avatar"):
                 ui.icon("folder" if is_dir else "description").style(
                     f"color:{_ACCENT if is_dir else '#999'}"

@@ -755,6 +755,16 @@ class FSLMRSBackend(Backend):
         # Coerce all numeric fields from string (GUI entries) to float/int
         # before any arithmetic — prevents "unsupported operand type 'str'" crashes.
         params = self._coerce_params(params)
+
+        # Fail with a clear message instead of a TypeError deep inside the
+        # sequence matching when a required numeric never arrived (headless use).
+        missing = [k for k in ('Bfield', 'TE', 'Samples', 'Bandwidth')
+                   if self._is_missing(params.get(k))
+                   or not isinstance(params.get(k), (int, float))]
+        if missing:
+            raise ValueError(
+                f"FSL-MRS: missing or non-numeric parameter(s): {', '.join(missing)}")
+
         print("✓ denmatsim imported successfully")
 
         print(f"\n{'='*80}")

@@ -34,6 +34,7 @@ from nicegui import app, run, ui
 
 # own
 from basisremy.core.basisremy import BasisREMY
+from basisremy.core.parameter_registry import get as registry_get
 from basisremy.gui.help_widget import label_with_help
 from basisremy.gui.local_file_picker import LocalFilePicker
 from basisremy.gui.ui_state import get_state, set_state
@@ -502,8 +503,11 @@ class BasisREMYApp:
                 # frozen progress page whose poll timer is gone
                 self._step_unlocked["sim"] = False
                 try:
+                    from basisremy.docker.docker_octave import DockerOctave
                     octave = self.BasisREMY.backend.octave
-                    if octave is not None and hasattr(octave, "kill_running_processes"):
+                    # isinstance, not hasattr: oct2py resolves unknown names in
+                    # the Octave workspace and raises
+                    if isinstance(octave, DockerOctave):
                         octave.kill_running_processes()
                 except Exception as e:  # noqa: BLE001
                     print(f"  (Could not kill Docker Octave process: {e})")
@@ -564,7 +568,15 @@ class BasisREMYApp:
 
     def _on_native_drop(self, e) -> None:
         paths = [p for p in (e.args.get("files") or []) if p and os.path.exists(p)]
-        if not paths or self._current_step != "data":
+        if not paths:
+            return
+        # An open file picker (data file, pulse waveform, custom sequence,
+        # export browse) takes priority: navigate it to the dropped path.
+        picker = LocalFilePicker.active()
+        if picker is not None:
+            picker.show_dropped_path(paths[0])
+            return
+        if self._current_step != "data":
             return
         mrs = [p for p in paths if _is_mrs_file(Path(p))]
         path = (mrs or paths)[0]
@@ -592,6 +604,8 @@ class BasisREMYApp:
         self._render_data_body()
 
     async def _pick_data_file(self) -> None:
+        if LocalFilePicker.active() is not None:
+            return  # double-click on the dropzone must not stack two dialogs
         start = get_state("last_import_dir") or "~"
         if not isinstance(start, str) or (start != "~" and not os.path.isdir(start)):
             start = "~"
@@ -608,6 +622,9 @@ class BasisREMYApp:
         if not self.selected_file:
             ui.notify("No file selected.", type="warning")
             return
+        if getattr(self, "_processing", False):
+            return  # a double-click fits inside one client round-trip
+        self._processing = True
         print(f"Processing file: {self.selected_file}")
         self.process_button.props("loading")
         try:
@@ -625,6 +642,7 @@ class BasisREMYApp:
             print(f"REMY error: {exc}")
             return
         finally:
+            self._processing = False
             self.process_button.props(remove="loading")
 
         self._build_tab2()
@@ -925,9 +943,27 @@ class BasisREMYApp:
         if self.simulate_button is None:
             return
         backend = self.BasisREMY.backend
+
+        def _ok(key, value) -> bool:
+            if value in _UNSET:
+                return False
+            # Registry units mark numeric parameters — reject text like "abc"
+            # in TE/Bandwidth here instead of crashing mid-simulation.
+            if (key not in backend.dropdown
+                    and key not in backend.file_selection
+                    and registry_get(key).units):
+                try:
+                    float(value)
+                except (TypeError, ValueError):
+                    return False
+            return True
+
+        # Validate what the current mode actually shows — hidden fields (e.g.
+        # Sequence in FSL-MRS Template mode) must not block Simulate.
+        visible = backend.get_params_for_mode()
         all_filled = all(
-            backend.mandatory_params[key] not in _UNSET
-            for key in backend.mandatory_params
+            _ok(key, value)
+            for key, value in visible.items()
             if key != "Metabolites"
         )
         if self.metab_checks:
@@ -1004,18 +1040,26 @@ class BasisREMYApp:
             ui.notify("A simulation is still running — please wait a moment.",
                       type="warning")
             return
+        if getattr(self, "_sim_launching", False):
+            return  # a second click during the availability probe await
+        self._sim_launching = True
 
         backend = self.BasisREMY.backend
-        if backend.requires_octave and backend.octave is None:
-            from basisremy.core.octave_manager import OctaveManager
-            manager = OctaveManager()
-            # Docker/Octave probes take seconds — don't freeze the click.
-            available = await run.io_bound(
-                lambda: manager.check_docker_availability()
-                or manager.check_local_octave_availability())
-            if not available:
-                self._show_octave_instructions(manager)
-                return
+        try:
+            if backend.requires_octave and backend.octave is None:
+                from basisremy.core.octave_manager import OctaveManager
+                manager = OctaveManager()
+                # Docker/Octave probes take seconds — don't freeze the click.
+                available = await run.io_bound(
+                    lambda: manager.check_docker_availability()
+                    or manager.check_local_octave_availability())
+                if not available:
+                    self._show_octave_instructions(manager)
+                    return
+            if self.BasisREMY.backend is not backend:
+                return  # backend switched while the probe was running
+        finally:
+            self._sim_launching = False
 
         # reset tab3 to a clean progress state
         self._basis_set_valid = False
