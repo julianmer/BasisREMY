@@ -146,3 +146,25 @@ class TestFidaShapedPpmCentre:
         b = FidaPressShaped()
         assert 'Center Freq' not in b.mandatory_params
         assert b.mandatory_params['Sim Centre (ppm)'] == pytest.approx(4.65)
+
+
+class TestParamReset:
+    """A new file import starts from defaults but keeps metabolite curation."""
+
+    def test_reset_restores_defaults_and_keeps_metabs(self):
+        br = BasisREMY()
+        br.set_backend('FSL-MRS')
+        default_te = br.backend.mandatory_params['TE']
+        br.backend.mandatory_params['TE'] = 99.9
+        br.backend.mandatory_params['Metabolites'] = ['NAA']
+        br.reset_backend_params()
+        assert br.backend.mandatory_params['TE'] == default_te
+        assert br.backend.mandatory_params['Metabolites'] == ['NAA']
+
+    def test_reset_does_not_share_state_between_calls(self):
+        br = BasisREMY()
+        br.set_backend('FSL-MRS')
+        br.reset_backend_params()
+        br.backend.mandatory_params['TE'] = 55
+        br.reset_backend_params()
+        assert br.backend.mandatory_params['TE'] != 55

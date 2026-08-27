@@ -159,6 +159,25 @@ def export(basis: dict[str, np.ndarray],
     return out
 
 
+def sequence_label(params: dict) -> str:
+    """Human-facing sequence name for filenames/metadata.
+
+    MRSCloud splits the acquisition into Sequence ('UnEdited'/'MEGA'/…) and
+    Localization ('PRESS'/'sLASER'/…): 'UnEdited' collapses to the
+    localization alone, edited schemes get it appended (MEGA-PRESS,
+    HERMES-sLASER). Backends with a combined Sequence pass through unchanged.
+    """
+    seq = str(params.get("Sequence") or "").strip()
+    loc = str(params.get("Localization") or "").strip()
+    if seq.lower() in ("", "none"):
+        seq = ""
+    if seq.lower() == "unedited":
+        return loc
+    if loc and loc.lower() not in seq.lower():
+        return f"{seq}-{loc}"
+    return seq
+
+
 # ----------------------------- internals -------------------------------------
 
 def _normalize_basis(basis: dict[str, Any]) -> dict[str, np.ndarray]:
@@ -352,7 +371,7 @@ def _write_lcmodel_raw_folder(basis, out_dir, hdr, params):
 def _write_lcmodel_basis(basis, out_file, hdr, params):
     if not out_file.lower().endswith(".basis"):
         out_file = out_file + ".basis"
-    seq = str(params.get("Sequence") or "PRESS")
+    seq = sequence_label(params) or "PRESS"
     _kbsct("lcmodel").write_lcmodel_basis(
         _to_core_list(basis, hdr), out_file,
         te=hdr["echotime"], seq=seq,
@@ -386,7 +405,7 @@ def _write_osprey_mat(basis, out_file, hdr, params):
         _to_core_list(basis, hdr), out_file,
         target_n=0, add_mm=False,
         te=float(hdr["echotime"] or 0.0),
-        sequence=str(params.get("Sequence") or "unedited"),
+        sequence=sequence_label(params) or "unedited",
     )
 
 

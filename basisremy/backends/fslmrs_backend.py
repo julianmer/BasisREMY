@@ -124,14 +124,16 @@ class FSLMRSBackend(Backend):
 
         # Mandatory parameters (no Output Path / Output Format — those belong
         # to the post-simulation Export dialog)
+        # Scan-physics values have NO defaults — they must come from REMY or
+        # the user (a prefilled 3 T / TE 35 would masquerade as file metadata).
         self.mandatory_params = {
-            'Sequence': 'PRESS',
-            'Samples': 2048,
-            'Bandwidth': 2000,
-            'Bfield': 3.0,
-            'TE': 35,
+            'Sequence': None,
+            'Samples': None,
+            'Bandwidth': None,
+            'Bfield': None,
+            'TE': None,
             'Nucleus': '1H',
-            'Center Freq': 123.2,
+            'Center Freq': None,
             'Metabolites': [],
         }
 
@@ -757,8 +759,18 @@ class FSLMRSBackend(Backend):
         params = self._coerce_params(params)
 
         # Fail with a clear message instead of a TypeError deep inside the
-        # sequence matching when a required numeric never arrived (headless use).
-        missing = [k for k in ('Bfield', 'TE', 'Samples', 'Bandwidth')
+        # sequence matching when a required numeric never arrived (headless
+        # use). Template/Custom sequence files carry their own B0/TE, so only
+        # the acquisition grid is required on those paths.
+        required = ['Samples', 'Bandwidth']
+        using_template = (self.current_mode == 'Template'
+                          and not self._is_missing(params.get('Template File')))
+        using_custom = (self.current_mode == 'Custom'
+                        and params.get('Custom Sequence')
+                        and os.path.exists(params['Custom Sequence']))
+        if not (using_template or using_custom):
+            required += ['Bfield', 'TE']
+        missing = [k for k in required
                    if self._is_missing(params.get(k))
                    or not isinstance(params.get(k), (int, float))]
         if missing:

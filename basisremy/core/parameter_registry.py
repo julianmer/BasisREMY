@@ -442,6 +442,79 @@ def get(param: str) -> ParamInfo:
     )
 
 
+# ----------- metabolite display names ---------------------------------------
+# Full names for the abbreviations the backends use. Display-only — the keys
+# passed to the simulation engines stay each library's own convention.
+METABOLITE_NAMES: dict[str, str] = {
+    "AcAc": "Acetoacetate",
+    "AcO": "Acetone",
+    "Ace": "Acetate",
+    "Acn": "Acetone",
+    "Ala": "Alanine",
+    "Asc": "Ascorbate (vitamin C)",
+    "Asp": "Aspartate",
+    "Bet": "Betaine",
+    "Ch": "Choline",
+    "Cit": "Citrate",
+    "Cr": "Creatine",
+    "Cystat": "Cystathionine",
+    "EA": "Ethanolamine",
+    "EtOH": "Ethanol",
+    "GABA": "γ-Aminobutyric acid",
+    "GABA_gov": "γ-Aminobutyric acid (Govindaraju values)",
+    "GABA_govind": "γ-Aminobutyric acid (Govindaraju values)",
+    "GPC": "Glycerophosphocholine",
+    "GSH": "Glutathione",
+    "GSH_v2": "Glutathione (alternative spin system)",
+    "Glc": "Glucose",
+    "Gln": "Glutamine",
+    "Glu": "Glutamate",
+    "Gly": "Glycine",
+    "Gua": "Guanidinoacetate",
+    "H2O": "Water",
+    "HCar": "Homocarnosine",
+    "Hist": "Histidine",
+    "Hypotau": "Hypotaurine",
+    "Ins": "myo-Inositol",
+    "Lac": "Lactate",
+    "Lip": "Lipids",
+    "Lip09": "Lipid (0.9 ppm)",
+    "Lip13a": "Lipid (1.3 ppm, a)",
+    "Lip13b": "Lipid (1.3 ppm, b)",
+    "Lip20": "Lipid (2.0 ppm)",
+    "Lys": "Lysine",
+    "MSM": "Methylsulfonylmethane",
+    "NAA": "N-Acetylaspartate",
+    "NAAG": "N-Acetylaspartylglutamate",
+    "PCh": "Phosphocholine",
+    "PCr": "Phosphocreatine",
+    "PE": "Phosphorylethanolamine",
+    "Phenyl": "Phenylalanine",
+    "Pyr": "Pyruvate",
+    "Pyruv": "Pyruvate",
+    "Ref0ppm": "Reference singlet at 0 ppm",
+    "Scyllo": "scyllo-Inositol",
+    "Ser": "Serine",
+    "Suc": "Succinate",
+    "Tau": "Taurine",
+    "Tau_govind": "Taurine (Govindaraju values)",
+    "Thr": "Threonine",
+    "Tryp": "Tryptophan",
+    "Tyros": "Tyrosine",
+    "Val": "Valine",
+    "bHB": "β-Hydroxybutyrate",
+    "bHG": "2-Hydroxyglutarate",
+    "iLe": "Isoleucine",
+    "mI": "myo-Inositol",
+    "sI": "scyllo-Inositol",
+}
+
+
+def metabolite_full_name(abbr: str) -> "str | None":
+    """Full display name for a metabolite abbreviation, or None if unknown."""
+    return METABOLITE_NAMES.get(str(abbr))
+
+
 def tooltip_text(param: str) -> str:
     """Multi-line tooltip body suitable for rendering in a Tk Label."""
     info = get(param)

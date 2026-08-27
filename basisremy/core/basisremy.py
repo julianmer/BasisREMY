@@ -24,6 +24,7 @@ from basisremy.backends.fslmrs_backend import FSLMRSBackend
 from basisremy.backends.mrscloud_backend import MRSCloudBackend
 from basisremy.backends.custom_backends import CustomSLaser
 from basisremy.backends.fida_backends import FIDA_BACKENDS
+from basisremy.backends.vespa_backend import VespaBackend
 from basisremy.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 
 
@@ -37,7 +38,7 @@ from basisremy.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
 #**************************************************************************************************#
 class BasisREMY:
     # Display order for the top-level Category dropdown.
-    CATEGORY_ORDER = ['MRSCloud', 'FID-A', 'FSL-MRS', 'Custom']
+    CATEGORY_ORDER = ['MRSCloud', 'FID-A', 'FSL-MRS', 'Vespa', 'Custom']
 
     def __init__(self, backend='MRSCloud'):
         self.DRead = DataReaders()
@@ -57,9 +58,17 @@ class BasisREMY:
         # Custom category
         custom = CustomSLaser()
         self.backends[custom.name] = custom
-        # MRSCloud + FSL-MRS top-level categories
+        # MRSCloud + FSL-MRS + Vespa top-level categories
         mc = MRSCloudBackend(); self.backends[mc.name] = mc
         fm = FSLMRSBackend();   self.backends[fm.name] = fm
+        vp = VespaBackend();    self.backends[vp.name] = vp
+
+        # Snapshot each backend's pristine defaults so a new file import can
+        # start clean instead of inheriting the previous file's values.
+        import copy
+        for inst in self.backends.values():
+            inst._defaults = (copy.deepcopy(inst.mandatory_params),
+                              copy.deepcopy(inst.optional_params))
 
         # Group backends by their declared category. Order within a category
         # follows the registration order above.
@@ -160,9 +169,27 @@ class BasisREMY:
     def get_current_category(self):
         return getattr(self.backend, 'category', 'Other')
 
+    def reset_backend_params(self):
+        """Restore the active backend's parameter defaults (per new file).
+
+        The metabolite selection is preserved — curating it is user work
+        that a new import must not wipe.
+        """
+        import copy
+        defaults = getattr(self.backend, '_defaults', None)
+        if defaults is None:
+            return
+        mandatory, optional = defaults
+        keep_metabs = self.backend.mandatory_params.get('Metabolites')
+        self.backend.mandatory_params = copy.deepcopy(mandatory)
+        self.backend.optional_params = copy.deepcopy(optional)
+        if keep_metabs is not None and 'Metabolites' in self.backend.mandatory_params:
+            self.backend.mandatory_params['Metabolites'] = list(keep_metabs)
+
     def run(self, import_fpath, export_fpath=None, method=None, userParams={}, optionalParams={}, plot=False):
-        # run REMY on the selected file
+        # run REMY on the selected file (starting from clean defaults)
         MRSinMRS = self.runREMY(import_fpath, method)
+        self.reset_backend_params()
         params, opt = self.backend.parseREMY(MRSinMRS)
         params['Output Path'] = export_fpath if export_fpath is not None else './'
 

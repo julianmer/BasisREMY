@@ -34,7 +34,7 @@ from nicegui import app, run, ui
 
 # own
 from basisremy.core.basisremy import BasisREMY
-from basisremy.core.parameter_registry import get as registry_get
+from basisremy.core.parameter_registry import get as registry_get, metabolite_full_name
 from basisremy.gui.help_widget import label_with_help
 from basisremy.gui.local_file_picker import LocalFilePicker
 from basisremy.gui.ui_state import get_state, set_state
@@ -633,6 +633,9 @@ class BasisREMYApp:
             MRSinMRS = await run.io_bound(self.BasisREMY.runREMY, picked)
             if self.selected_file != picked:
                 return  # file cleared or replaced while parsing — discard
+            # A new file starts from clean defaults — values from the
+            # previous file must not masquerade as this file's metadata.
+            self.BasisREMY.reset_backend_params()
             params, opt = self.BasisREMY.backend.parseREMY(MRSinMRS)
             # drop None so REMY gaps don't clobber backend defaults
             self.BasisREMY.backend.mandatory_params.update(
@@ -955,6 +958,9 @@ class BasisREMYApp:
                         cb = ui.checkbox(metab, value=metab in selected).props(
                             "dense"
                         ).classes("text-sm")
+                        full = metabolite_full_name(metab)
+                        if full:
+                            cb.tooltip(full)
                         cb.on_value_change(self._update_metabs)
                         self.metab_checks[metab] = cb
 

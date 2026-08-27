@@ -22,6 +22,7 @@ from nicegui import run, ui
 
 from basisremy.core.exporters import (
     export as _export,
+    sequence_label,
     SUPPORTED_FORMATS,
     FORMAT_LABELS,
     FORMAT_EXTENSIONS,
@@ -37,9 +38,9 @@ _ACCENT = "var(--br-primary)"
 def _default_basename(params: dict) -> str:
     """Descriptive default file name, e.g. 'PRESS_TE35_3T' (Osprey-style)."""
     parts = []
-    seq = params.get("Sequence")
-    if seq and str(seq) not in ("None", ""):
-        parts.append(str(seq))
+    seq = sequence_label(params)
+    if seq:
+        parts.append(seq)
     te = params.get("TE")
     try:
         parts.append(f"TE{float(te):g}")
@@ -133,7 +134,7 @@ def open_export_dialog(basis: dict, params: dict) -> None:
             f"{n_metabs} metabolites · {n_pts} points · "
             f"BW = {params.get('Bandwidth', '?')} Hz · "
             f"TE = {params.get('TE', '?')} ms · "
-            f"Sequence = {params.get('Sequence', '?')}"
+            f"Sequence = {sequence_label(params) or '?'}"
         )
         ui.label(info).classes("text-xs italic text-grey-7")
 

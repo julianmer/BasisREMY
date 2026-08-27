@@ -182,7 +182,7 @@ class MRSCloudBackend(Backend):
             'System':         None,        # vendor (must be selected)
             'Sequence':       None,        # UnEdited / MEGA / HERMES / HERCULES
             'Localization':   None,        # PRESS / sLASER / STEAM_7T
-            'Field Strength': '3T',
+            'Field Strength': None,   # must come from REMY (B0) or the user
             'Samples':        None,
             'Bandwidth':      None,
             'TE':             None,
@@ -595,7 +595,10 @@ class MRSCloudBackend(Backend):
         self._stage_user_pulse(workdir, vendor, sequence, localization,
                                params.get(self._pulse_param_label))
         self._stage_universal_excite_shim(workdir)
-        field_str    = str(params.get('Field Strength')or '3T')
+        field_str    = str(params.get('Field Strength') or '')
+        if not field_str:
+            raise ValueError(
+                "MRSCloud: Field Strength must be selected before simulating.")
         edit_target  = str(params.get('Edit Target')   or '')
         edit_on      = float(params.get('Edit On',  1.9))
         edit_off     = float(params.get('Edit Off', 7.5))
