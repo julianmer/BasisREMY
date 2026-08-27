@@ -625,11 +625,14 @@ class BasisREMYApp:
         if getattr(self, "_processing", False):
             return  # a double-click fits inside one client round-trip
         self._processing = True
-        print(f"Processing file: {self.selected_file}")
+        picked = self.selected_file
+        print(f"Processing file: {picked}")
         self.process_button.props("loading")
         try:
             # Parsing can take seconds for large files — keep the UI alive.
-            MRSinMRS = await run.io_bound(self.BasisREMY.runREMY, self.selected_file)
+            MRSinMRS = await run.io_bound(self.BasisREMY.runREMY, picked)
+            if self.selected_file != picked:
+                return  # file cleared or replaced while parsing — discard
             params, opt = self.BasisREMY.backend.parseREMY(MRSinMRS)
             # drop None so REMY gaps don't clobber backend defaults
             self.BasisREMY.backend.mandatory_params.update(
@@ -749,12 +752,19 @@ class BasisREMYApp:
                 labels.append(label)
             return labels, label_to_name
 
-        def do_switch(target_name) -> bool:
+        async def do_switch(target_name) -> bool:
             if target_name == br.backend.name:
                 return True
             new_backend = br.backends[target_name]
             if new_backend.requires_octave and new_backend.octave is None:
-                if not self._check_octave_availability():
+                from basisremy.core.octave_manager import OctaveManager
+                manager = OctaveManager()
+                # probes take seconds — don't freeze the dropdown click
+                available = await run.io_bound(
+                    lambda: manager.check_docker_availability()
+                    or manager.check_local_octave_availability())
+                if not available:
+                    self._show_octave_instructions(manager)
                     return False
             br.set_backend(target_name)
             return True
@@ -798,22 +808,31 @@ class BasisREMYApp:
                         on_change=lambda e: self._change_mode(e.value),
                     ).props("filled dense").classes("br-selfield")
 
-        def on_category_change(e) -> None:
+        async def on_category_change(e) -> None:
             cat = e.value
             new_labels, label_map = backends_for(cat)
             if not new_labels:
                 return
             self._backend_label_map = label_map
             target_name = label_map[new_labels[0]]
-            if do_switch(target_name):
+            if target_name == br.backend.name:
+                return  # revert echo — leave the panel (and any open dialog) be
+            if getattr(self, "_switching", False):
+                return
+            self._switching = True
+            try:
+                ok = await do_switch(target_name)
+            finally:
+                self._switching = False
+            if ok:
                 self._build_tab2()
             else:
                 category_select.value = br.get_current_category()
 
-        def on_backend_change(e) -> None:
+        async def on_backend_change(e) -> None:
             target_name = self._backend_label_map.get(e.value)
-            if target_name is None:
-                return
+            if target_name is None or target_name == br.backend.name:
+                return  # unknown label or revert echo
             if getattr(br.backends[target_name], "_is_stub", False):
                 ui.notify("This shaped sequence is under development — "
                           "simulation support is coming soon.", type="info")
@@ -821,7 +840,14 @@ class BasisREMYApp:
                             if nm == br.backend.name), e.value)
                 backend_select.value = cur
                 return
-            if do_switch(target_name):
+            if getattr(self, "_switching", False):
+                return
+            self._switching = True
+            try:
+                ok = await do_switch(target_name)
+            finally:
+                self._switching = False
+            if ok:
                 self._build_tab2()
             else:
                 cur = next((lbl for lbl, nm in self._backend_label_map.items()
@@ -891,8 +917,21 @@ class BasisREMYApp:
                     inp.on_value_change(lambda e, k=key: self._update_param(k, e.value))
 
                     async def browse(k=key, field=inp) -> None:
-                        path = await LocalFilePicker("~", title=f"Select {k}")
+                        if LocalFilePicker.active() is not None:
+                            return  # don't stack a second picker
+                        # Per-field folder memory: pulse waveforms, sequence
+                        # JSONs, etc. live in different places.
+                        state_key = f"last_dir_{k.lower().replace(' ', '_')}"
+                        cur = field.value or ""
+                        start = (os.path.dirname(cur)
+                                 if cur and os.path.isdir(os.path.dirname(cur))
+                                 else get_state(state_key) or "~")
+                        if not isinstance(start, str) or (
+                                start != "~" and not os.path.isdir(start)):
+                            start = "~"
+                        path = await LocalFilePicker(start, title=f"Select {k}")
                         if path:
+                            set_state(state_key, os.path.dirname(path))
                             field.value = path
                             self._update_param(k, path)
 
@@ -976,16 +1015,6 @@ class BasisREMYApp:
             self.simulate_button.disable()
 
     # ============================================================== Octave check
-    def _check_octave_availability(self) -> bool:
-        from basisremy.core.octave_manager import OctaveManager
-
-        manager = OctaveManager()
-        if manager.check_docker_availability() or manager.check_local_octave_availability():
-            return True
-
-        self._show_octave_instructions(manager)
-        return False
-
     def _show_octave_instructions(self, manager) -> None:
         instructions = manager._get_installation_instructions()
         dialog = ui.dialog()

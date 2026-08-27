@@ -883,6 +883,8 @@ class DataReaders():
 						break
 					else: 																	# Extract Values
 						match = hdr_val.search(ll.decode())
+						if match is None: 													# Non-conforming line - skip
+							continue
 						if len(match.groups()) < 2:
 							MRSinMRS[match[1]] = None
 						else:
@@ -1099,7 +1101,8 @@ class DataReaders():
 		except Exception as e:																# Failed Reading NIfTI JSON File
 			write_log(log, 'Data Read: NIfTI JSON - Data Reader Failed') 					# Log - Note Failure
 			write_log(log, 'Data Read: NIfTI JSON - NOTE** Ensure .json was provided')		# Log - Note Failure
-			write_log(log, 'Data Read: NIfTI JSON - Error - {}'.format(e)) 					# Log - Error 
+			write_log(log, 'Data Read: NIfTI JSON - Error - {}'.format(e)) 					# Log - Error
+			MRSinMRS = {} 																	# Keep defined for checks below
 
 		json_items = list(MRSinMRS.keys())
 		if len(json_items) < 1: 															# JSON read failed
