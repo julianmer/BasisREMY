@@ -165,7 +165,10 @@ class Backend:
             self.octave = manager.initialize_octave(prefer_docker=prefer_docker)
 
             # If using Docker, check for and clean up old processes
-            if hasattr(self.octave, 'check_running_processes'):
+            # (hasattr is unsafe here: oct2py resolves unknown attributes in the
+            # Octave workspace and raises Oct2PyError for a local instance)
+            from basisremy.docker.docker_octave import DockerOctave
+            if isinstance(self.octave, DockerOctave):
                 existing = self.octave.check_running_processes()
                 if existing:
                     print(f"⚠️  Found {len(existing)} existing Octave process(es)")

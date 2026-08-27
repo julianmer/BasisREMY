@@ -230,6 +230,10 @@ class CustomSLaser(Backend):
         self.octave.addpath(self.octave.genpath(octave_adapters_base(self.octave)))
 
     def run_simulation(self, params, progress_callback=None, stop_event=None):
+        # Work on a copy: the caller passes backend.mandatory_params itself, and
+        # the internal keys/rewrites below must not leak into the GUI schema.
+        params = dict(params)
+
         # Initialize Octave if not already done
         if self.octave is None:
             print("Initializing Octave runtime...")
@@ -272,6 +276,14 @@ class CustomSLaser(Backend):
             "Make .basis": 'Yes',
         })
         params = self.parse2fidA(params)   # convert parameters to fidA format if needed
+
+        # GUI text fields arrive as strings; Octave would treat those as char
+        # arrays (and silently do ASCII arithmetic), so coerce numerics first.
+        for key in ('B1max', 'Flip Angle', 'RefTp', 'Samples', 'Bandwidth',
+                    'Linewidth', 'Bfield', 'thkX', 'thkY', 'fovX', 'fovY',
+                    'nX', 'nY', 'TE', 'Center Freq', 'Tau 1', 'Tau 2'):
+            if params.get(key) is not None:
+                params[key] = float(params[key])
 
         # define wrapper for octave function
         def sLASER_makebasisset_function(curfolder, pathtofida, system,

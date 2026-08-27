@@ -493,6 +493,9 @@ class BasisREMYApp:
             if self._sim_thread is not None and self._sim_thread.is_alive():
                 print("⏹  Cancelling simulation (user navigated back)…")
                 self._sim_stop_event.set()
+                # step 3 must be re-earned via Simulate; otherwise it shows a
+                # frozen progress page whose poll timer is gone
+                self._step_unlocked["sim"] = False
                 try:
                     octave = self.BasisREMY.backend.octave
                     if octave is not None and hasattr(octave, "kill_running_processes"):
@@ -683,6 +686,8 @@ class BasisREMYApp:
             for n in names:
                 b = br.backends[n]
                 label = getattr(b, "display_name", None) or b.name
+                if getattr(b, "_is_stub", False):
+                    label += " (in development)"
                 label_to_name[label] = n
                 labels.append(label)
             return labels, label_to_name
@@ -751,6 +756,13 @@ class BasisREMYApp:
         def on_backend_change(e) -> None:
             target_name = self._backend_label_map.get(e.value)
             if target_name is None:
+                return
+            if getattr(br.backends[target_name], "_is_stub", False):
+                ui.notify("This shaped sequence is under development — "
+                          "simulation support is coming soon.", type="info")
+                cur = next((lbl for lbl, nm in self._backend_label_map.items()
+                            if nm == br.backend.name), e.value)
+                backend_select.value = cur
                 return
             if do_switch(target_name):
                 self._build_tab2()
@@ -928,6 +940,14 @@ class BasisREMYApp:
                           on_click=lambda: self._goto("params")).props("flat color=primary")
 
     def _simulate_basis(self) -> None:
+        # A cancelled run only stops between metabolites; starting a second
+        # thread meanwhile would revive it via _sim_stop_event.clear() and
+        # race on the shared progress/result state.
+        if self._sim_thread is not None and self._sim_thread.is_alive():
+            ui.notify("A simulation is still running — please wait a moment.",
+                      type="warning")
+            return
+
         backend = self.BasisREMY.backend
         if backend.requires_octave and backend.octave is None:
             if not self._check_octave_availability():
@@ -1095,7 +1115,16 @@ class BasisREMYApp:
                 b0 = 3.0
             cf = 42.577e6 * b0
         else:
-            cf = float(cf_raw) * (1e6 if float(cf_raw) < 1000 else 1.0)
+            cf = float(cf_raw)
+            if cf < 20:
+                # ppm rotating-frame centre (FID-A shaped backends), not a
+                # Larmor frequency — derive the Larmor frequency from B0
+                try:
+                    cf = 42.577e6 * float(mp.get("Bfield") or 3.0)
+                except (TypeError, ValueError):
+                    cf = 42.577e6 * 3.0
+            elif cf < 1000:
+                cf *= 1e6  # MHz → Hz
         bw = float(mp["Bandwidth"])
 
         for metab, cb in self.checkbox_vars.items():

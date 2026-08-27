@@ -212,8 +212,12 @@ def _make_header(params: dict[str, Any], basis: dict[str, np.ndarray]) -> dict[s
     if cf_raw not in (None, "", "missing input", "Select option"):
         try:
             cf_f = float(cf_raw)
-            if cf_f != 0.0:
-                cf = cf_f / 1e6 if cf_f > 1000 else cf_f
+            if cf_f > 1000:
+                cf = cf_f / 1e6          # Hz → MHz
+            elif cf_f >= 20:
+                cf = cf_f                # already MHz
+            # cf_f < 20 is a ppm centre (FID-A shaped backends), not a Larmor
+            # frequency — leave cf as None so the B0 fallback below applies
         except (TypeError, ValueError):
             cf = None
     if cf is None:

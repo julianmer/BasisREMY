@@ -605,7 +605,7 @@ class MRSCloudBackend(Backend):
         # MRSCloud overrides TE for HERMES (68) / HERCULES (80) internally;
         # we keep the user value for documentation but warn if it's unusual.
         if sequence == 'HERMES' and abs(te - 68) > 1:
-            print(f"  Note: MRSCloud will internally use TE=80 ms for HERMES "
+            print(f"  Note: MRSCloud will internally use TE=68 ms for HERMES "
                   f"(your TE={te} ms is informational only).")
         if sequence == 'HERCULES' and abs(te - 80) > 1:
             print(f"  Note: MRSCloud will internally use TE=80 ms for HERCULES "
