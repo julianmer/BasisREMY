@@ -109,13 +109,46 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             sw_out = sw;
             cf_mhz = Bfield * 42.577;
 
+        % ----- LASER (ideal AFP, six equally spaced echoes) ------------
+        %   args: n, sw, Bfield, lw, te
+        case 'laser'
+            [n, sw, Bfield, lw, te] = deal(varargin{1:5});
+            out = sim_laser(n, sw, Bfield, lw, sys, te);
+            fid    = out.fids(:);
+            fid_re = real(fid); fid_im = imag(fid);
+            npts   = numel(fid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
+        % ----- Spin Echo xN (multi-echo train) -------------------------
+        %   args: n, sw, Bfield, lw, tau, nechoes
+        case 'spinecho_xn'
+            [n, sw, Bfield, lw, tau, nechoes] = deal(varargin{1:6});
+            out = sim_spinecho_xN(n, sw, Bfield, lw, sys, tau, nechoes);
+            fid    = out.fids(:);
+            fid_re = real(fid); fid_im = imag(fid);
+            npts   = numel(fid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
+        % ----- One pulse (ideal pulse-acquire FID) ---------------------
+        %   args: n, sw, Bfield, lw
+        case 'onepulse'
+            [n, sw, Bfield, lw] = deal(varargin{1:4});
+            out = sim_onepulse(n, sw, Bfield, lw, sys);
+            fid    = out.fids(:);
+            fid_re = real(fid); fid_im = imag(fid);
+            npts   = numel(fid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
         % ----- stubs ---------------------------------------------------
         % The Python side already raises NotImplementedError for these
         % kinds before reaching Octave, but we guard here as well so a
         % buggy caller gets a clear MATLAB-side error too.
         case {'semilaser_shaped','steam_shaped','spinecho_shaped', ...
-              'megapress_shaped','megaspecial_shaped','laser', ...
-              'megapress_ideal','spinecho_xn','onepulse'}
+              'megapress_shaped','megaspecial_shaped', ...
+              'megapress_ideal'}
             error('fida_run: kind "%s" is a registered FID-A wrapper but the Octave-side branch is not implemented yet.', kind);
 
         otherwise

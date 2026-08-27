@@ -69,7 +69,18 @@ def ensure(name: str) -> str:
         raise ExternalFetchError(f"Unknown external '{name}'.")
 
     dest = externals_root() / name
+    # Skip Git-LFS smudging during clone/checkout. Some upstreams (notably
+    # FID-A) keep large example datasets in LFS and occasionally exceed their
+    # LFS budget, which makes the smudge filter fail and aborts the whole
+    # clone. We only need the Octave/MATLAB source, not the LFS sample data,
+    # so disabling smudge keeps fetching robust regardless of LFS quota.
+    env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"}
+
     if is_present(name):
+        # Self-heal fetches made before nested-submodule support: e.g.
+        # fsl_mrs nests denmatsim as a submodule, which a plain clone leaves
+        # as an empty directory. A no-op (~ms) when already complete.
+        _init_nested_submodules(dest, env)
         return str(dest)
 
     url, commit = REGISTRY[name]
@@ -79,12 +90,6 @@ def ensure(name: str) -> str:
         f"Fetching '{name}' (one-time download from {url}). This may take a while...",
         file=sys.stderr,
     )
-    # Skip Git-LFS smudging during clone/checkout. Some upstreams (notably
-    # FID-A) keep large example datasets in LFS and occasionally exceed their
-    # LFS budget, which makes the smudge filter fail and aborts the whole
-    # clone. We only need the Octave/MATLAB source, not the LFS sample data,
-    # so disabling smudge keeps fetching robust regardless of LFS quota.
-    env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"}
     try:
         subprocess.run(
             ["git", "clone", "--quiet", url, str(dest)],
@@ -124,6 +129,10 @@ def ensure(name: str) -> str:
             f"Failed to fetch '{name}' from {url} (commit {commit[:10]}): {exc}"
         ) from exc
 
+    # Some externals nest submodules of their own (fsl_mrs -> denmatsim);
+    # without this their directories stay empty after the clone.
+    _init_nested_submodules(dest, env)
+
     # A sys.path entry that pointed at this (then-missing) directory has been
     # negatively cached by the import system (sys.path_importer_cache), so
     # Python-package externals (e.g. fsl_mrs's denmatsim) would stay
@@ -131,3 +140,14 @@ def ensure(name: str) -> str:
     importlib.invalidate_caches()
 
     return str(dest)
+
+
+def _init_nested_submodules(dest, env) -> None:
+    """Initialize an external's own nested submodules (best effort)."""
+    if not os.path.exists(os.path.join(str(dest), '.git')):
+        return
+    subprocess.run(
+        ['git', '-C', str(dest), 'submodule', 'update', '--init',
+         '--recursive', '--quiet'],
+        env=env, check=False,
+    )

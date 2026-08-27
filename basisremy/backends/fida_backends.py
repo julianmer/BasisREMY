@@ -497,18 +497,34 @@ class FidaMegaSpecialShaped(_Stub):
         self._refresh_metab_list()
 
 
-class FidaLaser(_Stub):
-    """sim_laser (ideal AFP)."""
+class FidaLaser(FidaBackend):
+    """sim_laser: ideal-AFP LASER with six equally spaced echoes."""
+
+    _kind = 'laser'
+
     def __init__(self):
         super().__init__()
         self.name, self.display_name = 'FidaLaser', 'LASER (ideal AFP)'
         self.mandatory_params = {
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
             'Linewidth': 1.0,  'TE':        None,
-            'Sim Centre (ppm)': 2.3,
             'Metabolites': [],
         }
         self._refresh_metab_list()
+
+    def parseProtocol(self, protocol):
+        if protocol is None:
+            return None
+        return 'LASER' if 'laser' in str(protocol).lower() else None
+
+    def _build_args(self, params, metab):
+        return [
+            float(params['Samples']),
+            float(params['Bandwidth']),
+            float(params['Bfield']),
+            float(params.get('Linewidth') or 1.0),
+            float(params['TE']),
+        ]
 
 
 class FidaMegaPressIdeal(_Stub):
@@ -528,22 +544,39 @@ class FidaMegaPressIdeal(_Stub):
         self._refresh_metab_list()
 
 
-class FidaSpinEchoXN(_Stub):
-    """sim_spinecho_xN (multi-echo train)."""
+class FidaSpinEchoXN(FidaBackend):
+    """sim_spinecho_xN: multi-echo spin-echo train (CPMG-style)."""
+
+    _kind = 'spinecho_xn'
+
     def __init__(self):
         super().__init__()
         self.name, self.display_name = 'FidaSpinEchoXN', 'Spin Echo (multi-echo)'
         self.mandatory_params = {
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
             'Linewidth': 1.0,  'Tau':       15.0, 'Nechoes': 2,
-            'Sim Centre (ppm)': 2.3,
             'Metabolites': [],
         }
         self._refresh_metab_list()
 
+    def _build_args(self, params, metab):
+        return [
+            float(params['Samples']),
+            float(params['Bandwidth']),
+            float(params['Bfield']),
+            float(params.get('Linewidth') or 1.0),
+            float(params.get('Tau') or 15.0),
+            int(float(params.get('Nechoes') or 2)),
+        ]
 
-class FidaOnePulse(_Stub):
-    """sim_onepulse / _shaped / _delay / _arbPh (FID only)."""
+
+class FidaOnePulse(FidaBackend):
+    """sim_onepulse: ideal pulse-acquire FID. (Shaped / Delay / Arbitrary
+    phase variants exist upstream and stay listed as modes, but only Ideal
+    is wired so far.)"""
+
+    _kind = 'onepulse'
+
     def __init__(self):
         super().__init__()
         self.name, self.display_name = 'FidaOnePulse', 'One pulse (FID only)'
@@ -555,10 +588,29 @@ class FidaOnePulse(_Stub):
             'Linewidth': 1.0,
             'Flip Angle': 90.0,
             'Path to Pulse': None,
-            'Sim Centre (ppm)': 2.3,
             'Metabolites': [],
         }
         self._refresh_metab_list()
+
+    def get_params_for_mode(self, mode=None):
+        params = dict(self.mandatory_params)
+        if (mode or self.current_mode) == 'Ideal':
+            # the ideal pulse-acquire sim uses neither of these
+            params.pop('Flip Angle', None)
+            params.pop('Path to Pulse', None)
+        return params
+
+    def _build_args(self, params, metab):
+        if self.current_mode != 'Ideal':
+            raise NotImplementedError(
+                f"{self.name}: '{self.current_mode}' mode is not implemented "
+                f"yet — use Ideal.")
+        return [
+            float(params['Samples']),
+            float(params['Bandwidth']),
+            float(params['Bfield']),
+            float(params.get('Linewidth') or 1.0),
+        ]
 
 
 # =================================================================== registry
