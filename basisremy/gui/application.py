@@ -21,6 +21,7 @@
 #*************#
 #   imports   #
 #*************#
+import os
 import threading
 from pathlib import Path
 
@@ -29,7 +30,7 @@ matplotlib.use("Agg")  # NiceGUI renders figures to SVG; no interactive backend 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from nicegui import app, ui
+from nicegui import app, run, ui
 
 # own
 from basisremy.core.basisremy import BasisREMY
@@ -603,21 +604,28 @@ class BasisREMYApp:
             self.process_button.enable()
             self._render_data_body()
 
-    def _process_file(self) -> None:
+    async def _process_file(self) -> None:
         if not self.selected_file:
             ui.notify("No file selected.", type="warning")
             return
         print(f"Processing file: {self.selected_file}")
+        self.process_button.props("loading")
         try:
-            MRSinMRS = self.BasisREMY.runREMY(self.selected_file)
+            # Parsing can take seconds for large files — keep the UI alive.
+            MRSinMRS = await run.io_bound(self.BasisREMY.runREMY, self.selected_file)
             params, opt = self.BasisREMY.backend.parseREMY(MRSinMRS)
-            self.BasisREMY.backend.mandatory_params.update(params)
-            self.BasisREMY.backend.optional_params.update(opt)
+            # drop None so REMY gaps don't clobber backend defaults
+            self.BasisREMY.backend.mandatory_params.update(
+                {k: v for k, v in params.items() if v is not None})
+            self.BasisREMY.backend.optional_params.update(
+                {k: v for k, v in opt.items() if v is not None})
             self.BasisREMY._last_mrsinmrs = MRSinMRS
         except Exception as exc:  # noqa: BLE001
             ui.notify(f"Could not read file: {exc}", type="negative")
             print(f"REMY error: {exc}")
             return
+        finally:
+            self.process_button.props(remove="loading")
 
         self._build_tab2()
         self._unlock("params")
@@ -900,8 +908,16 @@ class BasisREMYApp:
         self._update_metabs()
 
     def _update_metabs(self, _event=None) -> None:
-        selected = [m for m, cb in self.metab_checks.items() if cb.value]
-        self.BasisREMY.backend.mandatory_params["Metabolites"] = selected
+        backend = self.BasisREMY.backend
+        selected = []
+        for m, cb in self.metab_checks.items():
+            # keep backend.metabs in sync — set_backend carries the selection
+            # over to the next backend from there, not from mandatory_params
+            if m in backend.metabs:
+                backend.metabs[m] = bool(cb.value)
+            if cb.value:
+                selected.append(m)
+        backend.mandatory_params["Metabolites"] = selected
         self.validate_inputs()
 
     # ---- validation -------------------------------------------------------
@@ -931,6 +947,10 @@ class BasisREMYApp:
         if manager.check_docker_availability() or manager.check_local_octave_availability():
             return True
 
+        self._show_octave_instructions(manager)
+        return False
+
+    def _show_octave_instructions(self, manager) -> None:
         instructions = manager._get_installation_instructions()
         dialog = ui.dialog()
         with dialog, ui.card().classes(
@@ -950,7 +970,6 @@ class BasisREMYApp:
             with ui.row().classes("w-full justify-end"):
                 ui.button("OK", on_click=dialog.close).props("color=primary unelevated")
         dialog.open()
-        return False
 
     # ============================================================== TAB 3
     def _build_tab3_progress(self) -> None:
@@ -977,7 +996,7 @@ class BasisREMYApp:
                 ui.button("Back", icon="arrow_back",
                           on_click=lambda: self._goto("params")).props("flat color=primary")
 
-    def _simulate_basis(self) -> None:
+    async def _simulate_basis(self) -> None:
         # A cancelled run only stops between metabolites; starting a second
         # thread meanwhile would revive it via _sim_stop_event.clear() and
         # race on the shared progress/result state.
@@ -988,7 +1007,14 @@ class BasisREMYApp:
 
         backend = self.BasisREMY.backend
         if backend.requires_octave and backend.octave is None:
-            if not self._check_octave_availability():
+            from basisremy.core.octave_manager import OctaveManager
+            manager = OctaveManager()
+            # Docker/Octave probes take seconds — don't freeze the click.
+            available = await run.io_bound(
+                lambda: manager.check_docker_availability()
+                or manager.check_local_octave_availability())
+            if not available:
+                self._show_octave_instructions(manager)
                 return
 
         # reset tab3 to a clean progress state

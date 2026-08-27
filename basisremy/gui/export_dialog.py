@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import traceback
 
-from nicegui import ui
+from nicegui import run, ui
 
 from basisremy.core.exporters import (
     export as _export,
@@ -116,16 +116,35 @@ def open_export_dialog(basis: dict, params: dict) -> None:
 
         status = ui.label("").classes("text-sm")
 
-        def do_export() -> None:
+        async def confirm_overwrite(p: str) -> bool:
+            with ui.dialog() as confirm, ui.card().classes("gap-3"):
+                ui.label(f"“{os.path.basename(p)}” already exists. Overwrite?"
+                         ).classes("text-sm")
+                with ui.row().classes("w-full justify-end gap-2"):
+                    ui.button("Cancel",
+                              on_click=lambda: confirm.submit(False)).props("flat")
+                    ui.button("Overwrite",
+                              on_click=lambda: confirm.submit(True)
+                              ).props("color=primary")
+            return bool(await confirm)
+
+        async def do_export() -> None:
             fmt = fmt_select.value
             path = (path_input.value or "").strip()
             if not path:
                 ui.notify("Please choose an output path.", type="warning")
                 return
+            # exporters normalize a missing extension — check the real target
+            ext = FORMAT_EXTENSIONS[fmt]
+            final = path if (not ext or path.lower().endswith(ext)) else path + ext
+            if ext and os.path.isfile(final):
+                if not await confirm_overwrite(final):
+                    return
             try:
                 status.set_text(f"Writing {FORMAT_LABELS[fmt]}…")
                 status.style("color:#607389")
-                out = _export(basis, path, fmt, params)
+                # slow formats must not freeze the dialog
+                out = await run.io_bound(_export, basis, path, fmt, params)
                 set_state("last_export_dir",
                           out if os.path.isdir(out)
                           else os.path.dirname(os.path.abspath(out)))

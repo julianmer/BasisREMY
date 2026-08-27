@@ -105,6 +105,12 @@ def export(basis: dict[str, np.ndarray],
     hdr = _make_header(params, basis)
 
     out = os.path.abspath(path)
+    # Normalize the extension up front so the returned path (and the sidecar's
+    # output_path) always name the file actually written — some writers append
+    # their extension internally when it is missing.
+    _ext = FORMAT_EXTENSIONS.get(fmt, "")
+    if _ext and not out.lower().endswith(_ext):
+        out += _ext
 
     if fmt == "lcmodel_basis":
         _write_lcmodel_basis(basis, out, hdr, params)

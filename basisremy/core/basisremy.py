@@ -208,6 +208,10 @@ class BasisREMY:
             if pathlib.Path(import_fpath).name.lower().endswith('.nii.gz'):
                 suf = '.nii.gz'
 
+        # Fresh table per import: clean/populate failures must not leave the
+        # previous file's values behind for the next one.
+        self.Table = Table()
+
         log = None
         if suf == '.dat':   # Siemens Twix file
             write_log(log, 'Data Read: Siemens Twix uses pyMapVBVD ')  # log - pyMapVBVD
@@ -243,9 +247,12 @@ class BasisREMY:
             write_log(log, 'Data Read: NIfTI json side car')  # log - NIfTI JSON side car
             # MRSinMRS, log = self.DRead.nifti_json(import_fpath, log)   # TODO: fix for nifti
             try:
-                with open(import_fpath.replace(suf, '.json'), 'r') as f:
+                # replace only the suffix — a '.nii' elsewhere in the path
+                # must not be rewritten
+                sidecar = import_fpath[:-len(suf)] + '.json'
+                with open(sidecar, 'r') as f:
                     MRSinMRS = json.load(f)
-            except:
+            except Exception:
                 from nifti_mrs.nifti_mrs import NIFTI_MRS
                 MRSinMRS = NIFTI_MRS(import_fpath).hdr_ext
 
@@ -259,7 +266,10 @@ class BasisREMY:
                              f' .dat, .ima, .rda, .spar, .7, bruker_method, bruker_2dseq, .nii, .nii.gz')
 
         dtype_selection = suf.replace('.', '')  # remove dot if present
-        if suf == '.nii.gz': dtype_selection = 'json'  # special case
+        # NIfTI (either suffix) uses the sidecar-JSON labels; a plain '.nii'
+        # would otherwise look up a nonexistent 's2nlabel_nifti_nii' column
+        # and silently lose every extracted parameter.
+        if suf in ('.nii', '.nii.gz'): dtype_selection = 'json'
 
         # check for missing MRSinMRS Values that might have different names across versions
         try:
