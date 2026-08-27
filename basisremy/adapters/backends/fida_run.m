@@ -341,11 +341,76 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             sw_out = sw;
             cf_mhz = Bfield * 42.577;
 
+        % ----- MEGA-SPECIAL shaped (1-D; per run_simMegaSpecialShaped) -
+        %   Shaped editing (loaded 'inv', frequency-shifted) + one shaped
+        %   1-D refocusing pulse. Edit phase cycles [0,90]x[0,90,180,270]
+        %   are summed; the refoc cycle [0,90] is combined subtractively.
+        %   args: n, sw, Bfield, lw, t1..t4 [ms], edit_path, editTp,
+        %         editOnFreq, editOffFreq, refoc_path, refTp,
+        %         thk, fov, npos, centreFreq, edit_on_flag
+        case 'megaspecial_shaped'
+            [n, sw, Bfield, lw, t1, t2, t3, t4, edit_path, editTp, ...
+             editOnFreq, editOffFreq, refoc_path, refTp, thk, fov, npos, ...
+             centreFreq, editOn] = deal(varargin{1:19});
+            if ~exist(edit_path, 'file')
+                error('fida_run/megaspecial_shaped: edit pulse waveform not found: "%s"', edit_path);
+            end
+            if ~exist(refoc_path, 'file')
+                error('fida_run/megaspecial_shaped: refoc pulse waveform not found: "%s"', refoc_path);
+            end
+            taus = [t1 t2 t3 t4];
+            refRF  = io_loadRFwaveform(refoc_path, 'ref', 0);
+            editRF = io_loadRFwaveform(edit_path, 'inv', 0);
+            gamma = 42577000;
+            if editOn
+                targetFreq = editOnFreq;
+            else
+                targetFreq = editOffFreq;
+            end
+            editRFshift = rf_freqshift(editRF, editTp, ...
+                (centreFreq - targetFreq) * Bfield * gamma / 1e6);
+            if refRF.isGM
+                G = (refRF.tthk / (refTp/1000)) / thk;
+            else
+                G = (refRF.tbw / (refTp/1000)) / (gamma * thk / 10000);
+            end
+            if npos < 2; npos = 2; end
+            pos = linspace(-fov/2, fov/2, npos);
+            editPhCyc1 = [0 90];
+            editPhCyc2 = [0 90 180 270];
+            refPhCyc   = [0 90];
+            accumFid = [];
+            for ip = 1:npos
+                for EP1 = 1:numel(editPhCyc1)
+                    for EP2 = 1:numel(editPhCyc2)
+                        out1 = sim_megaspecial_shaped(n, sw, Bfield, lw, ...
+                            taus, sys, editRFshift, editTp, ...
+                            editPhCyc1(EP1), editPhCyc2(EP2), ...
+                            refRF, refTp, G, pos(ip), refPhCyc(1));
+                        out2 = sim_megaspecial_shaped(n, sw, Bfield, lw, ...
+                            taus, sys, editRFshift, editTp, ...
+                            editPhCyc1(EP1), editPhCyc2(EP2), ...
+                            refRF, refTp, G, pos(ip), refPhCyc(2));
+                        stepFid = out1.fids(:) - out2.fids(:);
+                        if isempty(accumFid)
+                            accumFid = stepFid;
+                        else
+                            accumFid = accumFid + stepFid;
+                        end
+                    end
+                end
+            end
+            accumFid = accumFid / (npos * numel(editPhCyc1) * numel(editPhCyc2));
+            fid_re = real(accumFid); fid_im = imag(accumFid);
+            npts   = numel(accumFid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
         % ----- stubs ---------------------------------------------------
         % The Python side already raises NotImplementedError for these
         % kinds before reaching Octave, but we guard here as well so a
         % buggy caller gets a clear MATLAB-side error too.
-        case {'megapress_shaped','megaspecial_shaped'}
+        case {'megapress_shaped'}
             error('fida_run: kind "%s" is a registered FID-A wrapper but the Octave-side branch is not implemented yet.', kind);
 
         otherwise

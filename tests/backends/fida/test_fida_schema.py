@@ -28,6 +28,8 @@ from basisremy.backends.fida_backends import (
     FidaSteamShaped,
     FidaMegaPressShaped,
     FidaMegaSpecialShaped,
+    FidaMegaPressIdeal,
+    FidaSpinEchoShaped,
     FidaLaser,
     FidaSpinEchoXN,
     FidaOnePulse,
@@ -117,22 +119,16 @@ class TestPressShaped:
 
 
 # ============================================================ stubs
-@pytest.mark.parametrize("cls", [
-    FidaMegaSpecialShaped,
-])
-def test_stub_run_raises_not_implemented(cls):
-    b = cls()
-    assert b._is_stub is True
-    with pytest.raises(NotImplementedError):
-        b.run_simulation({'Metabolites': ['NAA']})
-
-
 @pytest.mark.parametrize("cls, kind", [
     (FidaLaser, 'laser'),
     (FidaSpinEchoXN, 'spinecho_xn'),
     (FidaOnePulse, 'onepulse'),
     (FidaSemiLaserShaped, 'semilaser_shaped'),
     (FidaSteamShaped, 'steam_shaped'),
+    (FidaSpinEchoShaped, 'spinecho_shaped'),
+    (FidaMegaPressIdeal, 'megapress_ideal'),
+    (FidaMegaPressShaped, 'megapress_shapededit'),
+    (FidaMegaSpecialShaped, 'megaspecial_shaped'),
 ])
 def test_phase1_kinds_are_wired(cls, kind):
     b = cls()

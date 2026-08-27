@@ -157,3 +157,26 @@ class TestFidaPhase1Kinds:
         off = np.asarray(result['GABA (OFF)'])
         # the shaped editing pulse must actually edit GABA
         assert np.max(np.abs(diff)) > 1e-6 * np.max(np.abs(off))
+
+    def test_megaspecial_shaped(self, cleanup_docker_processes, project_root_dir):
+        rfdir = os.path.join(project_root_dir, 'externals', 'fidA',
+                             'rfPulseTools', 'rfPulses')
+        refoc = os.path.join(rfdir, 'sampleRefocPulse.pta')
+        edit = os.path.join(rfdir, 'sampleEditPulse.pta')
+        if not (os.path.exists(refoc) and os.path.exists(edit)):
+            pytest.skip("sample pulses not available")
+        br = BasisREMY()
+        br.set_backend('FidaMegaSpecialShaped')
+        br.backend.initialize_octave(prefer_docker=True)
+        result = br.backend.run_simulation({
+            'Samples': 1024, 'Bandwidth': 2000, 'Bfield': 3.0,
+            'Linewidth': 1.0, 'TE': 68,
+            'Path to Pulse': refoc, 'RefTp': 5.0,
+            'Edit Pulse Path': edit, 'Edit Tp': 14.0,
+            'Edit On': 1.9, 'Edit Off': 7.5,
+            'thkX': 2.0, 'fovX': 3.0, 'nX': 2,
+            'Sim Centre (ppm)': 4.65,
+            'Metabolites': ['GABA'],
+        })
+        for sub in ('ON', 'OFF', 'DIFF'):
+            _assert_valid_fid(result, f'GABA ({sub})')

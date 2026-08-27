@@ -440,14 +440,10 @@ class FidaPressShaped(FidaBackend):
         ]
 
 
-# =================================================================== Stubs
-# Each stub carries a complete parameter schema for the GUI but has no Octave
-# dispatch yet. They will become real backends as the matching branches are
-# added to fida_run.m. `_is_stub = True` keeps the schema-only tests honest.
-
-class _Stub(FidaBackend):
-    _is_stub = True
-
+# =================================================================== Shaped
+# (A future not-yet-implemented backend can set `_is_stub = True` on its
+# class to get the GUI's "(in development)" treatment and the guarded
+# NotImplementedError in run_simulation.)
 
 class FidaSemiLaserShaped(FidaBackend):
     """sim_semiLASER_shaped: semi-LASER (Öz 2018) with one shaped AFP
@@ -657,23 +653,80 @@ class FidaMegaPressShaped(FidaBackend):
                                            progress_callback, stop_event)
 
 
-class FidaMegaSpecialShaped(_Stub):
-    """sim_megaspecial_shaped (1-D-localised MEGA)."""
+class FidaMegaSpecialShaped(FidaBackend):
+    """sim_megaspecial_shaped: 1-D-localised MEGA-SPECIAL with a shaped,
+    frequency-shifted editing pulse and one shaped refocusing pulse.
+    Each metabolite yields '(ON)', '(OFF)', '(DIFF)' entries."""
+
+    _kind = 'megaspecial_shaped'
+
+    # run_simMegaSpecialShaped.m timing at TE = 68 ms:
+    # excite – t1 – edit – t2 – 180 – t3 – edit – t4 – ADC
+    _TE68_TAUS = (17.0, 17.0, 17.0, 17.0)
+
     def __init__(self):
         super().__init__()
         self.name, self.display_name = 'FidaMegaSpecialShaped', 'MEGA-SPECIAL shaped'
         self.file_selection = ['Path to Pulse', 'Edit Pulse Path']
-        self.mandatory_params = _shaped_params({
+        self.mandatory_params = {
+            'Samples':   None, 'Bandwidth': None, 'Bfield': None,
+            'Linewidth': 1.0,  'TE':        None,   # 68 ms is the standard
+            'Path to Pulse':   None,                # refocusing waveform
+            'RefTp':           5.0,
             'Edit Pulse Path': None,
-            'Edit Tp':         20.0,
-            'Edit On':         1.9,
+            'Edit Tp':         14.0,
+            'Edit On':         1.9,                 # ppm (GABA); 4.56 for GSH
             'Edit Off':        7.5,
-            'Edit Target':     'GABA',
-        })
-        for k in ('thkY', 'fovY', 'nY'):
-            self.mandatory_params.pop(k, None)
-        self.dropdown = {'Edit Target': ['GABA', 'GSH', 'Lac', 'PE']}
+            'thkX': 2.0, 'fovX': 3.0, 'nX': 8,
+            'Sim Centre (ppm)': 4.65,
+            'Metabolites': [],
+        }
         self._refresh_metab_list()
+
+    def parseProtocol(self, protocol):
+        if protocol is None:
+            return None
+        p = str(protocol).lower()
+        return 'MEGA-SPECIAL' if ('mega' in p and 'special' in p) else None
+
+    def run_simulation(self, params, progress_callback=None, stop_event=None):
+        if self.octave is None:
+            print("Initializing Octave runtime...")
+            self.initialize_octave(prefer_docker=True)
+        self.setup_octave_paths()
+        self.ensure_workdir()
+
+        refoc_src = params.get('Path to Pulse')
+        edit_src = params.get('Edit Pulse Path')
+        if not refoc_src or not edit_src:
+            raise ValueError(
+                f"{self.name}: 'Path to Pulse' (refocusing) and "
+                f"'Edit Pulse Path' (editing) waveforms are both required.")
+        refoc_path = self._make_relative(self._stage_into_workdir(refoc_src))
+        edit_path = self._make_relative(self._stage_into_workdir(edit_src))
+
+        te = float(params['TE'])
+        scale = te / 68.0
+        taus = [t * scale for t in self._TE68_TAUS]
+        base_args = [
+            float(params['Samples']),
+            float(params['Bandwidth']),
+            float(params['Bfield']),
+            float(params.get('Linewidth') or 1.0),
+            *taus,
+            edit_path,
+            float(params.get('Edit Tp') or 14.0),
+            float(params.get('Edit On') or 1.9),
+            float(params.get('Edit Off') or 7.5),
+            refoc_path,
+            float(params.get('RefTp') or 5.0),
+            float(params.get('thkX') or 2.0),
+            float(params.get('fovX') or 3.0),
+            int(float(params.get('nX') or 8)),
+            float(params.get('Sim Centre (ppm)') or 4.65),
+        ]
+        return self._run_on_off_subspectra(params, base_args,
+                                           progress_callback, stop_event)
 
 
 class FidaLaser(FidaBackend):
