@@ -10,6 +10,7 @@ pytest>=7.0.0
 pytest-cov>=4.0.0
 pytest-xdist>=3.0.0
 pytest-timeout>=2.1.0
+pytest-asyncio>=0.23
 scipy>=1.10.0
 spec2nii==0.8.7
 nicegui>=2.0.0

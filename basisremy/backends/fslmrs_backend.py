@@ -747,12 +747,25 @@ class FSLMRSBackend(Backend):
         ensure('fsl_mrs')
         try:
             from denmatsim import simseq, utils as simutils
-        except ImportError as e:
-            raise RuntimeError(
-                f"denmatsim not found at {_denmatsim_parent}/denmatsim/\n"
-                f"Error: {e}\n\n"
-                f"Run: git submodule update --init --recursive"
-            )
+        except ImportError:
+            # An import attempted during/before the one-time fetch leaves a
+            # stale namespace module in sys.modules ("unknown location") that
+            # importlib.invalidate_caches() cannot clear — purge and retry.
+            import importlib
+            for _name in [m for m in sys.modules
+                          if m == 'denmatsim' or m.startswith('denmatsim.')]:
+                del sys.modules[_name]
+            importlib.invalidate_caches()
+            try:
+                from denmatsim import simseq, utils as simutils
+            except ImportError as e:
+                raise RuntimeError(
+                    f"denmatsim not found at {_denmatsim_parent}/denmatsim/\n"
+                    f"Error: {e}\n\n"
+                    f"If the one-time FSL-MRS download just finished, restart "
+                    f"BasisREMY. In a source checkout, run:\n"
+                    f"  git submodule update --init --recursive"
+                )
 
         # Coerce all numeric fields from string (GUI entries) to float/int
         # before any arithmetic — prevents "unsupported operand type 'str'" crashes.
