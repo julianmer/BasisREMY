@@ -527,21 +527,79 @@ class FidaLaser(FidaBackend):
         ]
 
 
-class FidaMegaPressIdeal(_Stub):
-    """sim_megapress (ideal pulses)."""
+class FidaMegaPressIdeal(FidaBackend):
+    """sim_megapress: MEGA-PRESS with instantaneous localization and editing.
+
+    The ideal editing pulse inverts every spin within the editing band around
+    'Edit On'; the OFF sub-spectrum applies no editing. Each metabolite yields
+    three basis entries: '<metab> (ON)', '<metab> (OFF)', '<metab> (DIFF)'
+    (DIFF = ON − OFF, the edited difference basis).
+    """
+
+    _kind = 'megapress_ideal'
+
+    # Siemens MEGA-PRESS timing at TE = 68 ms:
+    # 90 – t1 – 180 – t2 – edit – t3 – 180 – t4 – edit – t5 – ADC.
+    # Other echo times scale this scheme proportionally (TE/68).
+    _TE68_TAUS = (4.545, 12.7025, 21.7975, 12.7025, 17.2526)
+
     def __init__(self):
         super().__init__()
         self.name, self.display_name = 'FidaMegaPressIdeal', 'MEGA-PRESS ideal'
         self.mandatory_params = {
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
-            'Linewidth': 1.0,  'TE':        None,
-            'Edit On':   1.9,  'Edit Off':  7.5,
-            'Edit Target': 'GABA',
-            'Sim Centre (ppm)': 2.3,
+            'Linewidth': 1.0,  'TE':        None,   # 68 ms is the standard
+            'Edit On':   1.9,                       # ppm (GABA); 4.56 for GSH
+            'Edit Bandwidth (ppm)': 1.0,
             'Metabolites': [],
         }
-        self.dropdown = {'Edit Target': ['GABA', 'GSH', 'Lac', 'PE']}
         self._refresh_metab_list()
+
+    def parseProtocol(self, protocol):
+        if protocol is None:
+            return None
+        return 'MEGA-PRESS' if 'mega' in str(protocol).lower() else None
+
+    def run_simulation(self, params, progress_callback=None, stop_event=None):
+        if self.octave is None:
+            print("Initializing Octave runtime...")
+            self.initialize_octave(prefer_docker=True)
+        self.setup_octave_paths()
+        self.ensure_workdir()
+
+        te = float(params['TE'])
+        scale = te / 68.0
+        taus = [t * scale for t in self._TE68_TAUS]
+        base_args = [
+            float(params['Samples']),
+            float(params['Bandwidth']),
+            float(params['Bfield']),
+            float(params.get('Linewidth') or 1.0),
+            *taus,
+            float(params.get('Edit On') or 1.9),
+            float(params.get('Edit Bandwidth (ppm)') or 1.0),
+        ]
+
+        metabs = params.get('Metabolites') or []
+        basis = {}
+        for i, metab in enumerate(metabs):
+            if stop_event and stop_event.is_set():
+                print(f"  ⏹  Stopped before simulating {metab}.")
+                break
+            fids = {}
+            for label, flag in (('ON', 1), ('OFF', 0)):
+                results = self.octave.feval(
+                    'fida_run', metab, self._kind, *base_args, flag, nout=5,
+                )
+                fid_re, fid_im, _npts, _sw, _cf = results
+                fids[label] = (np.asarray(fid_re, dtype=float).flatten()
+                               + 1j * np.asarray(fid_im, dtype=float).flatten())
+            basis[f'{metab} (ON)'] = fids['ON']
+            basis[f'{metab} (OFF)'] = fids['OFF']
+            basis[f'{metab} (DIFF)'] = fids['ON'] - fids['OFF']
+            if progress_callback:
+                progress_callback(i + 1, len(metabs))
+        return basis
 
 
 class FidaSpinEchoXN(FidaBackend):

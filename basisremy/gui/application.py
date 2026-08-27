@@ -1219,6 +1219,19 @@ class BasisREMYApp:
                     "text-base font-bold text-grey-9"
                 )
 
+            # Edited sequences return '<metab> (ON/OFF/DIFF)' entries — offer
+            # a sub-spectrum filter row above the plot.
+            self._subspec_filters = {}
+            if any(k.endswith((' (ON)', ' (OFF)', ' (DIFF)'))
+                   for k in self.basis_set):
+                with ui.row().classes("items-center gap-4 self-start"):
+                    ui.label("Sub-spectra:").classes(
+                        "text-sm font-semibold text-grey-8")
+                    for sub in ("DIFF", "ON", "OFF"):
+                        cb = ui.checkbox(sub, value=True).props("dense")
+                        cb.on_value_change(self._update_plot)
+                        self._subspec_filters[sub] = cb
+
             failures = getattr(self, "_sim_failures", None) or {}
             if failures:
                 names = ", ".join(sorted(failures))
@@ -1301,8 +1314,16 @@ class BasisREMYApp:
                 cf *= 1e6  # MHz → Hz
         bw = float(mp["Bandwidth"])
 
+        subspec_filters = getattr(self, "_subspec_filters", None) or {}
+
+        def _subspec_visible(name: str) -> bool:
+            for sub, fcb in subspec_filters.items():
+                if name.endswith(f" ({sub})"):
+                    return bool(fcb.value)
+            return True
+
         for metab, cb in self.checkbox_vars.items():
-            if cb.value and metab in self.basis_set:
+            if cb.value and metab in self.basis_set and _subspec_visible(metab):
                 data = self.basis_set[metab]
                 if not isinstance(data, np.ndarray):
                     try:

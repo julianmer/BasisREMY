@@ -135,6 +135,17 @@ REGISTRY: dict[str, ParamInfo] = {
         units="ms",
         typical="10 - 50 ms",
     ),
+    "Edit Bandwidth (ppm)": ParamInfo(
+        label="Edit bandwidth",
+        description=(
+            "Inversion band of the ideal editing pulse: spins within "
+            "± bandwidth/2 of 'Edit On' are fully inverted, spins outside are "
+            "untouched. Approximates the finite bandwidth of a real editing "
+            "pulse."
+        ),
+        units="ppm",
+        typical="0.5 - 1.5 ppm",
+    ),
     "TR": ParamInfo(
         label="Repetition time (TR)",
         description="Time between successive excitations. Affects T1-weighting; not used for basis simulation directly.",

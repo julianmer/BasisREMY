@@ -61,3 +61,22 @@ class TestFidaPhase1Kinds:
         with pytest.raises(NotImplementedError, match='Shaped'):
             br.backend._build_args({'Samples': 2048, 'Bandwidth': 2000,
                                     'Bfield': 3.0}, 'NAA')
+
+    def test_megapress_ideal_subspectra(self, cleanup_docker_processes):
+        br = BasisREMY()
+        br.set_backend('FidaMegaPressIdeal')
+        br.backend.initialize_octave(prefer_docker=True)
+        result = br.backend.run_simulation({
+            'Samples': 2048, 'Bandwidth': 2000, 'Bfield': 3.0,
+            'Linewidth': 1.0, 'TE': 68,
+            'Edit On': 1.9, 'Edit Bandwidth (ppm)': 1.0,
+            'Metabolites': ['GABA'],
+        })
+        for sub in ('ON', 'OFF', 'DIFF'):
+            _assert_valid_fid(result, f'GABA ({sub})')
+        on = np.asarray(result['GABA (ON)'])
+        off = np.asarray(result['GABA (OFF)'])
+        diff = np.asarray(result['GABA (DIFF)'])
+        assert np.allclose(diff, on - off)
+        # editing must actually change the GABA signal
+        assert np.max(np.abs(diff)) > 1e-6 * np.max(np.abs(off))

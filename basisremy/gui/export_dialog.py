@@ -83,6 +83,16 @@ def open_export_dialog(basis: dict, params: dict) -> None:
             ).classes("grow")
             help_icon("Output Format")
 
+        # ---- sub-spectra (edited sequences only) ----
+        has_subspectra = any(
+            k.endswith((' (ON)', ' (OFF)', ' (DIFF)')) for k in basis)
+        subspec_select = None
+        if has_subspectra:
+            subspec_select = ui.select(
+                ['All', 'DIFF only', 'ON only', 'OFF only'],
+                value='All', label='Sub-spectra',
+            ).classes("w-full")
+
         # ---- output path ----
         path_input = ui.input(
             "Output path",
@@ -175,8 +185,17 @@ def open_export_dialog(basis: dict, params: dict) -> None:
             try:
                 status.set_text(f"Writing {FORMAT_LABELS[fmt]}…")
                 status.style("color:#607389")
+                export_basis = basis
+                if subspec_select is not None and subspec_select.value != 'All':
+                    want = subspec_select.value.split()[0]   # DIFF / ON / OFF
+                    export_basis = {k: v for k, v in basis.items()
+                                    if k.endswith(f'({want})')}
+                    if not export_basis:
+                        ui.notify(f"No {want} entries in this basis.",
+                                  type="warning")
+                        return
                 # slow formats must not freeze the dialog
-                out = await run.io_bound(_export, basis, path, fmt, params)
+                out = await run.io_bound(_export, export_basis, path, fmt, params)
                 set_state("last_export_dir",
                           out if os.path.isdir(out)
                           else os.path.dirname(os.path.abspath(out)))
