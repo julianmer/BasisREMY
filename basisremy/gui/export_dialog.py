@@ -27,6 +27,7 @@ from basisremy.core.exporters import (
 )
 from basisremy.gui.help_widget import help_icon
 from basisremy.gui.local_file_picker import LocalFilePicker
+from basisremy.gui.ui_state import get_state, set_state
 
 
 _ACCENT = "var(--br-primary)"
@@ -40,7 +41,10 @@ def open_export_dialog(basis: dict, params: dict) -> None:
 
     params = dict(params or {})
     label_to_key = {FORMAT_LABELS[k]: k for k in SUPPORTED_FORMATS}
-    default_dir = os.path.abspath("./output")
+    remembered = get_state("last_export_dir")
+    default_dir = (remembered
+                   if isinstance(remembered, str) and os.path.isdir(remembered)
+                   else os.path.abspath("./output"))
 
     dialog = ui.dialog()
     with dialog, ui.card().classes("w-[600px] max-w-full gap-3"):
@@ -83,6 +87,9 @@ def open_export_dialog(basis: dict, params: dict) -> None:
                 )
             if chosen:
                 path_input.value = chosen
+                set_state("last_export_dir",
+                          chosen if os.path.isdir(chosen)
+                          else os.path.dirname(chosen))
 
         with ui.row().classes("w-full justify-end"):
             ui.button("Browse…", icon="folder_open", on_click=browse).props("flat")
@@ -119,6 +126,9 @@ def open_export_dialog(basis: dict, params: dict) -> None:
                 status.set_text(f"Writing {FORMAT_LABELS[fmt]}…")
                 status.style("color:#607389")
                 out = _export(basis, path, fmt, params)
+                set_state("last_export_dir",
+                          out if os.path.isdir(out)
+                          else os.path.dirname(os.path.abspath(out)))
                 ui.notify(f"Exported to {out}", type="positive")
                 dialog.close()
             except Exception as exc:  # noqa: BLE001

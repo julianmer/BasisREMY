@@ -85,6 +85,17 @@ REGISTRY: dict[str, ParamInfo] = {
         typical="63 / 127 / 297 MHz",
         aliases=("centreFreq", "SpectrometerFrequency", "lFrequency", "MRFrequency"),
     ),
+    "Sim Centre (ppm)": ParamInfo(
+        label="Simulation centre (ppm)",
+        description=(
+            "Rotating-frame centre of the FID-A shaped-pulse simulation, in "
+            "ppm — spins evolve relative to this chemical shift. 4.65 ppm "
+            "(water) is standard for 1H; editing simulations sometimes use "
+            "the editing target instead."
+        ),
+        units="ppm",
+        typical="4.65 (water)",
+    ),
     "Nucleus": ParamInfo(
         label="Nucleus",
         description="Observed NMR-active nucleus. Most clinical MRS uses 1H; 31P, 13C, 19F also supported.",
@@ -112,7 +123,8 @@ REGISTRY: dict[str, ParamInfo] = {
         label="Second sub-TE",
         description=(
             "Second TE component for multi-echo sequences (e.g. PRESS uses "
-            "TE = TE1 + TE2). Set to 0 for spin-echo / STEAM."
+            "TE = TE1 + TE2). Set to 0 for spin-echo. For STEAM, the mixing "
+            "time is the separate TM parameter."
         ),
         units="ms",
         typical="0 - TE/2",

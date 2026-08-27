@@ -37,7 +37,7 @@ class TestLCModelLASER:
             'TE': 30,
             'TE2': 0,
             'Metabolites': ['NAA'],
-            'Center Freq': 127736713,
+            'Center Freq': 127.736713,
         }
         print("Initializing Octave...")
         basisremy.backend.initialize_octave(prefer_docker=True, verbose=False)

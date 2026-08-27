@@ -166,16 +166,20 @@ class BasisREMY:
         params, opt = self.backend.parseREMY(MRSinMRS)
         params['Output Path'] = export_fpath if export_fpath is not None else './'
 
-        # update the mandatory parameters
-        self.backend.mandatory_params.update(params)
+        # update the mandatory parameters (drop None so REMY gaps don't
+        # clobber sensible backend defaults; explicit userParams still win)
+        self.backend.mandatory_params.update({k: v for k, v in params.items()
+                                              if v is not None})
         self.backend.mandatory_params.update(userParams)
 
         # update the optional parameters
-        self.backend.optional_params.update(opt)
+        self.backend.optional_params.update({k: v for k, v in opt.items()
+                                             if v is not None})
         self.backend.optional_params.update(optionalParams)
 
-        # run fidA simulation
-        basis = self.backend.run_simulation(self.backend.mandatory_params)
+        # run fidA simulation (mandatory params win on key clashes)
+        basis = self.backend.run_simulation({**self.backend.optional_params,
+                                             **self.backend.mandatory_params})
 
         # plot the basis set
         if plot:
@@ -280,6 +284,19 @@ class BasisREMY:
 
         return MRSinMRS_unif
 
+    @staticmethod
+    def _freq_mhz(value):
+        # Normalize a spectrometer frequency to MHz ('Center Freq' is MHz
+        # everywhere in BasisREMY). Headers store Hz (e.g. 127736713) or
+        # MHz (e.g. 127.7); non-numeric values pass through unchanged.
+        if isinstance(value, list) and value:
+            value = value[0]
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return value
+        return v / 1e6 if v > 1e6 else v
+
     def extract_more(self, MRSinMRS, vendor, dtype):
         # extract additional information from the raw MRSinMRS dict if possible
         add_info = {}
@@ -287,30 +304,40 @@ class BasisREMY:
         if vendor == 'Philips':
             if dtype == 'spar': # Philips SPAR specific
                 if 'synthesizer_frequency' in MRSinMRS:
-                    add_info['Center Freq'] = MRSinMRS['synthesizer_frequency']
+                    add_info['Center Freq'] = self._freq_mhz(MRSinMRS['synthesizer_frequency'])
 
         elif vendor == 'Siemens':
             # can be 'lFrequency', 'Frequency', 'SpectrometerFrequency', 'MRFrequency'
             if 'lFrequency' in MRSinMRS:
-                add_info['Center Freq'] = MRSinMRS['lFrequency']
+                add_info['Center Freq'] = self._freq_mhz(MRSinMRS['lFrequency'])
             elif 'Frequency' in MRSinMRS:
-                add_info['Center Freq'] = MRSinMRS['Frequency']
+                add_info['Center Freq'] = self._freq_mhz(MRSinMRS['Frequency'])
             elif 'SpectrometerFrequency' in MRSinMRS:
-                add_info['Center Freq'] = MRSinMRS['SpectrometerFrequency']
+                add_info['Center Freq'] = self._freq_mhz(MRSinMRS['SpectrometerFrequency'])
             elif 'MRFrequency' in MRSinMRS:
-                add_info['Center Freq'] = MRSinMRS['MRFrequency']
+                add_info['Center Freq'] = self._freq_mhz(MRSinMRS['MRFrequency'])
 
         elif vendor == 'GE':
             if dtype == '7': # GE Pfile specific
-                if 'synthesizer_frequency' in MRSinMRS:
-                    add_info['Center Freq'] = MRSinMRS['rhr_rh_ps_mps_freq']
+                if 'rhr_rh_ps_mps_freq' in MRSinMRS:
+                    # Pfiles store the frequency in 0.1 Hz units (≈1.28e9 at 3T)
+                    freq = MRSinMRS['rhr_rh_ps_mps_freq']
+                    try:
+                        f = float(freq)
+                        add_info['Center Freq'] = f / 1e7 if f > 1e8 else self._freq_mhz(f)
+                    except (TypeError, ValueError):
+                        pass
 
         elif vendor == 'Bruker':
             pass
 
         elif vendor == 'NIfTI':
-            add_info['Center Freq'] = MRSinMRS['SpectrometerFrequency']
-            add_info['ExcitationFlipAngle'] = MRSinMRS['ExcitationFlipAngle']
+            # SpectrometerFrequency is already MHz per the NIfTI-MRS spec
+            # (and may be a list); ExcitationFlipAngle is optional.
+            if 'SpectrometerFrequency' in MRSinMRS:
+                add_info['Center Freq'] = self._freq_mhz(MRSinMRS['SpectrometerFrequency'])
+            if 'ExcitationFlipAngle' in MRSinMRS:
+                add_info['ExcitationFlipAngle'] = MRSinMRS['ExcitationFlipAngle']
 
         return add_info
 

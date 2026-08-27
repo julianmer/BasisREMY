@@ -194,7 +194,8 @@ class TestFSLMRSBackend:
         }
         seq = basisremy.backend._generate_sequence_json(params)
 
-        expected_hz = 2.5 * 3.0 * 42.577
+        # frequencyOffset is relative to the 4.65 ppm centralShift carrier
+        expected_hz = (2.5 - 4.65) * 3.0 * 42.577
         assert seq['RF'][2]['frequencyOffset'] == pytest.approx(expected_hz)
         assert seq['RF'][4]['frequencyOffset'] == pytest.approx(expected_hz)
 
@@ -207,7 +208,8 @@ class TestFSLMRSBackend:
         }
         seq = basisremy.backend._generate_sequence_json(params)
 
-        expected_hz = 1.9 * 3.0 * 42.577
+        # fallback 1.9 ppm, relative to the 4.65 ppm centralShift carrier
+        expected_hz = (1.9 - 4.65) * 3.0 * 42.577
         assert seq['RF'][2]['frequencyOffset'] == pytest.approx(expected_hz)
 
     # ------------------------------------------------------------------

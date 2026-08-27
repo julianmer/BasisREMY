@@ -410,6 +410,38 @@ class FSLMRSBackend(Backend):
                     pass
         return p
 
+    def _load_predefined(self, predefined_info, params):
+        """Load a predefined sequence JSON and apply the user's acquisition
+        overrides (Rx points / bandwidth — never the pulse shapes)."""
+        seq_rel_path = predefined_info['path']
+        # JSON example files live inside denmatsim itself
+        denmatsim_path = str(externals_root() / 'fsl_mrs' / 'fsl_mrs' / 'denmatsim')
+        seq_file_path = os.path.join(denmatsim_path, seq_rel_path)
+        if not os.path.exists(seq_file_path):
+            raise RuntimeError(
+                f"Predefined sequence file not found: {seq_file_path}\n"
+                f"Make sure FSL-MRS submodule is initialized:\n"
+                f"  git submodule update --init --recursive"
+            )
+        print(f"  File: {seq_rel_path}")
+        print(f"  Parameters: B0={predefined_info['B0']}T, TE={predefined_info['TE']}ms, "
+              f"Points={predefined_info['Rx_Points']}, BW={predefined_info['Rx_SW']}Hz")
+        print(f"  Note: This file contains REAL pulse shapes - highly accurate!")
+        with open(seq_file_path, 'r') as f:
+            seq_params = json.load(f)
+
+        # Update ONLY acquisition parameters (not pulse shapes!)
+        # User can override Rx_Points and Rx_SW for their specific needs
+        if params['Samples'] != predefined_info['Rx_Points']:
+            print(f"  ⚠️  Updating Rx_Points from {predefined_info['Rx_Points']} to {params['Samples']}")
+            seq_params['Rx_Points'] = params['Samples']
+
+        if params['Bandwidth'] != predefined_info['Rx_SW']:
+            print(f"  ⚠️  Updating Rx_SW from {predefined_info['Rx_SW']} to {params['Bandwidth']}")
+            seq_params['Rx_SW'] = params['Bandwidth']
+
+        return seq_params
+
     def _generate_sequence_json(self, params):
         """
         Generate FSL-MRS sequence JSON with IDEAL PULSES (FID-A style)
@@ -438,12 +470,16 @@ class FSLMRSBackend(Backend):
         print("  Perfect flip angles, no realistic pulse effects")
         print("  For accurate simulations, use Template or Custom mode")
 
+        # Rotating-frame carrier: spins evolve (and RF frequencyOffsets are
+        # measured) relative to this chemical shift.
+        central_shift = 4.65  # ppm
+
         # Base sequence structure for denmatsim
         seq_def = {
             'sequenceName': f'{sequence}_ideal',
             'description': f'Ideal {sequence} with instantaneous pulses',
             'B0': bfield,
-            'centralShift': 4.65,  # ppm - typical for 1H MRS
+            'centralShift': central_shift,  # ppm - typical for 1H MRS
             'Rx_Points': samples,
             'Rx_SW': bandwidth,
             'Rx_LW': 2.0,
@@ -488,7 +524,8 @@ class FSLMRSBackend(Backend):
         elif sequence == 'STEAM':
             # STEAM: 90° - TE/2 - 90° - TM - 90° - TE/2 - ACQ
             # 3 RF pulses = 3 delays, 3 rephaseAreas, 3 CoherenceFilter
-            tm = params.get('TM', 10)
+            tm_raw = params.get('TM')
+            tm = 10.0 if self._is_missing(tm_raw) else float(tm_raw)  # keeps an explicit 0
             seq_def.update({
                 'RF': [
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
@@ -558,7 +595,9 @@ class FSLMRSBackend(Backend):
             edit_freq = params.get('Edit Frequency')
             if self._is_missing(edit_freq):
                 edit_freq = self.optional_params['Edit Frequency']  # ppm (for GABA)
-            edit_freq_hz = float(edit_freq) * bfield * 42.577  # Convert to Hz
+            # frequencyOffset is relative to the centralShift carrier: a pulse
+            # at p ppm needs (p − central_shift)·γ·B0 Hz (negative for 1.9 ppm)
+            edit_freq_hz = (float(edit_freq) - central_shift) * bfield * 42.577
 
             # Siemens timing (ms)
             t1 = 4.545
@@ -584,13 +623,15 @@ class FSLMRSBackend(Backend):
                 'rephaseAreas': [[0, 0, 0]] * 5,
                 'CoherenceFilter': [-1, 1, -1, 1, -1],
             })
-            print(f"  MEGA-PRESS editing frequency: {edit_freq} ppm ({edit_freq_hz:.1f} Hz)")
+            print(f"  MEGA-PRESS editing frequency: {edit_freq} ppm "
+                  f"({edit_freq_hz:.1f} Hz offset from the {central_shift} ppm carrier)")
 
         elif sequence == 'HERMES':
             # HERMES - will need multiple sub-spectra
             # This generates one sub-spectrum (edit both GABA and GSH)
-            gaba_freq_hz = 1.9 * bfield * 42.577
-            gsh_freq_hz = 4.56 * bfield * 42.577
+            # offsets relative to the centralShift carrier (see MEGA-PRESS)
+            gaba_freq_hz = (1.9 - central_shift) * bfield * 42.577
+            gsh_freq_hz = (4.56 - central_shift) * bfield * 42.577
 
             # Use MEGA-PRESS timing
             t1, t2, t3, t4, t5 = 4.545, 12.7025, 21.7975, 12.7025, 17.2526
@@ -619,8 +660,9 @@ class FSLMRSBackend(Backend):
             print(f"  HERCULES: Multi-metabolite editing")
             print(f"  Using HERMES framework with optimized frequencies")
             # Similar to HERMES but with additional editing targets
-            gaba_freq_hz = 1.9 * bfield * 42.577
-            glu_freq_hz = 2.3 * bfield * 42.577
+            # offsets relative to the centralShift carrier (see MEGA-PRESS)
+            gaba_freq_hz = (1.9 - central_shift) * bfield * 42.577
+            glu_freq_hz = (2.3 - central_shift) * bfield * 42.577
 
             t1, t2, t3, t4, t5 = 4.545, 12.7025, 21.7975, 12.7025, 17.2526
 
@@ -647,7 +689,7 @@ class FSLMRSBackend(Backend):
             edit_freq = params.get('Edit Frequency')
             if self._is_missing(edit_freq):
                 edit_freq = self.optional_params['Edit Frequency']
-            edit_freq_hz = float(edit_freq) * bfield * 42.577
+            edit_freq_hz = (float(edit_freq) - central_shift) * bfield * 42.577
 
             seq_def.update({
                 'RF': [
@@ -728,12 +770,49 @@ class FSLMRSBackend(Backend):
         output_path = self.ensure_workdir()
         os.makedirs(output_path, exist_ok=True)
 
-        # Get or generate sequence JSON
-        if params.get('Custom Sequence') and os.path.exists(params['Custom Sequence']):
+        # Get or generate sequence JSON. The Custom branch is gated on the
+        # mode: a stale 'Custom Sequence' pick must not override the sequence
+        # configured in Simple or Template mode.
+        if (self.current_mode == 'Custom'
+                and params.get('Custom Sequence')
+                and os.path.exists(params['Custom Sequence'])):
             # User provided custom sequence file
             print(f"Using custom sequence: {params['Custom Sequence']}")
             with open(params['Custom Sequence'], 'r') as f:
                 seq_params = json.load(f)
+
+        elif (self.current_mode == 'Template'
+              and not self._is_missing(params.get('Template File'))):
+            # User explicitly chose a template — honor it (no Sequence-based
+            # guessing, no B0/TE second-guessing of an explicit choice).
+            choice = params['Template File']
+            predefined_info = next(
+                (info for info in self.predefined_sequences.values()
+                 if info['description'] == choice or info['path'] == choice),
+                None)
+            if predefined_info is None:
+                raise RuntimeError(
+                    f"Unknown template '{choice}'. Available: "
+                    f"{[i['description'] for i in self.predefined_sequences.values()]}")
+            print(f"✓ Using selected template: {predefined_info['description']}")
+            try:
+                bf = float(params.get('Bfield'))
+            except (TypeError, ValueError):
+                bf = None
+            if bf is not None and abs(bf - predefined_info['B0']) > 0.5:
+                print(f"⚠️  Template is a {predefined_info['B0']}T sequence but the "
+                      f"session field strength is {bf}T. The simulation runs at "
+                      f"{predefined_info['B0']}T while plot/export axes follow the "
+                      f"session parameters — set Bfield to match the template "
+                      f"for consistent results.")
+            seq_params = self._load_predefined(predefined_info, params)
+            lw = params.get('Linewidth')
+            if not self._is_missing(lw):
+                try:
+                    seq_params['Rx_LW'] = float(lw)
+                except (TypeError, ValueError):
+                    print(f"⚠️  Ignoring non-numeric Linewidth {lw!r}; keeping the "
+                          f"template's {seq_params.get('Rx_LW')} Hz.")
 
         elif params['Sequence'] in self.sequence_to_predefined:
             # Try to use predefined sequence file
@@ -757,36 +836,8 @@ class FSLMRSBackend(Backend):
 
             # If parameters match well enough, use predefined file
             if param_match:
-                seq_rel_path = predefined_info['path']
-                # JSON example files live inside denmatsim itself
-                denmatsim_path = str(externals_root() / 'fsl_mrs' / 'fsl_mrs' / 'denmatsim')
-                seq_file_path = os.path.join(denmatsim_path, seq_rel_path)
-
-                if os.path.exists(seq_file_path):
-                    print(f"✓ Using predefined {params['Sequence']} sequence: {predefined_info['description']}")
-                    print(f"  File: {seq_rel_path}")
-                    print(f"  Parameters: B0={predefined_info['B0']}T, TE={predefined_info['TE']}ms, Points={predefined_info['Rx_Points']}, BW={predefined_info['Rx_SW']}Hz")
-                    print(f"  Note: This file contains REAL pulse shapes - highly accurate!")
-
-                    with open(seq_file_path, 'r') as f:
-                        seq_params = json.load(f)
-
-                    # Update ONLY acquisition parameters (not pulse shapes!)
-                    # User can override Rx_Points and Rx_SW for their specific needs
-                    if params['Samples'] != predefined_info['Rx_Points']:
-                        print(f"  ⚠️  Updating Rx_Points from {predefined_info['Rx_Points']} to {params['Samples']}")
-                        seq_params['Rx_Points'] = params['Samples']
-
-                    if params['Bandwidth'] != predefined_info['Rx_SW']:
-                        print(f"  ⚠️  Updating Rx_SW from {predefined_info['Rx_SW']} to {params['Bandwidth']}")
-                        seq_params['Rx_SW'] = params['Bandwidth']
-
-                else:
-                    raise RuntimeError(
-                        f"Predefined sequence file not found: {seq_file_path}\n"
-                        f"Make sure FSL-MRS submodule is initialized:\n"
-                        f"  git submodule update --init --recursive"
-                    )
+                print(f"✓ Using predefined {params['Sequence']} sequence: {predefined_info['description']}")
+                seq_params = self._load_predefined(predefined_info, params)
             else:
                 # Parameters don't match - warn and use idealized sequence
                 print(f"\n{'='*80}")
@@ -822,16 +873,13 @@ class FSLMRSBackend(Backend):
             spinSystems = simutils.readBuiltInSpins()
             print(f"✓ Loaded {len(spinSystems)} built-in spin systems")
         except Exception as e:
-            print(f"⚠️  Could not load spin systems: {e}")
-            print("  Returning placeholder basis set")
-            # Return placeholder
-            basis_set = {}
-            for metab in params['Metabolites']:
-                basis_set[metab] = np.zeros(int(params['Samples']), dtype=complex)
-            return basis_set
+            # A zero-filled placeholder would render as a "successful" basis
+            # of flat traces — fail loudly instead.
+            raise RuntimeError(f"Could not load FSL-MRS spin systems: {e}")
 
         # Run simulation for each metabolite
         basis_set = {}
+        self.last_failures = {}   # metab -> reason, surfaced by the GUI
         total_metabs = len(params['Metabolites'])
 
         for idx, metab in enumerate(params['Metabolites'], 1):
@@ -847,6 +895,7 @@ class FSLMRSBackend(Backend):
             sys_name = f'sys{metab}'
             if sys_name not in spinSystems:
                 print(f"  ⚠️  Spin system '{sys_name}' not found, skipping")
+                self.last_failures[metab] = f"no spin system '{sys_name}'"
                 continue
 
             spin_system = spinSystems[sys_name]
@@ -889,6 +938,7 @@ class FSLMRSBackend(Backend):
                 print(f"  ✗ Simulation failed: {e}")
                 import traceback
                 traceback.print_exc()
+                self.last_failures[metab] = str(e)
                 continue
 
         print(f"\n{'='*80}")

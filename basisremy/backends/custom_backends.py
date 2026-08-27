@@ -116,7 +116,7 @@ class CustomSLaser(Backend):
             "nY": 64.,
 
             "TE": None,
-            "Center Freq": None,
+            "Sim Centre (ppm)": 4.65,   # rotating-frame centre of the FID-A sim
             "Metabolites": [key for key, value in self.metabs.items() if value],
 
             "Tau 1": 15.,   # fake timing
@@ -156,7 +156,8 @@ class CustomSLaser(Backend):
             'nY': None,
 
             'TE': MRSinMRS.get('TE', None),
-            'Center Freq': MRSinMRS.get('Center Freq', None),
+            # ('Sim Centre (ppm)' is a simulation setting, not scanner
+            # metadata — REMY's MHz 'Center Freq' must not overwrite it.)
 
             'Tau 1': None,   # TODO: find way to get from REMY? or set literature guided default
             'Tau 2': None,
@@ -253,17 +254,18 @@ class CustomSLaser(Backend):
             except ValueError:
                 output_path = output_path.replace('\\', '/')
 
-        # Convert pulse path to relative path for Docker compatibility
+        # Stage the pulse waveform inside the (mounted) workdir — the picked
+        # file may live outside the tree the Docker container can see — and
+        # hand Octave a relative path.
         pulse_path = params['Path to Pulse']
-        if pulse_path and os.path.isabs(pulse_path):
-            # Convert absolute path to relative from current directory
-            try:
-                pulse_path = os.path.relpath(pulse_path)
-            except ValueError:
-                # If on different drive (Windows), keep absolute but remove drive letter
-                pulse_path = pulse_path.replace('\\', '/')
-
-        # Update params with converted pulse path
+        if pulse_path:
+            pulse_path = self._stage_into_workdir(pulse_path)
+            if os.path.isabs(pulse_path):
+                try:
+                    pulse_path = os.path.relpath(pulse_path)
+                except ValueError:
+                    # Different drive (Windows) — keep absolute forward-slashed
+                    pulse_path = pulse_path.replace('\\', '/')
         params['Path to Pulse'] = pulse_path
 
         # fixed parameters
@@ -281,7 +283,7 @@ class CustomSLaser(Backend):
         # arrays (and silently do ASCII arithmetic), so coerce numerics first.
         for key in ('B1max', 'Flip Angle', 'RefTp', 'Samples', 'Bandwidth',
                     'Linewidth', 'Bfield', 'thkX', 'thkY', 'fovX', 'fovY',
-                    'nX', 'nY', 'TE', 'Center Freq', 'Tau 1', 'Tau 2'):
+                    'nX', 'nY', 'TE', 'Sim Centre (ppm)', 'Tau 1', 'Tau 2'):
             if params.get(key) is not None:
                 params[key] = float(params[key])
 
@@ -310,7 +312,7 @@ class CustomSLaser(Backend):
                   params['Bandwidth'], params['Linewidth'], params['Bfield'],
                   params['thkX'], params['thkY'], params['fovX'], params['fovY'],
                   params['nX'], params['nY'], params['TE'],
-                  params['Center Freq'], params['Metabolites'], params['Tau 1'], params['Tau 2'],
+                  params['Sim Centre (ppm)'], params['Metabolites'], params['Tau 1'], params['Tau 2'],
                   params['Path to Pulse'], output_path,
                   params['Path to Spin System'], params['Display'], params['Make .basis'],
                   params['Make .raw'])]

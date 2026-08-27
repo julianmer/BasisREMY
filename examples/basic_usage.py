@@ -73,7 +73,7 @@ if __name__ == "__main__":
         'Add Ref.': 'No',
         'Make .raw': 'Yes',
         'Output Path': './output/my_basis_set',
-        'Center Freq': get_param('Center Freq', 127736713),
+        'Center Freq': get_param('Center Freq', 127.736713),
         'Metabolites': ['NAA', 'Cr', 'PCr', 'Glu', 'Gln', 'Ins', 'GABA', 'GSH', 'Lac', 'Tau'],
     }
 

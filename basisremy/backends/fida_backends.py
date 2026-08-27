@@ -60,7 +60,7 @@ def _shaped_params(extra: dict | None = None) -> dict:
         'fovY':          3.0,
         'nX':            8,
         'nY':            8,
-        'Center Freq':   4.65,
+        'Sim Centre (ppm)': 4.65,
         'Path to Pulse': None,
         'Metabolites':   [],
     }
@@ -250,10 +250,20 @@ class FidaIdeal(FidaBackend):
             'Linewidth':   1,
             'TE':          None,
             'TE2':         0,
+            'TM':          10,
             'Metabolites': [],
             'Center Freq': None,
         }
+        # TM is only shown for STEAM — rebuild the panel on Sequence changes.
+        self.schema_affecting_keys = {'Sequence'}
         self._refresh_metab_list()
+
+    def get_params_for_mode(self, mode=None):
+        # TM applies to STEAM only; hide it for the other sequences.
+        params = dict(self.mandatory_params)
+        if params.get('Sequence') != 'STEAM':
+            params.pop('TM', None)
+        return params
 
     # ---- sequence mapping ----------------------------------------------
     def map_sequence_in(self, seq: str) -> 'str | None':
@@ -298,8 +308,10 @@ class FidaIdeal(FidaBackend):
             return None
         if 'press' in p:      return 'PRESS'
         if 'steam' in p:      return 'STEAM'
-        if 'spin' in p or 'se' in p: return 'Spin Echo'
+        # 'laser' must be tested before the bare 'se' substring — "laser"
+        # contains "se", which used to shadow this branch entirely.
         if 'laser' in p:      return 'LASER'
+        if 'spin' in p or 'se' in p: return 'Spin Echo'
         # 'UnEdited' is MRSCloud / BigGABA convention for a plain (non-edited)
         # acquisition — default to PRESS, which is by far the most common.
         if 'unedited' in p:   return 'PRESS'
@@ -326,14 +338,19 @@ class FidaIdeal(FidaBackend):
         # original sim_lcmrawbasis flow; the adapter ignores it but it
         # keeps the path structure consistent across runs).
         out = self._make_relative(self.ensure_workdir()) + os.sep
+        seq = params['Sequence']
+        # sim_lcmrawbasis: for STEAM the second timing argument is the mixing
+        # time TM; for the other sequences it is the second sub-echo TE2.
+        tau2 = (float(params.get('TM') or 10.0) if seq == 'STEAM'
+                else float(params.get('TE2') or 0))
         return [
             float(params['Samples']),
             float(params['Bandwidth']),
             float(params['Bfield']),
             float(params.get('Linewidth') or 1),
             float(params['TE']),
-            float(params.get('TE2') or 0),
-            self._seq_to_fida(params['Sequence']),
+            tau2,
+            self._seq_to_fida(seq),
             out,
         ]
 
@@ -369,10 +386,13 @@ class FidaPressShaped(FidaBackend):
         if tau1 in (None, ''): tau1 = (te / 2.0) if te is not None else 15.0
         if tau2 in (None, ''): tau2 = (te / 2.0) if te is not None else 15.0
 
-        pulse_path = self._make_relative(params.get('Path to Pulse'))
-        if not pulse_path:
+        pulse_src = params.get('Path to Pulse')
+        if not pulse_src:
             raise ValueError(
                 f"{self.name}: 'Path to Pulse' is required (refocusing waveform).")
+        # Stage the waveform inside the (mounted) workdir — the picked file may
+        # live outside the tree the Docker container can see.
+        pulse_path = self._make_relative(self._stage_into_workdir(pulse_src))
 
         return [
             float(params['Samples']),
@@ -389,14 +409,8 @@ class FidaPressShaped(FidaBackend):
             int(float(params.get('nX') or 8)),
             int(float(params.get('nY') or 8)),
             float(params.get('Flip Angle') or 180.0),
-            # centreFreq for sim_press_shaped is in ppm (the rotating-frame
-            # centre). REMY fills 'Center Freq' from scanner metadata in Hz
-            # (e.g. 127736713). When that's the case (>1000), use the standard
-            # water reference 4.65 ppm so FID-A's spin shifts and the GUI's
-            # ppm axis (which adds +4.65 offset) are consistent.
-            (float(params.get('Center Freq') or 4.65)
-             if (float(params.get('Center Freq') or 4.65) <= 1000)
-             else 4.65),
+            # rotating-frame centre of the shaped-pulse simulation, in ppm
+            float(params.get('Sim Centre (ppm)') or 4.65),
         ]
 
 
@@ -491,7 +505,7 @@ class FidaLaser(_Stub):
         self.mandatory_params = {
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
             'Linewidth': 1.0,  'TE':        None,
-            'Center Freq': 2.3,
+            'Sim Centre (ppm)': 2.3,
             'Metabolites': [],
         }
         self._refresh_metab_list()
@@ -507,7 +521,7 @@ class FidaMegaPressIdeal(_Stub):
             'Linewidth': 1.0,  'TE':        None,
             'Edit On':   1.9,  'Edit Off':  7.5,
             'Edit Target': 'GABA',
-            'Center Freq': 2.3,
+            'Sim Centre (ppm)': 2.3,
             'Metabolites': [],
         }
         self.dropdown = {'Edit Target': ['GABA', 'GSH', 'Lac', 'PE']}
@@ -522,7 +536,7 @@ class FidaSpinEchoXN(_Stub):
         self.mandatory_params = {
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
             'Linewidth': 1.0,  'Tau':       15.0, 'Nechoes': 2,
-            'Center Freq': 2.3,
+            'Sim Centre (ppm)': 2.3,
             'Metabolites': [],
         }
         self._refresh_metab_list()
@@ -541,7 +555,7 @@ class FidaOnePulse(_Stub):
             'Linewidth': 1.0,
             'Flip Angle': 90.0,
             'Path to Pulse': None,
-            'Center Freq': 2.3,
+            'Sim Centre (ppm)': 2.3,
             'Metabolites': [],
         }
         self._refresh_metab_list()

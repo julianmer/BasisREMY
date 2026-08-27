@@ -601,6 +601,7 @@ class MRSCloudBackend(Backend):
         samples      = int(float(params.get('Samples') or 0))
         bandwidth    = float(params.get('Bandwidth') or 0)
         metabs       = list(params.get('Metabolites') or [])
+        self.last_failures = {}   # metab -> reason, surfaced by the GUI
 
         # MRSCloud overrides TE for HERMES (68) / HERCULES (80) internally;
         # we keep the user value for documentation but warn if it's unusual.
@@ -637,11 +638,10 @@ class MRSCloudBackend(Backend):
                     raise RuntimeError("empty FID returned")
                 basis_set[metab] = fid
             except Exception as e:
-                # Don't kill the whole run — log, store an empty FID, continue.
-                # TODO surface this in the GUI summary instead of just printing.
+                # Don't kill the whole run — record the failure (surfaced by
+                # the GUI) and skip; a zero-filled FID would look like success.
                 print(f"  ✗ {metab}: {e}")
-                basis_set[metab] = np.zeros(int(params.get('Samples') or 2048),
-                                            dtype=np.complex128)
+                self.last_failures[metab] = str(e)
 
             if progress_callback:
                 progress_callback(i + 1, total)

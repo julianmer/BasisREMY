@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import shutil
 import subprocess
@@ -122,5 +123,11 @@ def ensure(name: str) -> str:
         raise ExternalFetchError(
             f"Failed to fetch '{name}' from {url} (commit {commit[:10]}): {exc}"
         ) from exc
+
+    # A sys.path entry that pointed at this (then-missing) directory has been
+    # negatively cached by the import system (sys.path_importer_cache), so
+    # Python-package externals (e.g. fsl_mrs's denmatsim) would stay
+    # unimportable until the app restarts. Drop the stale caches.
+    importlib.invalidate_caches()
 
     return str(dest)

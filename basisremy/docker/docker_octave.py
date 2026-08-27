@@ -37,7 +37,7 @@ class DockerOctave:
     # effective value via :func:`basisremy.core.paths.octave_adapters_base`.
     ADAPTERS_MOUNT = 'adapters'
 
-    def __init__(self, container_name='octave_runner', verbose=False):
+    def __init__(self, container_name=None, verbose=False):
         """
         Initialize Docker-based Octave runtime.
 
@@ -63,6 +63,14 @@ class DockerOctave:
         self.result_path = os.path.join(self.shared_dir, 'result.mat')
         self.commands = []  # Temporary commands cleared after each feval
         self.persistent_commands = []  # Persistent commands (like addpath) that stay
+        if container_name is None:
+            # Per-project container: sessions running from different working
+            # directories mount different trees and would otherwise destroy
+            # each other's container when refreshing stale volume mounts.
+            import hashlib
+            # sha256, not md5: md5 raises on FIPS-enabled hosts
+            digest = hashlib.sha256(self.project_root.encode()).hexdigest()[:8]
+            container_name = f'octave_runner_{digest}'
         self.container_name = container_name
 
         # Try to connect to Docker - handle different socket locations
@@ -156,6 +164,16 @@ class DockerOctave:
             else:
                 print(f"Using existing Docker container '{container_name}'")
         except docker.errors.NotFound:
+            # Names are per-project now; a fixed-name container from an older
+            # version keeps running (holding its mounts) until removed by hand.
+            # Never auto-remove it — an old BasisREMY session may still use it.
+            try:
+                self.client.containers.get('octave_runner')
+                print("ℹ️  A legacy 'octave_runner' container from an older "
+                      "BasisREMY is still present. Once no old version is "
+                      "running, remove it with: docker rm -f octave_runner")
+            except Exception:
+                pass
             print(f"Creating new Docker container '{container_name}' with Octave...")
             # Mount the project directory (plus the bundled adapters) into the
             # container; working dir is /workspace so relative paths resolve.
@@ -402,7 +420,7 @@ class DockerOctave:
                 print(f"⚠️  Warning: Found {len(existing_pids)} existing Octave process(es) running!")
                 print(f"   PIDs: {', '.join(existing_pids)}")
                 print(f"   This may slow down your simulation significantly.")
-                print(f"   Consider killing them with: docker exec octave_runner pkill -9 octave-cli")
+                print(f"   Consider killing them with: docker exec {self.container_name} pkill -9 octave-cli")
                 print(f"{'-'*80}")
 
         # Add helpful message for long-running simulations

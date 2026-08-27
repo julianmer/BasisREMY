@@ -60,7 +60,7 @@ class TestSLaserSLASER:
             'nX': 16.0,  # Small grid for speed
             'nY': 16.0,
             'TE': 35,
-            'Center Freq': 127736713,
+            'Sim Centre (ppm)': 4.65,
             'Metabolites': ['NAA'],
             'Tau 1': 15.0,
             'Tau 2': 13.0,

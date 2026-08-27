@@ -93,6 +93,20 @@ class Backend:
             )
         return self._workdir
 
+    def _stage_into_workdir(self, src_path) -> str:
+        """Copy ``src_path`` into this run's workdir and return the copy's path.
+
+        Octave may run inside Docker, where only the project tree is mounted —
+        a user-picked file elsewhere on the host (e.g. under $HOME) would be
+        unreachable from the container without this staging step.
+        """
+        import os, shutil
+        workdir = self.ensure_workdir()
+        dest = os.path.join(workdir, os.path.basename(src_path))
+        if os.path.abspath(src_path) != os.path.abspath(dest):
+            shutil.copy2(src_path, dest)
+        return dest
+
     def cleanup_workdir(self):
         """Best-effort removal of the internal scratch directory."""
         import os, shutil

@@ -78,9 +78,12 @@ def cleanup_docker_processes():
     yield
     try:
         import docker
+        import hashlib
         client = docker.from_env()
         try:
-            container = client.containers.get('octave_runner')
+            # Container names are per-project (see DockerOctave.__init__)
+            digest = hashlib.sha256(os.getcwd().encode()).hexdigest()[:8]
+            container = client.containers.get(f'octave_runner_{digest}')
             container.exec_run("pkill -9 octave-cli")
         except:
             pass

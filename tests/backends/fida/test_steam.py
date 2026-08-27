@@ -44,7 +44,7 @@ class TestLCModelSTEAM:
             'TE': 20,
             'TE2': 0,
             'Metabolites': ['NAA'],
-            'Center Freq': 127736713,
+            'Center Freq': 127.736713,
         }
 
         print("Initializing Octave...")

@@ -35,6 +35,7 @@ from nicegui import app, ui
 from basisremy.core.basisremy import BasisREMY
 from basisremy.gui.help_widget import label_with_help
 from basisremy.gui.local_file_picker import LocalFilePicker
+from basisremy.gui.ui_state import get_state, set_state
 from basisremy.gui.export_dialog import open_export_dialog
 
 
@@ -329,6 +330,9 @@ class BasisREMYApp:
 
         # step navigation state (custom sleek stepper drives the tab panels)
         self._current_step = "data"
+        # Native-window file drops (real paths) arrive as app-level events
+        # from NiceGUI's pywebview bridge, not as DOM events.
+        app.native.on("drop", self._on_native_drop)
         self._step_unlocked = {"data": True, "params": False, "sim": False}
         self._step_items: dict = {}
         self._step_nums: dict = {}
@@ -544,6 +548,29 @@ class BasisREMYApp:
                 "text-sm font-medium br-muted"
             )
         drop.on("click", self._pick_data_file)
+        # In the native window, drops are delivered app-wide by NiceGUI's
+        # pywebview bridge with real file paths (see _on_native_drop). These
+        # element handlers cover the browser, where real paths are unavailable:
+        # prevent the tab from navigating away and explain.
+        drop.on("dragover.prevent", js_handler="(e) => e.preventDefault()")
+        drop.on("drop.prevent", self._on_browser_drop, [])
+
+    def _on_browser_drop(self) -> None:
+        if app.native.main_window is not None:
+            return  # the native drop event carries the real path instead
+        ui.notify("Drops only work in the desktop window — please click "
+                  "the box to browse instead.", type="warning")
+
+    def _on_native_drop(self, e) -> None:
+        paths = [p for p in (e.args.get("files") or []) if p and os.path.exists(p)]
+        if not paths or self._current_step != "data":
+            return
+        mrs = [p for p in paths if _is_mrs_file(Path(p))]
+        path = (mrs or paths)[0]
+        self.selected_file = path
+        set_state("last_import_dir", os.path.dirname(path))
+        self.process_button.enable()
+        self._render_data_body()
 
     def _file_card(self) -> None:
         name = Path(self.selected_file).name
@@ -564,10 +591,14 @@ class BasisREMYApp:
         self._render_data_body()
 
     async def _pick_data_file(self) -> None:
+        start = get_state("last_import_dir") or "~"
+        if not isinstance(start, str) or (start != "~" and not os.path.isdir(start)):
+            start = "~"
         path = await LocalFilePicker(
-            "~", title="Select MRS data file", show_file=_is_mrs_file
+            start, title="Select MRS data file", show_file=_is_mrs_file
         )
         if path:
+            set_state("last_import_dir", os.path.dirname(path))
             self.selected_file = path
             self.process_button.enable()
             self._render_data_body()
@@ -778,6 +809,13 @@ class BasisREMYApp:
     def _change_mode(self, mode: str) -> None:
         self.BasisREMY.backend.set_mode(mode)
         self._build_tab2()
+        # Some backends veto a mode for the current selection (e.g. MRSCloud
+        # forces Non-Universal for GE, which has no Universal waveform set) —
+        # say so instead of silently snapping the dropdown back.
+        actual = self.BasisREMY.backend.current_mode
+        if actual != mode:
+            ui.notify(f"'{mode}' is not available for the current System "
+                      f"selection — kept '{actual}'.", type="warning")
 
     # ---- individual parameter widgets -------------------------------------
     def _update_param(self, key: str, value) -> None:
@@ -971,6 +1009,7 @@ class BasisREMYApp:
         self._sim_total = max(1, len(metabs))
         self._sim_done = False
         self._sim_error = None
+        self._sim_failures = {}
         self.progress.set_value(0)
         self.progress_label.set_text("0%")
 
@@ -988,8 +1027,10 @@ class BasisREMYApp:
             self._sim_total = max(1, total_steps)
 
         try:
+            # Mandatory params win on key clashes; optional params (TM,
+            # Custom Sequence, Template File, …) must reach the backend too.
             basis = backend.run_simulation(
-                backend.mandatory_params,
+                {**backend.optional_params, **backend.mandatory_params},
                 progress_callback,
                 stop_event=self._sim_stop_event,
             )
@@ -1003,6 +1044,14 @@ class BasisREMYApp:
 
         if self._sim_stop_event.is_set():
             print("⏹  Simulation cancelled.")
+            self._sim_done = True
+            return
+
+        self._sim_failures = dict(getattr(backend, 'last_failures', None) or {})
+        if self._sim_failures and not basis:
+            self._sim_error = RuntimeError(
+                "all metabolites failed: "
+                + ", ".join(sorted(self._sim_failures)))
             self._sim_done = True
             return
 
@@ -1057,6 +1106,17 @@ class BasisREMYApp:
                     "text-base font-bold text-grey-9"
                 )
 
+            failures = getattr(self, "_sim_failures", None) or {}
+            if failures:
+                names = ", ".join(sorted(failures))
+                ui.notify(f"{len(failures)} metabolite(s) failed to simulate: "
+                          f"{names}", type="warning")
+                with ui.row().classes("items-center gap-2 self-start"):
+                    ui.icon("warning").classes("text-lg").style("color:#c2892e")
+                    ui.label(f"Not simulated (see console): {names}").classes(
+                        "text-sm text-grey-8"
+                    )
+
             with ui.row().classes("w-full no-wrap gap-6 items-start"):
                 # plot on the left
                 with ui.column().classes("grow min-w-0"):
@@ -1108,10 +1168,11 @@ class BasisREMYApp:
         mp = self.BasisREMY.backend.mandatory_params
         cf_raw = mp.get("Center Freq")
         if cf_raw in (None, "", "missing input"):
-            field_str = str(mp.get("Field Strength") or "3T").replace("T", "").strip()
+            b0_raw = mp.get("Bfield") or \
+                str(mp.get("Field Strength") or "3T").replace("T", "").strip()
             try:
-                b0 = float(field_str)
-            except ValueError:
+                b0 = float(b0_raw)
+            except (TypeError, ValueError):
                 b0 = 3.0
             cf = 42.577e6 * b0
         else:
