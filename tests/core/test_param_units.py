@@ -93,8 +93,9 @@ class TestFslmrsSequenceJson:
     def test_steam_uses_tm(self, backend):
         seq = backend._generate_sequence_json(
             self._params(Sequence='STEAM', TE=20, TM=50))
-        assert 0.05 in [pytest.approx(d) for d in seq['delays']] or \
-            any(d == pytest.approx(0.05) for d in seq['delays'])
+        # TM sits in the middle delay; the 10 us ideal pulse length is taken off
+        # the pulse-end-to-pulse-start delay, so compare with that tolerance.
+        assert seq['delays'][1] == pytest.approx(0.05, abs=2e-5)
 
 
 class TestFidaIdeal:

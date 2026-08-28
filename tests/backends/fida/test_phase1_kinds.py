@@ -54,14 +54,6 @@ class TestFidaPhase1Kinds:
         })
         _assert_valid_fid(result)
 
-    def test_onepulse_non_ideal_mode_raises(self):
-        br = BasisREMY()
-        br.set_backend('FidaOnePulse')
-        br.backend.set_mode('Shaped')
-        with pytest.raises(NotImplementedError, match='Shaped'):
-            br.backend._build_args({'Samples': 2048, 'Bandwidth': 2000,
-                                    'Bfield': 3.0}, 'NAA')
-
     def test_megapress_ideal_subspectra(self, cleanup_docker_processes):
         br = BasisREMY()
         br.set_backend('FidaMegaPressIdeal')
@@ -201,6 +193,14 @@ class TestFidaModes:
         assert {'Flip Angle', 'Path to Pulse', 'RefTp'} <= set(b.get_params_for_mode('Shaped'))
         assert 'Pulse Phase' in b.get_params_for_mode('Arbitrary phase')
 
+    def test_onepulse_shaped_requires_pulse(self):
+        from basisremy.backends.fida_backends import FidaOnePulse
+        b = FidaOnePulse()
+        b.current_mode = 'Shaped'
+        with pytest.raises(ValueError, match='Path to Pulse'):
+            b._build_args({'Samples': 2048, 'Bandwidth': 2000, 'Bfield': 3.0},
+                          'NAA')
+
     def test_semilaser_modes_map_to_kinds(self):
         from basisremy.backends.fida_backends import FidaSemiLaserShaped
         b = FidaSemiLaserShaped()
@@ -254,7 +254,7 @@ class TestFidaModesLive:
         br.backend.current_mode = 'Arbitrary phase'
         phased = br.backend.run_simulation({**self._base(), 'Pulse Phase': 90.0})
         for r in (ideal, delayed, phased):
-            _assert_valid_fid(r)
+            _assert_valid_fid(r, metab='Cr')
         # same magnitude spectrum, different phase
         s = lambda r: np.abs(np.fft.fft(r['Cr']))
         assert np.corrcoef(s(ideal), s(phased))[0, 1] > 0.999
@@ -270,7 +270,7 @@ class TestFidaModesLive:
             **self._base(), 'Flip Angle': 90.0, 'RefTp': 5.0,
             'Path to Pulse': self._rf(project_root_dir, 'sampleExcPulse.pta'),
         })
-        _assert_valid_fid(result)
+        _assert_valid_fid(result, metab='Cr')
 
     def test_semilaser_phase_cycled(self, cleanup_docker_processes, project_root_dir):
         br = BasisREMY()
@@ -283,7 +283,7 @@ class TestFidaModesLive:
             'nX': 2, 'nY': 2, 'Flip Angle': 180.0, 'Sim Centre (ppm)': 4.65,
             'Path to Pulse': self._rf(project_root_dir, 'GOIA_tthk0.01_R120.txt'),
         })
-        _assert_valid_fid(result)
+        _assert_valid_fid(result, metab='Cr')
 
     def test_megapress_refoc_only_shaped(self, cleanup_docker_processes, project_root_dir):
         br = BasisREMY()
@@ -297,8 +297,9 @@ class TestFidaModesLive:
             'nX': 2, 'nY': 2,
         })
         assert {'Cr (ON)', 'Cr (OFF)', 'Cr (DIFF)'} <= set(result)
-        _assert_valid_fid({'Cr': result['Cr (OFF)']})
+        _assert_valid_fid({'Cr': result['Cr (OFF)']}, metab='Cr')
 
+    @pytest.mark.heavy   # 256 simulations for one metabolite — not for CI
     def test_megapress_full_shaped(self, cleanup_docker_processes, project_root_dir):
         br = BasisREMY()
         br.set_backend('FidaMegaPressShaped')
@@ -313,4 +314,4 @@ class TestFidaModesLive:
             'nX': 2, 'nY': 2,
         })
         assert {'Cr (ON)', 'Cr (OFF)', 'Cr (DIFF)'} <= set(result)
-        _assert_valid_fid({'Cr': result['Cr (OFF)']})
+        _assert_valid_fid({'Cr': result['Cr (OFF)']}, metab='Cr')

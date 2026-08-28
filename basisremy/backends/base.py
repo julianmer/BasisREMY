@@ -91,6 +91,11 @@ class Backend:
                 prefix=f'{tag}_{time.strftime("%Y%m%d_%H%M%S")}_',
                 dir=base,
             )
+            # scratch only (staged pulse files, intermediate .mat): remove it
+            # when the process ends instead of piling up one per run
+            import atexit
+            import shutil
+            atexit.register(shutil.rmtree, self._workdir, ignore_errors=True)
         return self._workdir
 
     def _stage_into_workdir(self, src_path) -> str:

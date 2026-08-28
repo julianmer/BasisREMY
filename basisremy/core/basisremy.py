@@ -96,8 +96,8 @@ class BasisREMY:
 
         # Step 1 — if we have cached REMY data, let the NEW backend parse it
         # first so it gets the parameters it specifically needs (e.g. FID-A
-        # needs Bfield + Center Freq which MRSCloud doesn't expose, and
-        # MRSCloud needs System + Field Strength which FID-A doesn't expose).
+        # needs Center Freq which MRSCloud doesn't expose, and MRSCloud needs
+        # System which FID-A doesn't expose).
         if self._last_mrsinmrs is not None:
             try:
                 params, opt = self.backend.parseREMY(self._last_mrsinmrs)

@@ -15,9 +15,8 @@
 #            * the per-metabolite driver loop                                                      #
 #                                                                                                  #
 #          Only the parameter schema and the `kind` dispatched into the shared Octave adapter      #
-#          (adapters/backends/fida/fida_run.m) differ between subclasses. FidaIdeal is the           #
-#          ex-"LCModel" backend, now living natively under FID-A; backends/lcmodel_backend.py      #
-#          stays as a thin alias for backwards compat.                                             #
+#          (adapters/backends/fida_run.m) differ between subclasses. FidaIdeal is the              #
+#          ex-"LCModel" backend, now living natively under FID-A.                                  #
 #                                                                                                  #
 ####################################################################################################
 
@@ -83,7 +82,7 @@ class FidaBackend(Backend):
 
     A subclass with ``self._kind == ''`` is considered a stub — the GUI shows
     it, but ``run_simulation`` raises NotImplementedError until the matching
-    branch is added inside ``adapters/backends/fida/fida_run.m``.
+    branch is added inside ``adapters/backends/fida_run.m``.
     """
 
     _kind: str = ''      # dispatch key for fida_run.m
@@ -148,7 +147,6 @@ class FidaBackend(Backend):
         #     in headless Docker Octave with "ft_text_renderer: invalid
         #     bounding box, cannot render, unable to create graphics handle").
         self.octave.addpath(adapters_base + '/backends/')
-        self.octave.addpath(adapters_base + '/backends/fida/')
 
     # -------------------------------------------------- REMY
     def parseREMY(self, MRSinMRS):
@@ -215,7 +213,7 @@ class FidaBackend(Backend):
         if self._is_stub or not self._kind:
             raise NotImplementedError(
                 f"{self.name}: this FID-A wrapper is a stub. The schema is "
-                "complete but the matching branch in adapters/backends/fida/"
+                "complete but the matching branch in adapters/backends/"
                 "fida_run.m has not been implemented yet. See FidaIdeal / "
                 "FidaPressShaped (kinds 'ideal' / 'press_shaped') for the "
                 "canonical reference."
@@ -586,11 +584,11 @@ class FidaSpinEchoShaped(FidaBackend):
 
 
 class FidaMegaPressShaped(FidaBackend):
-    """sim_megapress_shapedEdit: MEGA-PRESS with a real (shaped, frequency-
-    shifted) editing pulse and ideal refocusing. The editing selectivity —
-    what defines a MEGA basis — comes from the actual waveform; each
-    metabolite yields '(ON)', '(OFF)', '(DIFF)' entries. Fully-shaped
-    refocusing (sim_megapress_shaped) stays a mode for later.
+    """MEGA-PRESS with real editing and/or refocusing waveforms; each
+    metabolite yields '(ON)', '(OFF)', '(DIFF)' entries. Modes: edit-only
+    shaped (sim_megapress_shapedEdit, ideal refocusing), fully shaped
+    (sim_megapress_shaped, both waveforms on a spatial grid) and
+    refocusing-only shaped (sim_megapress_shapedRefoc, ideal editing).
     """
 
     _kind = 'megapress_shapededit'
@@ -645,6 +643,9 @@ class FidaMegaPressShaped(FidaBackend):
                 params.pop(k, None)
         elif mode == 'Full shaped (refoc + edit)':
             params.pop('Edit Bandwidth (ppm)', None)
+            # sim_megapress_shaped simulates in a fixed 3 ppm frame
+            # (fida_run.m re-references the result) — no centre to choose
+            params.pop('Sim Centre (ppm)', None)
         else:  # ideal editing: no editing waveform
             for k in ('Edit Pulse Path', 'Edit Tp', 'Edit Off', 'Sim Centre (ppm)'):
                 params.pop(k, None)
@@ -706,7 +707,7 @@ class FidaMegaPressShaped(FidaBackend):
                 float(params.get('Edit On') or 1.9),
                 float(params.get('Edit Off') or 7.5),
                 *self._grid_args(params),
-                float(params.get('Sim Centre (ppm)') or 4.65),
+                4.65,   # ignored by fida_run.m: sim_megapress_shaped uses a 3 ppm frame
             ]
         else:  # 'Refoc-only shaped (ideal edit)'
             base_args = head + [
@@ -743,7 +744,6 @@ class FidaMegaSpecialShaped(FidaBackend):
             'Edit On':         1.9,                 # ppm (GABA); 4.56 for GSH
             'Edit Off':        7.5,
             'thkX': 2.0, 'fovX': 3.0, 'nX': 8,
-            'Sim Centre (ppm)': 4.65,
             'Metabolites': [],
         }
         self._refresh_metab_list()
@@ -788,7 +788,7 @@ class FidaMegaSpecialShaped(FidaBackend):
             float(params.get('thkX') or 2.0),
             float(params.get('fovX') or 3.0),
             int(float(params.get('nX') or 8)),
-            float(params.get('Sim Centre (ppm)') or 4.65),
+            4.65,   # ignored by fida_run.m: sim_megaspecial_shaped uses a 3 ppm frame
         ]
         return self._run_on_off_subspectra(params, base_args,
                                            progress_callback, stop_event)
@@ -907,9 +907,10 @@ class FidaSpinEchoXN(FidaBackend):
 
 
 class FidaOnePulse(FidaBackend):
-    """sim_onepulse: ideal pulse-acquire FID. (Shaped / Delay / Arbitrary
-    phase variants exist upstream and stay listed as modes, but only Ideal
-    is wired so far.)"""
+    """Pulse-acquire FID. Modes: Ideal (sim_onepulse), Shaped
+    (sim_onepulse_shaped, frequency-selective excitation waveform), Delay
+    (sim_onepulse_delay, ADC onset delay) and Arbitrary phase
+    (sim_onepulse_arbPh)."""
 
     _kind = 'onepulse'
 

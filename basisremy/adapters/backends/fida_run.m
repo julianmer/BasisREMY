@@ -74,19 +74,18 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             % crash inside its `type=='exc'` test ("mx_el_eq: nonconformant
             % arguments (op1 is 1x5, op2 is 1x3)").
             RF = io_loadRFwaveform(pulse_path, 'ref', 0);
-            % For gradient-modulated (GM / adiabatic) pulses such as GOIA the
-            % gradient waveform is already stored in column 4 of RF.waveform.
-            % sim_shapedRF will ERROR if you ALSO supply an explicit Gx/Gy
-            % ("You cannot supply GM pulse AND separately specify the Gradient
-            % strength"). For non-GM pulses we derive Gx/Gy analytically from
-            % the time-bandwidth product so the slice thickness matches thkX/Y.
+            % Gx/Gy [G/cm] from the time-bandwidth product so the slice
+            % thickness matches thkX/Y; for gradient-modulated (GOIA-type)
+            % waveforms the same numbers are the scale factors that
+            % gm_prepare (end of this file) applies to the stored gradient.
             if RF.isGM
-                Gx = 0;
-                Gy = 0;
+                Gx = (RF.tthk / (tp/1000)) / thkX;
+                Gy = (RF.tthk / (tp/1000)) / thkY;
             else
                 Gx = (RF.tbw / (tp/1000)) / (4258 * thkX);
                 Gy = (RF.tbw / (tp/1000)) / (4258 * thkY);
             end
+            [RF, Gx, Gy] = gm_prepare(RF, 'press_shaped', Gx, Gy);
             if nX < 2; nX = 2; end
             if nY < 2; nY = 2; end
             x = linspace(-fovX/2, fovX/2, nX);
@@ -207,6 +206,7 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
                 Gx = (RF.tbw / (tp/1000)) / (gamma * thkX / 10000);
                 Gy = (RF.tbw / (tp/1000)) / (gamma * thkY / 10000);
             end
+            [RF, Gx, Gy] = gm_prepare(RF, 'steam_shaped', Gx, Gy);
             if nX < 2; nX = 2; end
             if nY < 2; nY = 2; end
             x = linspace(-fovX/2, fovX/2, nX);
@@ -245,6 +245,7 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             else
                 G = (RF.tbw / (tp/1000)) / (gamma * thk / 10000);
             end
+            [RF, G] = gm_prepare(RF, 'spinecho_shaped', G);
             if npos < 2; npos = 2; end
             pos = linspace(-fov/2, fov/2, npos);
             phCyc = [0, 90];   % per run_simSpinEchoShaped.m: RP1 - RP2
@@ -466,6 +467,7 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
                 Gx = (refRF.tbw / (refTp/1000)) / (gamma * thkX / 10000);
                 Gy = (refRF.tbw / (refTp/1000)) / (gamma * thkY / 10000);
             end
+            [refRF, Gx, Gy] = gm_prepare(refRF, 'megapress_shapedrefoc', Gx, Gy);
             if nX < 2; nX = 2; end
             if nY < 2; nY = 2; end
             x = linspace(-fovX/2, fovX/2, nX);
@@ -502,6 +504,8 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
         %   args: n, sw, Bfield, lw, t1..t5 [ms], edit_path, editTp,
         %         editOnFreq, editOffFreq, refoc_path, refTp,
         %         thkX, thkY, fovX, fovY, nX, nY, centreFreq, edit_on_flag
+        %   centreFreq is accepted for interface stability but has no effect:
+        %   sim_megapress_shaped simulates in a 3 ppm frame (re-referenced below).
         case 'megapress_shaped'
             [n, sw, Bfield, lw, t1, t2, t3, t4, t5, edit_path, editTp, ...
              editOnFreq, editOffFreq, refoc_path, refTp, ...
@@ -531,6 +535,7 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
                 Gx = (refRF.tbw / (refTp/1000)) / (gamma * thkX / 10000);
                 Gy = (refRF.tbw / (refTp/1000)) / (gamma * thkY / 10000);
             end
+            [refRF, Gx, Gy] = gm_prepare(refRF, 'megapress_shaped', Gx, Gy);
             if nX < 2; nX = 2; end
             if nY < 2; nY = 2; end
             x = linspace(-fovX/2, fovX/2, nX);
@@ -574,6 +579,8 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
         %   args: n, sw, Bfield, lw, t1..t4 [ms], edit_path, editTp,
         %         editOnFreq, editOffFreq, refoc_path, refTp,
         %         thk, fov, npos, centreFreq, edit_on_flag
+        %   centreFreq is accepted for interface stability but has no effect:
+        %   sim_megaspecial_shaped simulates in a 3 ppm frame (re-referenced below).
         case 'megaspecial_shaped'
             [n, sw, Bfield, lw, t1, t2, t3, t4, edit_path, editTp, ...
              editOnFreq, editOffFreq, refoc_path, refTp, thk, fov, npos, ...
@@ -600,6 +607,7 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             else
                 G = (refRF.tbw / (refTp/1000)) / (gamma * thk / 10000);
             end
+            [refRF, G] = gm_prepare(refRF, 'megaspecial_shaped', G);
             if npos < 2; npos = 2; end
             pos = linspace(-fov/2, fov/2, npos);
             editPhCyc1 = [0 90];
@@ -655,3 +663,22 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
     end
 end
 
+% ---------- helper: gradient-modulated waveforms ----------------------------
+function [RF, Gx, Gy] = gm_prepare(RF, kind, Gx, Gy)
+% Gradient-modulated (GOIA-type) waveforms carry their own gradient shape in
+% column 4, and sim_shapedRF refuses an explicit gradient for them. Scale the
+% stored shape to the requested slice thickness (what sim_semiLASER_shaped
+% does internally) and hand the simulator Gx = Gy = 0. FID-A's PRESS, STEAM,
+% spin-echo and MEGA simulators apply ONE waveform in both directions, so a
+% GM pulse needs thkX == thkY there. Conventional pulses pass through.
+    if nargin < 4; Gy = Gx; end
+    if ~RF.isGM; return; end
+    if abs(Gx - Gy) > 1e-9 * max(abs([Gx Gy 1]))
+        error(['fida_run/%s: gradient-modulated waveform with thkX ~= thkY: ' ...
+               'this simulator applies the same waveform along X and Y, so ' ...
+               'use equal thicknesses (or the semi-LASER backend)'], kind);
+    end
+    RF = rf_scaleGrad(RF, Gx);
+    Gx = 0;
+    Gy = 0;
+end

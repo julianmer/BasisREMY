@@ -22,6 +22,8 @@ from nicegui import run, ui
 
 from basisremy.core.exporters import (
     export as _export,
+    export_subspectra as _export_subspectra,
+    subspectrum_path,
     sequence_label,
     SUPPORTED_FORMATS,
     FORMAT_LABELS,
@@ -137,15 +139,27 @@ def open_export_dialog(basis: dict, params: dict) -> None:
         fmt_select.on_value_change(on_fmt_change)
 
         # ---- summary ----
-        n_metabs = len(basis)
         n_pts = next(iter(basis.values())).size if basis else 0
-        info = (
-            f"{n_metabs} metabolites · {n_pts} points · "
-            f"BW = {params.get('Bandwidth', '?')} Hz · "
-            f"TE = {params.get('TE', '?')} ms · "
-            f"Sequence = {sequence_label(params) or '?'}"
-        )
-        ui.label(info).classes("text-xs italic text-grey-7")
+
+        def _summary(selection: str = "All") -> str:
+            if subspec_select is None:
+                n = f"{len(basis)} metabolites"
+            elif selection == "All":
+                n = (f"{len(basis)} entries, one basis set per sub-spectrum "
+                     f"(_ON / _OFF / _DIFF)")
+            else:
+                sub = selection.split()[0]
+                n = (f"{sum(k.endswith(f'({sub})') for k in basis)} "
+                     f"metabolites ({sub} sub-spectrum)")
+            return (f"{n} · {n_pts} points · "
+                    f"BW = {params.get('Bandwidth', '?')} Hz · "
+                    f"TE = {params.get('TE', '?')} ms · "
+                    f"Sequence = {sequence_label(params) or '?'}")
+
+        info_label = ui.label(_summary()).classes("text-xs italic text-grey-7")
+        if subspec_select is not None:
+            subspec_select.on_value_change(
+                lambda e: info_label.set_text(_summary(e.value)))
 
         status = ui.label("").classes("text-sm")
 
@@ -176,29 +190,34 @@ def open_export_dialog(basis: dict, params: dict) -> None:
             path = os.path.normpath(path)
             ext = FORMAT_EXTENSIONS[fmt]
             final = path if (not ext or path.lower().endswith(ext)) else path + ext
-            if ext and os.path.isfile(final):
-                if not await confirm_overwrite(final):
-                    return
+            which = None
+            targets = [final]
+            if subspec_select is not None:
+                # edited basis: one output per sub-spectrum, tagged in the name
+                which = subspec_select.value.split()[0]   # All / DIFF / ON / OFF
+                subs = ("ON", "OFF", "DIFF") if which == "All" else (which,)
+                targets = [subspectrum_path(final, fmt, s) for s in subs]
+            existing = [p for p in targets if ext and os.path.isfile(p)]
+            if existing and not await confirm_overwrite(existing[0]):
+                return
             do_export._busy = True
             export_btn.props("loading")
             try:
                 status.set_text(f"Writing {FORMAT_LABELS[fmt]}…")
                 status.style("color:#607389")
-                export_basis = basis
-                if subspec_select is not None and subspec_select.value != 'All':
-                    want = subspec_select.value.split()[0]   # DIFF / ON / OFF
-                    export_basis = {k: v for k, v in basis.items()
-                                    if k.endswith(f'({want})')}
-                    if not export_basis:
-                        ui.notify(f"No {want} entries in this basis.",
-                                  type="warning")
-                        return
                 # slow formats must not freeze the dialog
-                out = await run.io_bound(_export, export_basis, path, fmt, params)
+                if which is not None:
+                    outs = await run.io_bound(_export_subspectra, basis, path,
+                                              fmt, params, which)
+                    out = outs[0]
+                    written = ", ".join(os.path.basename(o) for o in outs)
+                else:
+                    out = await run.io_bound(_export, basis, path, fmt, params)
+                    written = out
                 set_state("last_export_dir",
                           out if os.path.isdir(out)
                           else os.path.dirname(os.path.abspath(out)))
-                ui.notify(f"Exported to {out}", type="positive")
+                ui.notify(f"Exported {written}", type="positive")
                 dialog.close()
             except Exception as exc:  # noqa: BLE001
                 traceback.print_exc()

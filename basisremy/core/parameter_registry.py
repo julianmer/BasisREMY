@@ -177,6 +177,21 @@ REGISTRY: dict[str, ParamInfo] = {
         typical="TE/2 (e.g. 17.5 ms at TE 35 ms)",
     ),
 
+    "Tau": ParamInfo(
+        label="Echo time per echo",
+        description=(
+            "Echo time of each spin echo in the multi-echo train (FID-A "
+            "sim_spinecho_xN: 'tau = echo time in ms'); the train is Nechoes "
+            "refocusing pulses long."
+        ),
+        units="ms",
+        typical="10 - 40 ms",
+    ),
+    "Nechoes": ParamInfo(
+        label="Number of echoes",
+        description="Number of spin echoes (refocusing pulses) in the multi-echo train (FID-A sim_spinecho_xN).",
+        typical="2 - 10",
+    ),
     "Delay": ParamInfo(
         label="ADC onset delay",
         description=(
@@ -245,6 +260,15 @@ REGISTRY: dict[str, ParamInfo] = {
     "Path to Pulse": ParamInfo(
         label="Path to pulse waveform",
         description="File containing the refocusing RF pulse shape (vendor-specific .pta / .RF / .pulse / .json file).",
+        widget_hint="file",
+    ),
+    "Edit Pulse Path": ParamInfo(
+        label="Editing pulse waveform",
+        description=(
+            "File with the frequency-selective editing RF waveform (.pta / "
+            ".RF / .txt). Loaded as an inversion pulse and frequency-shifted "
+            "to 'Edit On' for the ON and 'Edit Off' for the OFF sub-spectrum."
+        ),
         widget_hint="file",
     ),
     "Vendor Pulse File": ParamInfo(
@@ -370,18 +394,6 @@ REGISTRY: dict[str, ParamInfo] = {
         typical="PRESS / sLASER / STEAM_7T",
         widget_hint="combobox",
     ),
-    "Field Strength": ParamInfo(
-        label="Field strength preset",
-        description=(
-            "Coarse field-strength preset used by MRSCloud's load_parameters "
-            "to pick the right pulse waveforms (1.5 T, 3 T, or 7 T). For the "
-            "MRSCloud backend this preset is also the canonical B0 source — "
-            "it is converted to a Larmor frequency internally as 42.577 × B0 MHz "
-            "(no separate Bfield parameter is exposed)."
-        ),
-        typical="3T",
-        widget_hint="combobox",
-    ),
     "Spatial Points": ParamInfo(
         label="Spatial points",
         description=(
@@ -391,16 +403,6 @@ REGISTRY: dict[str, ParamInfo] = {
         ),
         typical="41 (fast)  /  101 (ideal)",
         widget_hint="entry",
-    ),
-    "Edit Target": ParamInfo(
-        label="Editing target",
-        description=(
-            "Metabolite targeted by the editing scheme of an MRSCloud edited "
-            "sequence (MEGA / HERMES / HERCULES). Leave empty for un-edited "
-            "acquisitions."
-        ),
-        typical="GABA / GSH / Lac / PE",
-        widget_hint="combobox",
     ),
     "Edit On": ParamInfo(
         label="Edit-ON frequency",
@@ -425,11 +427,12 @@ REGISTRY: dict[str, ParamInfo] = {
     "Edit Tp": ParamInfo(
         label="Editing pulse duration",
         description=(
-            "Duration of the editing RF pulse — 14 ms for MEGA-PRESS / HERMES, "
-            "20 ms for HERCULES (per MRSCloud documentation)."
+            "Duration of the editing RF pulse. MRSCloud: MEGA only — HERMES / "
+            "HERCULES use MRSCloud's fixed 20 ms pulses. FID-A shaped MEGA "
+            "kinds: the duration the loaded waveform is played out over."
         ),
         units="ms",
-        typical="14 ms (MEGA/HERMES)  ·  20 ms (HERCULES)",
+        typical="14 ms (MEGA at TE 68)  ·  20 ms (HERCULES)",
         widget_hint="entry",
     ),
 

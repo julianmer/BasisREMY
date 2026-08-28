@@ -142,13 +142,35 @@ def prefer_docker(reason: str = '') -> None:
     marker.write_text(reason or 'side-env failed; using Docker runtime\n')
 
 
+def _env_healthy(timeout: float = 60.0) -> bool:
+    """Does the side-env import pygamma within `timeout` s? A wedged Rosetta
+    translation hangs or crashes right here, so this is also the probe that
+    lets a stale 'prefer docker' marker heal itself."""
+    python = env_python()
+    if not python.exists():
+        return False
+    try:
+        return subprocess.run([str(python), '-c', 'import pygamma'],
+                              capture_output=True, timeout=timeout).returncode == 0
+    except Exception:  # noqa: BLE001  (timeout, unrunnable interpreter, ...)
+        return False
+
+
 def preferred_runtime() -> str:
     """The local side-env is the default; Docker only when the env is known
-    broken (marker / env var) or the platform has no PyGAMMA wheel."""
+    broken (marker / env var) or the platform has no PyGAMMA wheel. The
+    marker is dropped again as soon as the side-env responds (e.g. after the
+    reboot that clears a wedged Rosetta cache)."""
     if os.environ.get('BASISREMY_PYGAMMA_RUNTIME') in ('docker', 'env'):
         return os.environ['BASISREMY_PYGAMMA_RUNTIME']
-    if _docker_marker().exists() and docker_available():
-        return 'docker'
+    marker = _docker_marker()
+    if marker.exists() and docker_available():
+        if _env_healthy():
+            marker.unlink(missing_ok=True)
+            print("✓ PyGAMMA side-environment responds again — using it "
+                  "(Docker marker removed)")
+        else:
+            return 'docker'
     try:
         _python_key()
     except PyGammaUnavailable:

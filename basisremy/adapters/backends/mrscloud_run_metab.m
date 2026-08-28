@@ -1,14 +1,14 @@
 function [fid_re, fid_im, npts, sw_out, cf_mhz] = mrscloud_run_metab( ...
         metab, vendor, sequence, localization, te, field_str, ...
         edit_target, edit_on, edit_off, edit_tp, spatial_points, save_dir, ...
-        samples, bandwidth)
+        samples, bandwidth, b0)
 % MRSCLOUD_RUN_METAB  Adapter that runs the MRSCloud workflow for ONE metabolite.
 %
 %   [fid_re, fid_im, npts, sw_out, cf_mhz] = ...
 %       mrscloud_run_metab(metab, vendor, sequence, localization, te, ...
 %                          field_str, edit_target, edit_on, edit_off, ...
 %                          edit_tp, spatial_points, save_dir, ...
-%                          samples, bandwidth)
+%                          samples, bandwidth, b0)
 %
 %   This function mirrors the per-metabolite portion of MRSCloud's
 %   externals/mrscloud/run/run_simulations_cloud.m but exposes a clean
@@ -20,9 +20,12 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = mrscloud_run_metab( ...
 %                             MRSCloud's hard-coded Npts = 8192)
 %     bandwidth       double  spectral width in Hz (overrides MRSCloud's
 %                             hard-coded sw = 4000)
+%     b0              double  field strength in T (overrides the per-vendor
+%                             value load_parameters hard-codes; 0 = keep it)
 %   The other inputs are unchanged — see file header above.
     if nargin < 13 || isempty(samples);   samples   = 0; end
     if nargin < 14 || isempty(bandwidth); bandwidth = 0; end
+    if nargin < 15 || isempty(b0);        b0        = 0; end
 % MRSCLOUD_RUN_METAB  Adapter that runs the MRSCloud workflow for ONE metabolite.
 %
 %   [fid_re, fid_im, npts, sw_out, cf_mhz] = ...
@@ -41,8 +44,10 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = mrscloud_run_metab( ...
 %     sequence        char  'UnEdited' | 'MEGA' | 'HERMES' | 'HERCULES'
 %     localization    char  'PRESS' | 'sLASER' | 'STEAM_7T'
 %     te              double  echo time [ms]
-%     field_str       char  '1.5T' | '3T' | '7T'
-%     edit_target     char  'GABA' | 'GSH' | 'Lac' | 'PE'  ('' for unEdited)
+%     field_str       char  '1.5T' | '3T' — which MRSCloud parameter set
+%                           (pulses, timings) to load; the field itself is b0
+%     edit_target     char  accepted for interface stability, unused
+%                           (MRSCloud fixes the editing offsets per scheme)
 %     edit_on         double  editing-on offset [ppm] (MEGA only)
 %     edit_off        double  editing-off offset [ppm] (MEGA only)
 %     edit_tp         double  editing-pulse duration [ms]
@@ -90,10 +95,14 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = mrscloud_run_metab( ...
     switch sequence
         case 'MEGA'
             MRS_temp.editON = num2cell([edit_on edit_off]);
-        case {'HERMES', 'HERCULES', 'HERMES_GABA_GSH_EtOH'}
-            % MRSCloud overrides TE=80 internally for HERMES/HERCULES.
-            % These four offsets are the canonical HERMES/HERCULES pattern.
-            MRS_temp.editON = num2cell([4.56 1.90 (4.56+1.9)/2 7.5]);
+        % Fixed editing schemes, mirrored from run_simulations_cloud.m
+        % (A / B single-lobe, C / D dual-lobe pulses).
+        case 'HERMES'
+            MRS_temp.editON = num2cell([4.56 1.90 (4.56+1.9)/2 7.50]);
+        case 'HERMES_GABA_GSH_EtOH'
+            MRS_temp.editON = num2cell([(4.56+1.9)/2 (3.67+1.9)/2 (3.67+4.56)/2 7.50]);
+        case 'HERCULES'
+            MRS_temp.editON = num2cell([4.58 4.18 (4.58+1.9)/2 (4.18+1.9)/2]);
         otherwise
             % UnEdited (or anything unrecognised). Provide a benign stub so
             % load_parameters cannot crash if it ever inspects the field.
@@ -123,6 +132,25 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = mrscloud_run_metab( ...
     end
     if bandwidth > 0
         MRS_opt.sw = double(bandwidth);
+    end
+
+    % ---------- simulate at the acquisition's own field strength ----------
+    % load_parameters hard-codes B0 per vendor (Siemens 2.89 T, otherwise
+    % 3 T; 7 T only for STEAM_7T). Rebuild what it computed at that field:
+    % the Hamiltonian, and the editing pulses' frequency shifts (the offset
+    % in Hz scales with B0; rf_freqshift composes additively).
+    if b0 > 0 && abs(b0 - MRS_opt.Bfield) > 1e-6
+        b0_old = MRS_opt.Bfield;
+        MRS_opt.Bfield = double(b0);
+        [MRS_opt.H, MRS_opt.d] = sim_Hamiltonian_mgs(MRS_opt.sys, MRS_opt.Bfield);
+        names = {'editRFonA', 'editRFonB', 'editRFonC', 'editRFonD'};
+        for k = 1:numel(names)
+            if isfield(MRS_opt, names{k}) && k <= numel(MRS_opt.editON)
+                dF = (MRS_opt.centreFreq - MRS_opt.editON{k}) ...
+                     * (MRS_opt.Bfield - b0_old) * MRS_opt.gamma / 1e6;
+                MRS_opt.(names{k}) = rf_freqshift(MRS_opt.(names{k}), MRS_opt.editTp, dF);
+            end
+        end
     end
 
     % ---------- dispatch to the right simulator ----------

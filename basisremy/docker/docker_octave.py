@@ -59,8 +59,12 @@ class DockerOctave:
         self.shared_dir = os.path.join(self.project_root, '.octave_shared')
         os.makedirs(self.shared_dir, exist_ok=True)
 
-        self.script_path = os.path.join(self.shared_dir, 'run.m')
-        self.result_path = os.path.join(self.shared_dir, 'result.mat')
+        # One script/result pair per process: two BasisREMY processes in the
+        # same project folder must not overwrite each other's run.
+        self.script_path = os.path.join(self.shared_dir, f'run_{os.getpid()}.m')
+        self.result_path = os.path.join(self.shared_dir, f'result_{os.getpid()}.mat')
+        import atexit
+        atexit.register(self._remove_scratch_files)
         self.commands = []  # Temporary commands cleared after each feval
         self.persistent_commands = []  # Persistent commands (like addpath) that stay
         if container_name is None:
@@ -440,6 +444,12 @@ class DockerOctave:
             print("   The process is running if you see this message - please be patient!")
             print(f"{'-'*80}")
 
+        # A result left by the previous run must never pass for this run's
+        # output if Octave exits without reaching its save().
+        try:
+            os.remove(self.result_path)
+        except OSError:
+            pass
         exit_code, output = self.container.exec_run(f"octave-cli {script_rel}")
 
         if show_output or exit_code != 0:
@@ -485,6 +495,13 @@ class DockerOctave:
             return mat[result_vars[0]]
         else:
             return tuple(mat[v] for v in result_vars)
+
+    def _remove_scratch_files(self):
+        for p in (self.script_path, self.result_path):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
     def exit(self):
         """Clear command buffers."""

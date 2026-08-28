@@ -622,6 +622,11 @@ class BasisREMYApp:
         if not self.selected_file:
             ui.notify("No file selected.", type="warning")
             return
+        if self._sim_thread is not None and self._sim_thread.is_alive():
+            # a new file would reset the parameters under the running worker
+            ui.notify("A simulation is still running — open Parameters to "
+                      "cancel it first.", type="warning")
+            return
         if getattr(self, "_processing", False):
             return  # a double-click fits inside one client round-trip
         self._processing = True
@@ -790,9 +795,10 @@ class BasisREMYApp:
             backend_select = None
             if len(labels) > 1:
                 # Multiple backends in this software (FID-A): the backend list
-                # IS the "Mode".
+                # is the "Variant"; a backend's own modes (e.g. semi-LASER
+                # Standard / Phase cycled) keep the "Mode" row in the sheet.
                 with ui.element("div").classes("br-prow"):
-                    ui.label("Mode").classes(
+                    ui.label("Variant").classes(
                         "br-prow-label text-sm font-semibold"
                     )
                     backend_select = ui.select(
@@ -1313,8 +1319,7 @@ class BasisREMYApp:
         mp = self.BasisREMY.backend.mandatory_params
         cf_raw = mp.get("Center Freq")
         if cf_raw in (None, "", "missing input"):
-            b0_raw = mp.get("Bfield") or \
-                str(mp.get("Field Strength") or "3T").replace("T", "").strip()
+            b0_raw = mp.get("Bfield")
             try:
                 b0 = float(b0_raw)
             except (TypeError, ValueError):

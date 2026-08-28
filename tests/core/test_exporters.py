@@ -91,12 +91,18 @@ class TestMakeHeader:
         hdr = _make_header({'Center Freq': 297.2e6, 'Bandwidth': 4000}, _synthetic_basis())
         assert hdr['centralFrequency'] == pytest.approx(297.2)
 
-    def test_defaults_when_params_empty(self):
-        """Empty params shouldn't blow up — fallback to 3T defaults."""
-        hdr = _make_header({}, _synthetic_basis())
-        assert hdr['centralFrequency'] == pytest.approx(42.577 * 3.0, rel=1e-3)
-        assert hdr['bandwidth'] == 2000.0   # default
-        assert hdr['points'] == 64           # from basis fallback
+    def test_missing_physics_raises(self):
+        """No bandwidth / no field strength: refuse instead of guessing 3 T."""
+        with pytest.raises(ValueError, match='Bandwidth'):
+            _make_header({'Bfield': 3.0}, _synthetic_basis())
+        with pytest.raises(ValueError, match='field strength'):
+            _make_header({'Bandwidth': 2000}, _synthetic_basis())
+
+    def test_points_follow_the_data(self):
+        """The header describes the FIDs written, not the 'Samples' setting."""
+        hdr = _make_header({'Bfield': 3.0, 'Bandwidth': 2000, 'Samples': 4096},
+                           _synthetic_basis(64))
+        assert hdr['points'] == 64
 
     def test_empty_basis_raises(self):
         with pytest.raises(ValueError):
@@ -104,7 +110,8 @@ class TestMakeHeader:
 
     def test_garbage_te(self):
         """Non-numeric TE shouldn't crash the header."""
-        hdr = _make_header({'TE': 'oops', 'Bandwidth': 2000}, _synthetic_basis())
+        hdr = _make_header({'TE': 'oops', 'Bandwidth': 2000, 'Bfield': 3.0},
+                           _synthetic_basis())
         assert hdr['echotime'] is None
 
 
@@ -124,12 +131,14 @@ class TestB0FromParams:
         b0 = _b0_from_params({'Center Freq': 297.2})
         assert b0 == pytest.approx(7.0, rel=1e-2)
 
-    def test_default_3t(self):
-        assert _b0_from_params({}) == 3.0
+    def test_missing_raises(self):
+        with pytest.raises(ValueError):
+            _b0_from_params({})
 
-    def test_ignores_placeholders(self):
-        assert _b0_from_params({'Bfield': 'Select option',
-                                'Field Strength': 'missing input'}) == 3.0
+    def test_placeholders_raise(self):
+        with pytest.raises(ValueError):
+            _b0_from_params({'Bfield': 'Select option',
+                             'Field Strength': 'missing input'})
 
 
 # ----------------------------------------------------------------- formats
@@ -294,6 +303,33 @@ class TestExportFormats:
     def test_unknown_format_raises(self, tmp_path):
         with pytest.raises(ValueError):
             export(_synthetic_basis(), str(tmp_path / 'x'), 'not_a_format', {})
+
+
+# ----------------------------------------------------------------- sub-spectra
+class TestSubspectra:
+
+    def test_one_output_per_subspectrum_with_plain_names(self, tmp_path):
+        from basisremy.core.exporters import export_subspectra, split_subspectra
+        base = _synthetic_basis()
+        basis = {f'{m} ({s})': fid
+                 for s in ('ON', 'OFF', 'DIFF') for m, fid in base.items()}
+        groups = split_subspectra(basis)
+        assert set(groups) == {'ON', 'OFF', 'DIFF'}
+        assert set(groups['DIFF']) == {'NAA', 'Cr'}
+        outs = export_subspectra(basis, str(tmp_path / 'mega.basis'),
+                                 'lcmodel_basis', _PARAMS_LEGACY)
+        assert [os.path.basename(o) for o in outs] == \
+            ['mega_ON.basis', 'mega_OFF.basis', 'mega_DIFF.basis']
+        text = (tmp_path / 'mega_DIFF.basis').read_text()
+        assert "METABO='NAA   '" in text and '(DIFF)' not in text
+        sc = json.loads((tmp_path / 'mega_DIFF_sidecar.json').read_text())
+        assert sc['extra']['sub_spectrum'] == 'DIFF'
+        only = export_subspectra(basis, str(tmp_path / 'mega.basis'),
+                                 'lcmodel_basis', _PARAMS_LEGACY, which='DIFF')
+        assert [os.path.basename(o) for o in only] == ['mega_DIFF.basis']
+        with pytest.raises(ValueError):
+            export_subspectra(base, str(tmp_path / 'x.basis'),
+                              'lcmodel_basis', _PARAMS_LEGACY)
 
 
 # ----------------------------------------------------------------- sidecar

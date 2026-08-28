@@ -157,32 +157,32 @@ class MRSCloudBackend(Backend):
             'System':         list(self._SYSTEMS),
             'Sequence':       list(self._SEQUENCES),
             'Localization':   list(self._LOCALIZATIONS),
-            'Field Strength': ['1.5T', '3T', '7T'],
-            'Edit Target':    ['', 'GABA', 'GSH', 'Lac', 'PE'],
         }
 
         # GUI tells us when these change so we can rebuild the visible
         # parameter list (e.g. show editing fields only for MEGA/HERMES/HERCULES,
         # show the pulse-file picker only when the pulse is missing).
-        self.schema_affecting_keys = {'Sequence', 'Localization', 'System', 'Field Strength'}
+        self.schema_affecting_keys = {'Sequence', 'Localization', 'System'}
 
         # Pulse-file pickers are populated dynamically by get_params_for_mode().
         self.file_selection: list[str] = []
 
         # Mandatory parameters — only the ones MRSCloud actually consumes.
-        # Removed:
-        #   * Bfield        — derived from Field Strength + vendor inside
-        #                     externals/mrscloud/functions/load_parameters.m
-        #   * Center Freq   — same (computed from Bfield × γ inside FID-A)
+        # Not exposed:
+        #   * Center Freq   — computed from Bfield × γ inside FID-A
         #   * Linewidth     — MRSCloud hard-codes lw = 1 Hz in load_parameters
         #   * TE2           — MRSCloud uses a single TE; TE1 is set per-vendor
-        # Editing-only fields (Edit Target / On / Off / Tp) live in
-        # `_edit_params` and are spliced in by get_params_for_mode().
+        # Bfield is the acquisition's own field strength (REMY or the user).
+        # load_parameters.m hard-codes B0 per vendor (2.89 / 3 T; 7 T only for
+        # STEAM_7T), so the adapter rebuilds the field-dependent parts at this
+        # value; below 2.25 T MRSCloud's 1.5 T parameter set is used. Editing
+        # fields (Edit On / Off / Tp) live in `_edit_params` and are spliced
+        # in by get_params_for_mode() for MEGA only.
         self.mandatory_params = {
             'System':         None,        # vendor (must be selected)
             'Sequence':       None,        # UnEdited / MEGA / HERMES / HERCULES
             'Localization':   None,        # PRESS / sLASER / STEAM_7T
-            'Field Strength': None,   # must come from REMY (B0) or the user
+            'Bfield':         None,        # T — from REMY (B0) or the user
             'Samples':        None,
             'Bandwidth':      None,
             'TE':             None,
@@ -190,14 +190,14 @@ class MRSCloudBackend(Backend):
             'Metabolites':    [k for k, v in self.metabs.items() if v],
         }
 
-        # Editing-sequence-only parameters (added to mandatory_params on the
-        # fly). MRSCloud overrides editON internally for HERMES/HERCULES, so
-        # those sequences only expose Edit Target + Edit Tp.
+        # Editing parameters, MEGA only (added to mandatory_params on the
+        # fly). HERMES / HERCULES are fixed schemes in MRSCloud — the offsets
+        # (adapter) and the 20 ms editing pulses (load_parameters.m) cannot be
+        # changed — so they expose no editing fields.
         self._edit_params = {
-            'Edit Target':    '',          # GABA / GSH / Lac / PE
-            'Edit On':        1.9,         # ppm (MEGA only)
-            'Edit Off':       7.5,         # ppm (MEGA only)
-            'Edit Tp':        14,          # ms — 14 for MEGA/HERMES, 20 for HERCULES
+            'Edit On':        1.9,         # ppm
+            'Edit Off':       7.5,         # ppm
+            'Edit Tp':        14,          # ms
         }
 
         # Vendor pulse file the user must supply when not bundled.
@@ -295,15 +295,9 @@ class MRSCloudBackend(Backend):
             for k, v in self._edit_params.items():
                 params.setdefault(k, v)
                 self.mandatory_params.setdefault(k, v)
-        elif seq in ('HERMES', 'HERCULES'):
-            for k in ('Edit Target', 'Edit Tp'):
-                params.setdefault(k, self._edit_params[k])
-                self.mandatory_params.setdefault(k, self._edit_params[k])
-            for k in ('Edit On', 'Edit Off'):
-                params.pop(k, None)
-                self.mandatory_params.pop(k, None)
         else:
-            # UnEdited → hide everything edit-related
+            # UnEdited, and HERMES / HERCULES whose editing scheme MRSCloud
+            # fixes → hide everything edit-related
             for k in self._edit_params:
                 params.pop(k, None)
                 self.mandatory_params.pop(k, None)
@@ -339,9 +333,7 @@ class MRSCloudBackend(Backend):
     def parseREMY(self, MRSinMRS):
         """Map REMY-extracted metadata onto MRSCloud parameters.
 
-        Note: `Bfield` and `Center Freq` are intentionally NOT returned —
-        MRSCloud derives them internally from `Field Strength` + vendor
-        (see externals/mrscloud/functions/load_parameters.m, lines 20-36).
+        Note: `Center Freq` is not returned — MRSCloud derives it from Bfield.
         """
         bfield = MRSinMRS.get('B0', None)
         protocol = MRSinMRS.get('Protocol', None)
@@ -361,7 +353,7 @@ class MRSCloudBackend(Backend):
             'Sequence':       self.parseProtocol(protocol),
             'Localization':   self.parseLocalization(protocol),
             'System':         plain,
-            'Field Strength': self._field_str_from_b0(bfield),
+            'Bfield':         bfield,
             'Samples':        MRSinMRS.get('NumberOfDatapoints', None),
             'Bandwidth':      MRSinMRS.get('SpectralWidth', None),
             'TE':             MRSinMRS.get('TE', None),
@@ -382,18 +374,11 @@ class MRSCloudBackend(Backend):
         return mandatory, optional
 
     @staticmethod
-    def _field_str_from_b0(b0):
-        if b0 is None:
-            return '3T'
-        try:
-            b0 = float(b0)
-        except (TypeError, ValueError):
-            return '3T'
-        if abs(b0 - 1.5) < 0.3:
-            return '1.5T'
-        if abs(b0 - 7.0) < 0.5:
-            return '7T'
-        return '3T'
+    def _parameter_set(b0: float) -> str:
+        """MRSCloud parameter set (pulses, timings) for a field strength:
+        load_parameters_1_5T.m below 2.25 T, load_parameters.m otherwise.
+        The field itself is passed separately and applied by the adapter."""
+        return '1.5T' if float(b0) < 2.25 else '3T'
 
     def parseProtocol(self, protocol):
         """Return the MRSCloud editing-scheme label from a raw protocol string.
@@ -585,8 +570,12 @@ class MRSCloudBackend(Backend):
             raise RuntimeError(
                 "MRSCloud: no System (scanner vendor) selected — choose "
                 "Philips, Siemens, or GE before simulating.")
-        sequence     = str(params.get('Sequence')     or 'UnEdited')
-        localization = str(params.get('Localization') or 'PRESS')
+        sequence     = str(params.get('Sequence') or '').strip()
+        localization = str(params.get('Localization') or '').strip()
+        if not sequence or not localization:
+            raise ValueError(
+                "MRSCloud: Sequence and Localization must be selected before "
+                "simulating.")
 
         # Stage the user-supplied vendor pulse (if any) FIRST, then drop in
         # the bundled universal excitation waveform under the name MRSCloud
@@ -595,16 +584,23 @@ class MRSCloudBackend(Backend):
         self._stage_user_pulse(workdir, vendor, sequence, localization,
                                params.get(self._pulse_param_label))
         self._stage_universal_excite_shim(workdir)
-        field_str    = str(params.get('Field Strength') or '')
-        if not field_str:
+        try:
+            bfield = float(params.get('Bfield'))
+        except (TypeError, ValueError):
             raise ValueError(
-                "MRSCloud: Field Strength must be selected before simulating.")
-        edit_target  = str(params.get('Edit Target')   or '')
+                "MRSCloud: Bfield (T) must be set before simulating — it is "
+                "read from the data header or entered by hand.") from None
+        field_str    = self._parameter_set(bfield)
+        edit_target  = ''   # adapter signature only; MRSCloud has no such input
         edit_on      = float(params.get('Edit On',  1.9))
         edit_off     = float(params.get('Edit Off', 7.5))
         edit_tp      = float(params.get('Edit Tp',  14))
         spatial      = int(float(params.get('Spatial Points', 41)))
-        te           = float(params.get('TE') or 35)
+        try:
+            te = float(params.get('TE'))
+        except (TypeError, ValueError):
+            raise ValueError(
+                "MRSCloud: TE (ms) must be set before simulating.") from None
         samples      = int(float(params.get('Samples') or 0))
         bandwidth    = float(params.get('Bandwidth') or 0)
         if samples <= 0 or bandwidth <= 0:
@@ -614,14 +610,11 @@ class MRSCloudBackend(Backend):
         metabs       = list(params.get('Metabolites') or [])
         self.last_failures = {}   # metab -> reason, surfaced by the GUI
 
-        # MRSCloud overrides TE for HERMES (68) / HERCULES (80) internally;
-        # we keep the user value for documentation but warn if it's unusual.
-        if sequence == 'HERMES' and abs(te - 68) > 1:
-            print(f"  Note: MRSCloud will internally use TE=68 ms for HERMES "
-                  f"(your TE={te} ms is informational only).")
-        if sequence == 'HERCULES' and abs(te - 80) > 1:
-            print(f"  Note: MRSCloud will internally use TE=80 ms for HERCULES "
-                  f"(your TE={te} ms is informational only).")
+        # MRSCloud's own runner fixes TE = 80 ms for HERMES / HERCULES; the
+        # adapter passes the requested TE through to load_parameters instead.
+        if sequence in ('HERMES', 'HERCULES') and abs(te - 80) > 1:
+            print(f"  Note: MRSCloud's runner uses TE = 80 ms for {sequence}; "
+                  f"simulating at your TE = {te:g} ms.")
 
         if not metabs:
             raise ValueError("MRSCloud: no metabolites selected.")
@@ -633,14 +626,15 @@ class MRSCloudBackend(Backend):
                 print(f"  ⏹  Stopped before simulating {metab} (user cancelled).")
                 break
             print(f"[MRSCloud] {i+1}/{total}  simulating {metab} "
-                  f"({sequence}/{localization} on {vendor}, TE={te} ms, B0={field_str})")
+                  f"({sequence}/{localization} on {vendor}, TE={te:g} ms, "
+                  f"B0={bfield:g} T, {field_str} parameter set)")
             try:
                 fid_re, fid_im, npts, _sw, _cf = self.octave.feval(
                     'mrscloud_run_metab',
                     metab, vendor, sequence, localization,
                     te, field_str, edit_target,
                     edit_on, edit_off, edit_tp, float(spatial), save_dir,
-                    float(samples), float(bandwidth),
+                    float(samples), float(bandwidth), float(bfield),
                     nout=5,
                 )
                 fid = np.asarray(fid_re, dtype=np.float64).flatten() \

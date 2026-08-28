@@ -91,14 +91,15 @@ class TestMRSCloudParameters:
                 f"{forbidden!r} leaked back into optional_params"
 
     # ---- mandatory params --------------------------------------------
-    # NOTE: Bfield, Center Freq, Linewidth, TE2 were intentionally removed
-    # in the 24/04/26 refactor — MRSCloud derives them internally from
-    # `Field Strength` + vendor (see externals/mrscloud/functions/load_parameters.m).
-    # Editing fields (Edit Target / On / Off / Tp) are spliced in by
-    # get_params_for_mode() only when an editing sequence is selected, so
-    # they are NOT in the default mandatory_params either.
+    # NOTE: Center Freq, Linewidth, TE2 are not exposed — MRSCloud derives /
+    # hard-codes them (see externals/mrscloud/functions/load_parameters.m).
+    # Bfield is the acquisition's field strength, uniform with the other
+    # backends; the adapter applies it on top of MRSCloud's per-vendor value.
+    # Editing fields (Edit On / Off / Tp) are spliced in by
+    # get_params_for_mode() for MEGA only, so they are NOT in the default
+    # mandatory_params either.
     @pytest.mark.parametrize("key", [
-        'System', 'Sequence', 'Localization', 'Field Strength',
+        'System', 'Sequence', 'Localization', 'Bfield',
         'Samples', 'Bandwidth', 'TE',
         'Spatial Points', 'Metabolites',
     ])
@@ -106,7 +107,7 @@ class TestMRSCloudParameters:
         assert key in backend.mandatory_params
 
     @pytest.mark.parametrize("forbidden_key", [
-        'Bfield', 'Center Freq', 'Linewidth', 'TE2',
+        'Center Freq', 'Linewidth', 'TE2', 'Field Strength', 'Edit Target',
     ])
     def test_removed_keys_absent(self, backend, forbidden_key):
         """These were dropped in the 24/04/26 refactor — make sure they don't sneak back."""
@@ -119,7 +120,7 @@ class TestMRSCloudParameters:
         assert 'GE' in backend.dropdown['System']
         assert set(backend.dropdown['Sequence']) >= {'UnEdited', 'MEGA', 'HERMES', 'HERCULES'}
         assert set(backend.dropdown['Localization']) >= {'PRESS', 'sLASER', 'STEAM_7T'}
-        assert '3T' in backend.dropdown['Field Strength']
+        assert 'Field Strength' not in backend.dropdown
 
     # ---- metabolite library ------------------------------------------
     def test_metabolites_match_mrscloud_readme(self, backend):
@@ -157,11 +158,13 @@ class TestMRSCloudParameters:
         assert m['Sequence']       == 'UnEdited'
         assert m['Localization']   == 'PRESS'
         assert m['System']         == 'Philips'
-        assert m['Field Strength'] == '3T'
-        # Bfield / Center Freq are intentionally NOT emitted any more — MRSCloud
-        # derives them internally from Field Strength + vendor.
-        assert 'Bfield'      not in m
+        assert m['Bfield']         == 3.0
+        # Center Freq is not emitted — MRSCloud derives it from Bfield.
         assert 'Center Freq' not in m
+
+    def test_parse_remy_without_b0_stays_blank(self, backend):
+        m, _o = backend.parseREMY({'NumberOfDatapoints': 2048, 'TE': 35})
+        assert m['Bfield'] is None
 
     @pytest.mark.parametrize("protocol,seq,loc", [
         ('PRESS_35',          'UnEdited', 'PRESS'),
@@ -189,13 +192,22 @@ class TestMRSCloudParameters:
 
     @pytest.mark.parametrize("b0,expected", [
         (1.5,  '1.5T'),
+        (2.89, '3T'),
         (3.0,  '3T'),
-        (7.0,  '7T'),
-        (None, '3T'),
-        ('',   '3T'),
+        (7.0,  '3T'),   # the 7 T field is applied by the adapter, not a preset
     ])
-    def test_field_str_from_b0(self, b0, expected):
-        assert MRSCloudBackend._field_str_from_b0(b0) == expected
+    def test_parameter_set_for_b0(self, b0, expected):
+        assert MRSCloudBackend._parameter_set(b0) == expected
+
+    def test_missing_inputs_raise(self, backend):
+        base = {'System': 'Philips', 'Sequence': 'UnEdited',
+                'Localization': 'PRESS', 'Bfield': 3.0, 'Samples': 2048,
+                'Bandwidth': 2000, 'TE': 35, 'Metabolites': ['NAA']}
+        backend.octave = object()          # never reached: validation first
+        backend.setup_octave_paths = lambda: None
+        for missing in ('Bfield', 'TE', 'Sequence', 'Localization'):
+            with pytest.raises(ValueError, match=missing):
+                backend.run_simulation({**base, missing: None})
 
     # ---- workdir behaviour -------------------------------------------
     def test_workdir_lazy(self, backend):
@@ -231,7 +243,7 @@ class TestMRSCloudLive:
 
     _COMMON = {
         'System':         'Universal_Philips',   # only fully-bundled vendor
-        'Field Strength': '3T',
+        'Bfield':         3.0,
         'Samples':        2048,
         'Bandwidth':      2000,
         'TE':             35,

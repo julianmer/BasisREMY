@@ -36,7 +36,7 @@ class TestSchemaAware:
     def test_unedited_hides_edit_fields(self, backend):
         backend.mandatory_params['Sequence'] = 'UnEdited'
         params = backend.get_params_for_mode()
-        for k in ('Edit Target', 'Edit On', 'Edit Off', 'Edit Tp'):
+        for k in ('Edit On', 'Edit Off', 'Edit Tp'):
             assert k not in params, f"{k!r} must be hidden for UnEdited"
 
     def test_mega_shows_all_edit_fields(self, backend):
@@ -45,20 +45,19 @@ class TestSchemaAware:
         backend.mandatory_params['System'] = 'Philips'
         backend.mandatory_params['Localization'] = 'PRESS'
         params = backend.get_params_for_mode()
-        for k in ('Edit Target', 'Edit On', 'Edit Off', 'Edit Tp'):
+        for k in ('Edit On', 'Edit Off', 'Edit Tp'):
             assert k in params, f"{k!r} must be shown for MEGA"
 
     @pytest.mark.parametrize("seq", ['HERMES', 'HERCULES'])
-    def test_hermes_hercules_show_only_target_and_tp(self, backend, seq):
+    def test_hermes_hercules_hide_edit_fields(self, backend, seq):
+        """MRSCloud fixes the offsets and the 20 ms editing pulses for these
+        schemes, so no editing control may be shown (it would do nothing)."""
         backend.mandatory_params['Sequence'] = seq
         backend.mandatory_params['System'] = 'Philips'
         backend.mandatory_params['Localization'] = 'PRESS'
         params = backend.get_params_for_mode()
-        assert 'Edit Target' in params
-        assert 'Edit Tp'     in params
-        # MRSCloud overrides offsets internally → don't show
-        assert 'Edit On'     not in params
-        assert 'Edit Off'    not in params
+        for k in ('Edit Target', 'Edit On', 'Edit Off', 'Edit Tp'):
+            assert k not in params
 
     # ---- Localization restriction ------------------------------------
     @pytest.mark.parametrize("seq", ['MEGA', 'HERMES', 'HERCULES'])
@@ -73,7 +72,7 @@ class TestSchemaAware:
         """Switching from UnEdited+STEAM_7T → MEGA must not leave a stale value."""
         backend.mandatory_params['Sequence'] = 'UnEdited'
         backend.mandatory_params['Localization'] = 'STEAM_7T'
-        backend.mandatory_params['Field Strength'] = '7T'
+        backend.mandatory_params['Bfield'] = 7.0
         backend.get_params_for_mode()  # establishes UnEdited state
         backend.mandatory_params['Sequence'] = 'MEGA'
         backend.mandatory_params['System'] = 'Philips'
@@ -83,7 +82,7 @@ class TestSchemaAware:
 
     def test_unedited_restores_full_localization(self, backend):
         backend.mandatory_params['Sequence'] = 'MEGA'
-        backend.mandatory_params['Field Strength'] = '7T'
+        backend.mandatory_params['Bfield'] = 7.0
         backend.get_params_for_mode()  # narrow
         backend.mandatory_params['Sequence'] = 'UnEdited'
         backend.get_params_for_mode()  # restore

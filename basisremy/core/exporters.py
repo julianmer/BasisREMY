@@ -90,9 +90,14 @@ def export(basis: dict[str, np.ndarray],
         basis: { metabolite_name -> 1-D complex FID }.
         path: Output file (for single-file formats) or directory.
         fmt: One of SUPPORTED_FORMATS.
-        params: Simulation parameters (must include 'Bandwidth', 'Center Freq',
-                'Samples'; 'TE', 'Sequence', 'Nucleus' optional but recommended).
+        params: Simulation parameters. 'Bandwidth' and a field strength
+                ('Bfield' / 'B0', 'Field Strength' or 'Center Freq') are
+                required; 'TE', 'Sequence', 'Nucleus' are optional.
         extra_metadata: Free-form dict written verbatim into the sidecar JSON.
+
+    Edited bases (entries named '<metab> (ON)' / '(OFF)' / '(DIFF)') should
+    go through :func:`export_subspectra`, which writes one output per
+    sub-spectrum with plain metabolite names.
 
     Returns:
         Absolute path of the primary output (file or directory).
@@ -178,6 +183,70 @@ def sequence_label(params: dict) -> str:
     return seq
 
 
+# ----------------------------- edited sub-spectra ----------------------------
+# Edited backends return flat '<metab> (ON)' / '(OFF)' / '(DIFF)' entries.
+# Fitting tools expect one basis set per sub-spectrum with plain metabolite
+# names (LCModel: separate DIFF and edit-OFF .basis files; FSL-MRS: one basis
+# directory per condition, combined with `basis_tools diff`; Osprey: separate
+# files per sub-experiment), so an edited basis is written as one output per
+# sub-spectrum, tagged '_ON' / '_OFF' / '_DIFF' in the file or folder name.
+
+SUBSPECTRA = ("ON", "OFF", "DIFF")
+
+
+def split_subspectra(basis: dict[str, Any]) -> dict[str | None, dict[str, Any]]:
+    """Group a flat edited basis by sub-spectrum, stripping the name suffix.
+
+    Entries without a recognised suffix are returned under the key ``None``.
+    """
+    groups: dict[str | None, dict[str, Any]] = {}
+    for name, fid in basis.items():
+        name = str(name)
+        for sub in SUBSPECTRA:
+            suffix = f" ({sub})"
+            if name.endswith(suffix):
+                groups.setdefault(sub, {})[name[:-len(suffix)]] = fid
+                break
+        else:
+            groups.setdefault(None, {})[name] = fid
+    return groups
+
+
+def subspectrum_path(path: str, fmt: str, sub: str) -> str:
+    """'MEGA_TE68_3T.basis' + 'DIFF' -> 'MEGA_TE68_3T_DIFF.basis' (folder
+    formats get the same tag on the folder name)."""
+    ext = FORMAT_EXTENSIONS.get(fmt, "")
+    if ext and path.lower().endswith(ext):
+        path = path[:-len(ext)]
+    return f"{path}_{sub}{ext}"
+
+
+def export_subspectra(basis: dict[str, Any], path: str, fmt: str,
+                      params: dict[str, Any] | None = None,
+                      which: str = "All", *,
+                      extra_metadata: dict | None = None) -> list[str]:
+    """Export an edited basis as one output per sub-spectrum.
+
+    ``which`` is 'All' or one of SUBSPECTRA. Entries without a sub-spectrum
+    suffix (e.g. a reference singlet) go into every output. Returns the
+    written paths in SUBSPECTRA order.
+    """
+    groups = split_subspectra(basis)
+    common = groups.pop(None, {})
+    subs = [s for s in SUBSPECTRA if s in groups] if which == "All" else [which]
+    if not subs or any(s not in groups for s in subs):
+        raise ValueError(
+            f"No {which} sub-spectrum entries in this basis — names must end "
+            f"in ' (ON)', ' (OFF)' or ' (DIFF)'.")
+    outs = []
+    for sub in subs:
+        outs.append(export({**groups[sub], **common},
+                           subspectrum_path(path, fmt, sub), fmt, params,
+                           extra_metadata={**(extra_metadata or {}),
+                                           "sub_spectrum": sub}))
+    return outs
+
+
 # ----------------------------- internals -------------------------------------
 
 def _normalize_basis(basis: dict[str, Any]) -> dict[str, np.ndarray]:
@@ -197,9 +266,8 @@ def _b0_from_params(params: dict[str, Any]) -> float:
     """Resolve B0 [T] from any of the parameter spellings backends use.
 
     Priority: explicit `Bfield`/`B0` → `Field Strength` string ('3T') →
-    derive from `Center Freq` (MHz) via 1H Larmor → 3.0 T fallback.
-    Used by jMRUI / FSL-MRS / Osprey writers so MRSCloud-style exports
-    (which only carry `Field Strength`) get a sensible B0 instead of 0.
+    derive from `Center Freq` (MHz) via 1H Larmor. Raises when none is
+    present: a header must not carry a guessed field strength.
     """
     for key in ("Bfield", "B0"):
         v = params.get(key)
@@ -222,7 +290,9 @@ def _b0_from_params(params: dict[str, Any]) -> float:
             return cf_mhz / 42.577
         except (TypeError, ValueError):
             pass
-    return 3.0
+    raise ValueError(
+        "Export needs the field strength: set 'Bfield' (T) or 'Center Freq' "
+        "(MHz) — the simulation parameters carry no usable value.")
 
 
 def _make_header(params: dict[str, Any], basis: dict[str, np.ndarray]) -> dict[str, Any]:
@@ -230,11 +300,13 @@ def _make_header(params: dict[str, Any], basis: dict[str, np.ndarray]) -> dict[s
     if not basis:
         raise ValueError("Cannot build export header from an empty basis dict")
 
-    bw_raw = params.get("Bandwidth") or params.get("SpectralWidth") or 2000.0
+    bw_raw = params.get("Bandwidth") or params.get("SpectralWidth")
     try:
         bw = float(bw_raw)
     except (TypeError, ValueError):
-        bw = 2000.0
+        raise ValueError(
+            "Export needs the spectral width: set 'Bandwidth' (Hz) — the "
+            "simulation parameters carry no usable value.") from None
 
     # Central / Larmor frequency in MHz.  Priority:
     #   1. Explicit 'Center Freq' (MHz or Hz — heuristic by magnitude)
@@ -256,11 +328,9 @@ def _make_header(params: dict[str, Any], basis: dict[str, np.ndarray]) -> dict[s
     if cf is None:
         cf = 42.577 * _b0_from_params(params)   # γ·B₀ [MHz]
 
-    npts_raw = params.get("Samples")
-    try:
-        npts = int(npts_raw) if npts_raw not in (None, "") else next(iter(basis.values())).size
-    except (TypeError, ValueError):
-        npts = next(iter(basis.values())).size
+    # The header describes the data actually written, so the point count
+    # comes from the FIDs themselves rather than from the 'Samples' setting.
+    npts = int(next(iter(basis.values())).size)
 
     nucleus = str(params.get("Nucleus") or "1H")
     te = params.get("TE")
