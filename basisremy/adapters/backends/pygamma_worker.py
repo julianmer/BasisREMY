@@ -86,9 +86,54 @@ def synthesize_fid(ppms, areas, phases, cf_mhz, samples, bandwidth, linewidth):
     return fid
 
 
-def sequence_sigma(system, sequence, te_ms, h_op):
+def steam_sigma(system, te, tm, h_op):
+    """Ideal STEAM: 90y - TE/2 - 90x - TM - 90x - TE/2.
+
+    Structure follows Vespa-Simulation's 'STEAM Ideal' sequence
+    (pulse_sequences.xml, B. Soher): the TE crushers around the 2nd and 3rd
+    pulses are emulated by running that part on four copies rotated about z
+    by 0/90/180/270 degrees and averaging, which keeps only the pathways with
+    p(before pulse 2) = -p(after pulse 3), i.e. FID-A's sim_COF(+1).
+
+    The TM spoiler is emulated with zero_mqc(sys, sigma, 0, 1), which keeps
+    only zero-order coherence during TM (longitudinal + zero-quantum), like
+    FID-A's sim_COF(0). Vespa's own code calls zero_mqc(sys, sigma, 2, 0)
+    there; measured in this PyGAMMA build that leaves magnetisation that stays
+    transverse through TM untouched for multi-spin systems, which the z
+    rotations cannot remove either (same net phase as the stimulated echo),
+    giving e.g. 0.15 instead of 0.5 of the spin-echo amplitude for NAA's CH3.
+    With (0, 1) every uncoupled spin gives exactly 0.5, as it must.
+    """
+    u_half_te = pg.prop(h_op, te / 2.0)
+    u_tm = pg.prop(h_op, tm)
+    sigma0 = pg.Iypuls(system, pg.sigma_eq(system), 90.0)
+    sigma0 = pg.evolve(sigma0, u_half_te)
+
+    dephase_angles = (0.0, 90.0, 180.0, 270.0)
+    sigma_res = None
+    for angle in dephase_angles:
+        riz = pg.gen_op(pg.Rz(system, angle))
+        sigma = pg.evolve(pg.gen_op(sigma0), riz)
+        sigma = pg.Ixpuls(system, sigma, 90.0)
+        pg.zero_mqc(system, sigma, 0, 1)   # keep only p = 0 during TM
+        sigma = pg.evolve(sigma, u_tm)
+        sigma = pg.Ixpuls(system, sigma, 90.0)
+        sigma = pg.evolve(sigma, riz)
+        sigma *= 1.0 / float(len(dephase_angles))
+        if sigma_res is None:
+            sigma_res = pg.gen_op(sigma)
+        else:
+            sigma_res += sigma
+    return pg.evolve(sigma_res, u_half_te)
+
+
+def sequence_sigma(system, sequence, te_ms, h_op, tm_ms=None):
     """Return the density matrix at acquisition start for ideal sequences."""
     te = float(te_ms) / 1000.0
+    if sequence in ('STEAM',):
+        if tm_ms is None:
+            raise ValueError("STEAM needs a mixing time (tm_ms)")
+        return steam_sigma(system, te, float(tm_ms) / 1000.0, h_op)
     sigma = pg.sigma_eq(system)
     if sequence in ('PRESS',):
         # 90y - TE/4 - 180x - TE/2 - 180x - TE/4 (symmetric PRESS)
@@ -119,6 +164,7 @@ def run_job(job):
     linewidth = float(job.get('linewidth', 1.0))
     sequence = job['sequence']
     te = float(job['te_ms'])
+    tm = job.get('tm_ms')
 
     basis = {}
     for name, subsystems in job['metabolites'].items():
@@ -129,7 +175,7 @@ def run_job(job):
             system = build_spin_system(sub['shifts_ppm'], sub['j_hz'],
                                        cf, centre)
             h_op = pg.Hcs(system) + pg.HJ(system)
-            sigma = sequence_sigma(system, sequence, te, h_op)
+            sigma = sequence_sigma(system, sequence, te, h_op, tm_ms=tm)
             detector = pg.gen_op(pg.Fm(system))
             # acq must outlive mx: the table references memory owned by the
             # acquire1D object (a one-liner here corrupts the table/crashes)

@@ -25,7 +25,8 @@ from pathlib import Path
 
 from basisremy.core.paths import runtime_root
 
-_WORKER = Path(__file__).resolve().parents[1] / 'adapters' / 'pygamma_worker.py'
+_WORKER = (Path(__file__).resolve().parents[1] / 'adapters' / 'backends'
+           / 'pygamma_worker.py')
 
 # uv python keys per platform for the newest cpython with a pygamma wheel
 _PY_KEYS = {

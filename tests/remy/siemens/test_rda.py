@@ -147,6 +147,11 @@ class TestSiemensRDA:
 
         # Test passes if we tested something
         assert total > 0, "No files were tested"
+        # At least one file must yield a real header value: a reader that
+        # silently returns nothing (e.g. Git-LFS pointer files on CI) would
+        # otherwise still be counted as "successful".
+        assert any(f.get('Bandwidth') not in (None, '') for _, f in successful_files), \
+            "no file yielded 'Bandwidth' - are the example files real data (git lfs pull)?"
 
 
 

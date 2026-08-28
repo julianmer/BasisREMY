@@ -75,14 +75,21 @@ class TestVespaBackend:
     def test_sequence_synonyms(self):
         b = VespaBackend()
         assert b.map_sequence_in('UnEdited') == 'PRESS'
-        assert b.map_sequence_in('steam_te11') is None  # not supported (yet)
+        assert b.map_sequence_in('steam_te11') == 'STEAM'
         assert b.map_sequence_in('MEGA-PRESS') is None  # not supported (yet)
 
     def test_unsupported_sequence_raises(self):
         b = VespaBackend()
         params = dict(b.mandatory_params)
-        params['Sequence'] = 'STEAM'
+        params['Sequence'] = 'LASER'
         with pytest.raises(ValueError, match='unsupported Sequence'):
+            b.run_simulation(params)
+
+    def test_steam_requires_tm(self):
+        b = VespaBackend()
+        params = dict(b.mandatory_params)
+        params.update({'Sequence': 'STEAM', 'TM': None})
+        with pytest.raises(ValueError, match='TM'):
             b.run_simulation(params)
 
 
@@ -153,3 +160,31 @@ class TestVespaLive:
             peak = ppm[np.argmax(spec)]
             assert abs(peak - expected) < 0.05, \
                 f"{metab} peak at {peak:.2f}, expected {expected}"
+
+    def test_steam_naa_cr_half_amplitude(self):
+        """STEAM peaks land where PRESS's do; for the uncoupled NAA CH3
+        singlet the stimulated echo is half the spin-echo amplitude."""
+        import numpy as np
+        from basisremy.core import pygamma_manager
+        if pygamma_manager.preferred_runtime() == 'env' \
+                and not pygamma_manager.is_available():
+            pytest.skip("no PyGAMMA runtime available")
+        br = BasisREMY()
+        br.set_backend('Vespa')
+        common = {'Samples': 2048, 'Bandwidth': 2000, 'Bfield': 3.0,
+                  'TE': 20, 'Nucleus': '1H', 'Center Freq': 127.732,
+                  'Metabolites': ['NAA', 'Cr']}
+        steam = br.backend.run_simulation({**common, 'Sequence': 'STEAM', 'TM': 10})
+        assert not br.backend.last_failures
+        press = br.backend.run_simulation({**common, 'Sequence': 'PRESS'})
+        ppm = np.linspace(-1000, 1000, 2048) / 127.732 + 4.65
+        for metab, expected in (('NAA', 2.01), ('Cr', 3.03)):
+            spec = np.abs(np.fft.fftshift(np.fft.fft(steam[metab])))
+            peak = ppm[np.argmax(spec)]
+            assert abs(peak - expected) < 0.05, \
+                f"{metab} STEAM peak at {peak:.2f}, expected {expected}"
+        s_naa = np.abs(np.fft.fftshift(np.fft.fft(steam['NAA'])))
+        p_naa = np.abs(np.fft.fftshift(np.fft.fft(press['NAA'])))
+        sel = np.abs(ppm - 2.01) < 0.1
+        ratio = s_naa[sel].max() / p_naa[sel].max()
+        assert abs(ratio - 0.5) < 0.05, f"STEAM/PRESS NAA singlet ratio {ratio:.3f}, expected 0.5"

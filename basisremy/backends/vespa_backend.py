@@ -37,10 +37,9 @@ class VespaBackend(Backend):
 
         self.metabs = {m: True for m in _DEFAULT_METABS}
 
-        # v1 sequences (ideal pulses). STEAM needs coherence-order filtering
-        # during TM and returns in a later iteration.
+        # Ideal-pulse sequences (shaped pulses are a later iteration).
         self.dropdown = {
-            'Sequence': ['PRESS', 'Spin Echo'],
+            'Sequence': ['PRESS', 'STEAM', 'Spin Echo'],
         }
         # Scan-physics values have NO defaults — they must come from REMY or
         # the user, never masquerade as file metadata.
@@ -78,7 +77,7 @@ class VespaBackend(Backend):
         if 'mega' in s or 'hermes' in s or 'hercules' in s:
             return None   # edited sequences not supported (yet)
         if 'steam' in s:
-            return None   # STEAM not supported (yet)
+            return 'STEAM'
         # 'UnEdited' is the MRSCloud/BigGABA name for a plain acquisition
         if 'press' in s or 'unedited' in s:
             return 'PRESS'
@@ -171,6 +170,8 @@ class VespaBackend(Backend):
             raise ValueError(
                 f"Vespa: unsupported Sequence {sequence!r} — choose one of "
                 f"{self.dropdown['Sequence']}.")
+        if sequence == 'STEAM' and params.get('TM') in (None, ''):
+            raise ValueError("Vespa: STEAM needs a mixing time 'TM' (ms).")
 
         runtime = pygamma_manager.preferred_runtime()
         if runtime == 'docker':
@@ -190,6 +191,8 @@ class VespaBackend(Backend):
             'centre_ppm': 4.65,
             'linewidth': float(params.get('Linewidth') or 1.0),
         }
+        if sequence == 'STEAM':
+            base_job['tm_ms'] = float(params['TM'])
 
         metabs = params.get('Metabolites') or []
         self.last_failures = {}   # metab -> reason, surfaced by the GUI

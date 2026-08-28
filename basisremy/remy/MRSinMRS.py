@@ -800,10 +800,10 @@ class DataReaders():
 		## Correct Echo/Repetition Time Units
 		if 'TE' in list(MRSinMRS.keys()):
 			MRSinMRS['TE'              ]  = str(MRSinMRS['TE']).replace(',', '.')
-			MRSinMRS['TE'              ]  = float(MRSinMRS['TE'   ]) / 1e3					# Echo Time
+			MRSinMRS['TE'              ]  = float(str(MRSinMRS['TE']).split()[0]) / 1e3		# Echo Time (XA: array, first entry)
 		if 'TR' in list(MRSinMRS.keys()):
 			MRSinMRS['TR'              ]  = str(MRSinMRS['TR']).replace(',', '.')
-			MRSinMRS['TR'              ]  = float(MRSinMRS['TR'   ]) / 1e3  				# Repetition Time
+			MRSinMRS['TR'              ]  = float(str(MRSinMRS['TR']).split()[0]) / 1e3		# Repetition Time (XA: array, first entry)
 
 		write_log(log, 'Data Read: Siemens Twix - Returning MRSinMRS Dictionary') 			# Log - Note Success
 		return MRSinMRS, log 																# Return MRSinMRS Dictionary
@@ -831,7 +831,7 @@ class DataReaders():
 		MRSinMRS['Model'          ] = hdr['_standard_data'  ]['ManufacturersModelName'] 	# Siemens Model
 		MRSinMRS['SoftwareVersion'] = hdr['_standard_data'  ]['SoftwareVersions'      ] 	# Siemens Version
 		MRSinMRS['Nucleus'        ] = hdr['ResonantNucleus' ][0                       ] 	# Nucleus
-		MRSinMRS['Sequence'       ] = hdr['_standard_data'  ]['ProtocolName'          ] 	# Sequence
+		MRSinMRS['Sequence'       ] = hdr['_standard_data'  ].get('ProtocolName', '')   	# Sequence (missing when anonymised)
 		MRSinMRS['ap_size'        ] = image['_Nifti__pixdim'][0                       ] 	# Anterior Posterior
 		MRSinMRS['lr_size'        ] = image['_Nifti__pixdim'][1                       ] 	# Left Right
 		MRSinMRS['cc_size'        ] = image['_Nifti__pixdim'][2                       ] 	# CranioCaudal
@@ -1033,8 +1033,8 @@ class DataReaders():
 		field_strength = MRSinMRS['$PVM_FrqRef'].split('; ')[1].split(' ')[0] 				# Bruker Field Strength
 		field_strength = float(field_strength) 												# Bruker Field Strength in T
 
-		WS             = MRSinMRS['$PVM_WsMode'      ].replace(';', '') 					# Water Suppression
-		Nucleus        = MRSinMRS['$PVM_Nucleus1Enum'].replace(';', '') 					# Nucleus
+		WS             = MRSinMRS.get('$PVM_WsMode'      , '').replace(';', '') 				# Water Suppression (optional)
+		Nucleus        = MRSinMRS.get('$PVM_Nucleus1Enum', '').replace(';', '') 				# Nucleus (optional)
 		
 		if '1H' in Nucleus:
 			Nucleus = '1H'
@@ -1052,6 +1052,9 @@ class DataReaders():
 			Nucleus = '31P'
 
 		Sequence       =       MRSinMRS['$Method'][1:-3] 									# Sequence
+		if '$PVM_SpecSWH' not in MRSinMRS: 														# Imaging (non-MRS) method file
+			raise ValueError('Not a spectroscopy method file (no $PVM_SpecSWH spectral width)')
+
 		SW             =       MRSinMRS['$PVM_SpecSWH'].split(';')[1].strip() 				# Spectral Width Hertz
 		TR             = float(MRSinMRS['$PVM_RepetitionTime'].replace(';', '')) 			# Repetition Time
 		TE             = float(MRSinMRS['$PVM_EchoTime'].replace(';', '')) 					# Echo Time
