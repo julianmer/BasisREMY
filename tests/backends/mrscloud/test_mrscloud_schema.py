@@ -137,10 +137,36 @@ class TestPulseFiles:
 
     def test_philips_press_unedited_lists_pulses(self):
         files = MRSCloudBackend.required_pulse_files('Philips', 'UnEdited', 'PRESS')
-        assert any(f.endswith('.pta') for f in files)
-        # Philips_spredrex.pta is hard-coded as excitation for ALL vendors
-        assert any('Philips_spredrex' in f for f in files)
-        assert any('gtst1203_sp' in f for f in files)
+        assert files == ['pulses/gtst1203_sp.pta']
+        # the hard-coded Philips_spredrex.pta excitation is substituted by the
+        # bundled universal waveform for every vendor, so it is never required
+
+    def test_requirements_follow_load_parameters(self):
+        req = MRSCloudBackend.required_pulse_files
+        # HERMES: the universal dual-lobe pulse ships under a later name (alias)
+        assert req('Universal_Philips', 'HERMES', 'PRESS') == []
+        assert req('Universal_Siemens', 'HERMES', 'PRESS') == []
+        # HERCULES: vendor dual-lobe pulses are not in the public repo
+        assert req('Universal_Philips', 'HERCULES', 'PRESS') == [
+            'pulses/dl_Philips_4_58_1_90.pta', 'pulses/dl_Philips_4_18_1_90.pta']
+        # sLASER: the GOIA-WURST waveform is vendor-confidential in every mode
+        assert req('Universal_Philips', 'UnEdited', 'sLASER') == [
+            'pulses/Philips_GOIA_WURST_100pts.mat']
+        assert req('GE', 'UnEdited', 'sLASER') == ['pulses/GE_GOIA_WURST_100pts.mat']
+        assert req('Siemens', 'HERCULES', 'PRESS') == [
+            'pulses/orig_refoc_mao_100_4.pta', 'pulses/Siemens_filtered_editing.pta',
+            'pulses/dl_Siemens_4_58_1_90.pta', 'pulses/dl_Siemens_4_18_1_90.pta']
+        # STEAM_7T loads no waveform (and is refused at run time upstream-wise)
+        assert req('Universal_Philips', 'UnEdited', 'STEAM_7T') == []
+
+    def test_universal_slaser_shows_picker(self):
+        backend = MRSCloudBackend()
+        backend.mandatory_params.update(
+            {'Sequence': 'UnEdited', 'Localization': 'sLASER', 'System': 'Philips'})
+        backend.current_mode = 'Universal'
+        params = backend.get_params_for_mode()
+        assert 'Vendor Pulse File' in backend.file_selection
+        assert 'Vendor Pulse File' in params
 
     def test_unknown_combo_returns_empty(self):
         assert MRSCloudBackend.required_pulse_files('Bruker', 'MEGA', 'sLASER') == []
@@ -149,7 +175,7 @@ class TestPulseFiles:
         """All required pulses missing → all reported as missing."""
         missing = MRSCloudBackend.missing_pulse_files(
             'Philips', 'UnEdited', 'PRESS', mrscloud_root=str(tmp_path))
-        assert len(missing) >= 2
+        assert missing == ['pulses/gtst1203_sp.pta']
 
     def test_missing_pulse_files_universal_empty(self, tmp_path):
         """Universal_* combos don't require any pulses → empty even with bogus root."""

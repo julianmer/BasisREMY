@@ -208,6 +208,10 @@ class TestMRSCloudParameters:
         for missing in ('Bfield', 'TE', 'Sequence', 'Localization'):
             with pytest.raises(ValueError, match=missing):
                 backend.run_simulation({**base, missing: None})
+        # STEAM_7T is unfinished in the public MRSCloud (no mixing time,
+        # tm used as a flip angle) — refused with the reason, never run
+        with pytest.raises(ValueError, match='STEAM_7T'):
+            backend.run_simulation({**base, 'Localization': 'STEAM_7T'})
 
     # ---- workdir behaviour -------------------------------------------
     def test_workdir_lazy(self, backend):
@@ -243,7 +247,7 @@ class TestMRSCloudLive:
 
     _COMMON = {
         'System':         'Universal_Philips',   # only fully-bundled vendor
-        'Bfield':         3.0,
+        'Bfield':         2.89,                  # not MRSCloud's 3 T: exercises the B0 override
         'Samples':        2048,
         'Bandwidth':      2000,
         'TE':             35,
@@ -251,30 +255,20 @@ class TestMRSCloudLive:
         'Metabolites':    ['NAA'],
     }
 
-    @pytest.mark.parametrize("sequence,localization,edit_target", [
-        # Fully bundled — should pass
-        ('UnEdited', 'PRESS',    ''),
-        # Need vendor product pulses not shipped by MRSCloud — TODO
-        pytest.param('UnEdited', 'sLASER',   '',
-                     marks=pytest.mark.xfail(strict=False,
-                         reason="TODO get Philips_GOIA_WURST_100pts.mat (not in MRSCloud public repo)")),
-        pytest.param('UnEdited', 'STEAM_7T', '',
-                     marks=pytest.mark.xfail(strict=False,
-                         reason="TODO get STEAM_7T pulse waveforms (not in MRSCloud public repo)")),
-        pytest.param('MEGA',     'PRESS',  'GABA',
-                     marks=pytest.mark.xfail(strict=False,
-                         reason="TODO get testing data + edit-pulse waveforms for MEGA-PRESS")),
-        pytest.param('HERMES',   'PRESS',  'GABA',
-                     marks=pytest.mark.xfail(strict=False,
-                         reason="TODO get testing data + edit-pulse waveforms for HERMES")),
-        pytest.param('HERCULES', 'PRESS',  'GABA',
-                     marks=pytest.mark.xfail(strict=False,
-                         reason="TODO get testing data + edit-pulse waveforms for HERCULES")),
-        pytest.param('MEGA',     'sLASER', 'GABA',
-                     marks=pytest.mark.xfail(strict=False,
-                         reason="TODO get testing data + GOIA pulse for MEGA-sLASER")),
+    _TE = {'MEGA': 68, 'HERMES': 80, 'HERCULES': 80}   # MRSCloud's own timings
+
+    @pytest.mark.parametrize("sequence,localization", [
+        # runnable from the public MRSCloud repo (bundled universal waveforms)
+        ('UnEdited', 'PRESS'),
+        ('MEGA',     'PRESS'),
+        ('HERMES',   'PRESS'),
+        # need vendor-confidential waveforms (GOIA-WURST, HERCULES dual-lobe
+        # pulses) — the pre-flight skips unless the user supplied them
+        ('UnEdited', 'sLASER'),
+        ('MEGA',     'sLASER'),
+        ('HERCULES', 'PRESS'),
     ])
-    def test_run_one_metab(self, backend, sequence, localization, edit_target):
+    def test_run_one_metab(self, backend, sequence, localization):
         # Pre-flight: skip cleanly if MRSCloud needs a pulse file that isn't bundled.
         missing = backend.missing_pulse_files(self._COMMON['System'], sequence, localization)
         if missing:
@@ -283,14 +277,30 @@ class TestMRSCloudLive:
         params = {**self._COMMON,
                   'Sequence': sequence,
                   'Localization': localization,
-                  'Edit Target': edit_target}
+                  'TE': self._TE.get(sequence, self._COMMON['TE'])}
         result = backend.run_simulation(params)
-        assert isinstance(result, dict) and 'NAA' in result
-        fid = result['NAA']
+        assert isinstance(result, dict)
+        if sequence == 'MEGA':
+            # ON / OFF / DIFF like the FID-A edited backends
+            assert {'NAA (ON)', 'NAA (OFF)', 'NAA (DIFF)'} <= set(result)
+            assert np.allclose(result['NAA (DIFF)'],
+                               result['NAA (ON)'] - result['NAA (OFF)'])
+            fid = result['NAA (OFF)']   # the 1.9 ppm ON pulse acts on the 2.01 singlet
+        else:
+            assert 'NAA' in result
+            fid = result['NAA']
         assert isinstance(fid, np.ndarray)
         assert fid.dtype.kind == 'c'
         assert fid.size > 0
         assert np.max(np.abs(fid)) > 0, "FID is identically zero"
+        # NAA's singlet must land at 2.01 ppm on the 4.65-centred axis the
+        # GUI plots — guards the rotating-frame convention and the B0
+        # override (the run is at 2.89 T, not MRSCloud's hard-coded 3 T)
+        cf_mhz = 42.577 * self._COMMON['Bfield']
+        bw = self._COMMON['Bandwidth']
+        ppm = np.linspace(-bw / 2, bw / 2, fid.size) / cf_mhz + 4.65
+        peak = ppm[np.argmax(np.abs(np.fft.fftshift(np.fft.fft(fid))))]
+        assert abs(peak - 2.01) < 0.05, f"NAA peak at {peak:.2f} ppm"
 
     def test_run_multiple_metabs(self, backend):
         # Only run the fully-bundled combo here.

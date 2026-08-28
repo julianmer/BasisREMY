@@ -294,23 +294,31 @@ class DockerOctave:
         if self.verbose:
             print("✓ Docker Octave verbose mode enabled")
 
-    def check_running_processes(self):
-        """Check for existing Octave processes in the container."""
+    def _own_script(self) -> str:
+        return os.path.basename(self.script_path)
+
+    def check_running_processes(self, own_only=True):
+        """Octave processes in the container — by default only the one(s)
+        running this instance's script. Other BasisREMY sessions share the
+        container and must be left alone."""
         try:
             result = self.container.exec_run("pgrep -a octave-cli")
-            if result.exit_code == 0:
-                processes = result.output.decode().strip().split('\n')
-                return [p for p in processes if p]
-            return []
+            if result.exit_code != 0:
+                return []
+            processes = [p for p in result.output.decode().strip().split('\n') if p]
+            if own_only:
+                processes = [p for p in processes if self._own_script() in p]
+            return processes
         except Exception:
             return []
 
     def kill_running_processes(self):
-        """Kill all running Octave processes in the container."""
+        """Kill the Octave process running this instance's script — never the
+        simulations of other sessions in the shared container."""
         try:
-            self.container.exec_run("pkill -9 octave-cli")
+            self.container.exec_run(f"pkill -9 -f {self._own_script()}")
             if self.verbose:
-                print("✓ Killed existing Octave processes")
+                print("✓ Killed this session's Octave process")
             return True
         except Exception as e:
             if self.verbose:
@@ -427,16 +435,14 @@ class DockerOctave:
             print(f"   Command: octave-cli {script_rel}")
             print(f"{'-'*80}")
 
-        # Check for existing Octave processes
-        existing_check = self.container.exec_run("pgrep octave-cli")
-        if existing_check.exit_code == 0:
-            existing_pids = existing_check.output.decode().strip().split('\n')
-            if existing_pids and existing_pids[0]:
-                print(f"⚠️  Warning: Found {len(existing_pids)} existing Octave process(es) running!")
-                print(f"   PIDs: {', '.join(existing_pids)}")
-                print("   This may slow down your simulation significantly.")
-                print(f"   Consider killing them with: docker exec {self.container_name} pkill -9 octave-cli")
-                print(f"{'-'*80}")
+        # Other BasisREMY sessions may be simulating in this container: say
+        # so (both runs get slower) but never touch their processes.
+        others = [p for p in self.check_running_processes(own_only=False)
+                  if self._own_script() not in p]
+        if others:
+            print(f"ℹ️  {len(others)} other Octave process(es) running in this "
+                  f"container (another BasisREMY session?) — both will be slower.")
+            print(f"{'-'*80}")
 
         # Add helpful message for long-running simulations
         if show_output:

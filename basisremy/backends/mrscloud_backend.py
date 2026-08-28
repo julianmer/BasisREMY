@@ -17,8 +17,9 @@
 #     post-simulation Export dialog (core/exporters).                                              #
 #   - The metabolite list matches the official MRSCloud README. Some entries (Cystat, HCar, iLe,    #
 #     Lys, Glc) simulate slowly — flagged with TODO.                                                #
-#   - HERMES / HERCULES sub-spectrum recombination is not yet exposed; only the first sub-spectrum  #
-#     (off / 'a') is returned. TODO marked below.                                                  #
+#   - MEGA returns '<metab> (ON)' / '(OFF)' / '(DIFF)' entries (DIFF = ON − OFF, as the FID-A     #
+#     backends do). HERMES / HERCULES sub-experiment recombination is not exposed yet; only their   #
+#     first sub-spectrum 'A' is returned. TODO marked below.                                       #
 #                                                                                                  #
 ####################################################################################################
 
@@ -73,65 +74,103 @@ class MRSCloudBackend(Backend):
     _SYSTEMS       = ['Philips', 'Siemens', 'GE']
     _VENDORS       = ['Philips', 'Universal_Philips', 'Siemens', 'Universal_Siemens', 'GE']
 
-    # ---- Pulse-file availability map ---------------------------------
-    # MRSCloud's README warns: "Product sequence and rf waveform are not
-    # shared in the GitHub repo." That means *most* vendor pulse files are
-    # NOT bundled — only the Universal_* `univ_*.pta` waveforms ship.
+    # ---- Pulse-file requirements --------------------------------------
+    # The waveform names `externals/mrscloud/functions/load_parameters.m`
+    # requests per vendor / localization / editing scheme. MRSCloud's README
+    # (Remark 3): "Product sequence and rf waveform are not shared in the
+    # GitHub repo" — only the pulses_universal/ set ships. Every other name
+    # is vendor-confidential: the GUI asks for it with a file picker, or the
+    # user drops it into externals/mrscloud/pulses/.
     #
-    # The map below is the EXACT set of `.pta` waveforms that
-    # `externals/mrscloud/functions/load_parameters.m` requests via
-    # `io_loadRFwaveform` for a given (vendor, sequence, localization)
-    # triplet. Anything not present on disk is surfaced to the user as a
-    # "Browse" file picker so they can supply the vendor-confidential file
-    # themselves (and we copy it into the per-run workdir under the right
-    # name before MRSCloud is invoked).
-    #
-    # Path is relative to externals/mrscloud/. Universal_* combos are fully
-    # bundled — `missing_pulse_files()` returns [] for them.
-    _PULSE_FILES_BY_VENDOR_LOC_SEQ = {
-        # ------------- Philips -------------
-        ('Philips',          'PRESS',  'UnEdited'): ['pulses/Philips_spredrex.pta',
-                                                     'pulses/gtst1203_sp.pta'],
-        ('Philips',          'PRESS',  'MEGA'):     ['pulses/Philips_spredrex.pta',
-                                                     'pulses/gtst1203_sp.pta'],
-        ('Philips',          'sLASER', 'UnEdited'): ['pulses/Philips_spredrex.pta',
-                                                     'pulses/Philips_GOIA_WURST_100pts.mat'],
-        # ------------- Siemens -------------
-        ('Siemens',          'PRESS',  'UnEdited'): ['pulses/Philips_spredrex.pta',  # excitation hard-coded
-                                                     'pulses/orig_refoc_mao_100_4.pta'],
-        ('Siemens',          'PRESS',  'MEGA'):     ['pulses/Philips_spredrex.pta',
-                                                     'pulses/orig_refoc_mao_100_4.pta'],
-        # ------------- GE -------------
-        ('GE',               'PRESS',  'UnEdited'): ['pulses/Philips_spredrex.pta',
-                                                     'pulses/GE_rfa_3.9ms.pta'],
-        # ------------- Universal_* (bundled) -------------
-        ('Universal_Philips','PRESS',  'UnEdited'): [],   # univ_* shipped + shimmed
-        ('Universal_Philips','PRESS',  'MEGA'):     [],
-        ('Universal_Philips','PRESS',  'HERMES'):   [],
-        ('Universal_Philips','PRESS',  'HERCULES'): [],
-        ('Universal_Siemens','PRESS',  'UnEdited'): [],
-        ('Universal_Siemens','PRESS',  'MEGA'):     [],
-        # STEAM_7T uses inline pulses
-        ('Universal_Philips','STEAM_7T','UnEdited'): [],
-        ('Universal_Siemens','STEAM_7T','UnEdited'): [],
+    # Excitation: load_parameters hard-codes Philips_spredrex.pta for every
+    # vendor; BasisREMY substitutes the bundled universal excitation for it
+    # (see _stage_pulse_shims), so it is never listed as required.
+    _REFOC_PULSES = {          # per vendor: (PRESS, sLASER) refocusing waveform
+        'Philips':           ('gtst1203_sp.pta',          'Philips_GOIA_WURST_100pts.mat'),
+        'Siemens':           ('orig_refoc_mao_100_4.pta', 'Philips_GOIA_WURST_100pts.mat'),
+        'GE':                ('GE_rfa_3.9ms.pta',         'GE_GOIA_WURST_100pts.mat'),
+        'Universal_Philips': ('univ_eddenrefo.pta',       'Philips_GOIA_WURST_100pts.mat'),
+        'Universal_Siemens': ('univ_eddenrefo.pta',       'Philips_GOIA_WURST_100pts.mat'),
+    }
+    _EDIT_PULSES = {           # per vendor and editing scheme
+        'Philips': {
+            'MEGA':     ['sg100_100_0_14ms_88hz.pta'],
+            'HERMES':   ['sg100_100_0_14ms_88hz.pta', 'dl_Philips_4_56_1_90.pta'],
+            'HERCULES': ['sg100_100_0_14ms_88hz.pta', 'dl_Philips_4_58_1_90.pta',
+                         'dl_Philips_4_18_1_90.pta'],
+        },
+        'Siemens': {
+            'MEGA':     ['Siemens_filtered_editing.pta'],
+            'HERMES':   ['Siemens_filtered_editing.pta', 'dl_Siemens_4_56_1_90.pta'],
+            'HERCULES': ['Siemens_filtered_editing.pta', 'dl_Siemens_4_58_1_90.pta',
+                         'dl_Siemens_4_18_1_90.pta'],
+        },
+        'GE': {                # upstream reuses the Philips editing waveforms
+            'MEGA':     ['sg100_100_0_14ms_88hz.pta'],
+            'HERMES':   ['sg100_100_0_14ms_88hz.pta', 'dl_Philips_4_56_1_90.pta'],
+            'HERCULES': ['sg100_100_0_14ms_88hz.pta', 'dl_Philips_4_58_1_90.pta',
+                         'dl_Philips_4_18_1_90.pta'],
+        },
+        'Universal_Philips': {
+            'MEGA':     ['sl_univ_pulse.pta'],
+            'HERMES':   ['sl_univ_pulse.pta', 'dl_Philips_univ_4_56_1_90.pta'],
+            'HERCULES': ['sl_univ_pulse.pta', 'dl_Philips_4_58_1_90.pta',
+                         'dl_Philips_4_18_1_90.pta'],
+        },
+        'Universal_Siemens': {
+            'MEGA':     ['sl_univ_pulse.pta'],
+            'HERMES':   ['sl_univ_pulse.pta', 'dl_Siemens_4_56_1_90.pta'],
+            'HERCULES': ['sl_univ_pulse.pta', 'dl_Siemens_4_58_1_90.pta',
+                         'dl_Siemens_4_18_1_90.pta'],
+        },
+    }
+    # Shipped in externals/mrscloud/pulses_universal/.
+    _BUNDLED_PULSES = {
+        'sl_univ_pulse.pta', 'univ_eddenrefo.pta', 'univ_spreddenrex.pta',
+        'dl_Univ_4_68_1_9_20ms.pta',
+        'dl_Philips_univ_3_67_1_9_20ms.pta', 'dl_Philips_univ_3_67_4_56_20ms.pta',
+        'dl_Philips_univ_4_56_1_9_20ms.pta', 'dl_Philips_univ_4_68_1_9_20ms.pta',
+        'dl_Siemens_univ_3_67_1_9_20ms.pta', 'dl_Siemens_univ_3_67_4_56_20ms.pta',
+        'dl_Siemens_univ_4_56_1_9_20ms.pta', 'dl_Siemens_univ_4_68_1_9_20ms.pta',
+    }
+    # Names load_parameters.m requests that ship under a later name: the
+    # universal 4.56 / 1.9 ppm dual-lobe pulse was committed upstream on
+    # 2023-03-30 as *_1_9_20ms.pta while the HERMES branches still ask for
+    # *_1_90.pta, a file the public repo never had. Staged under the
+    # requested name by _stage_pulse_shims.
+    _PULSE_ALIASES = {
+        'dl_Philips_univ_4_56_1_90.pta': 'dl_Philips_univ_4_56_1_9_20ms.pta',
+        'dl_Siemens_4_56_1_90.pta':      'dl_Siemens_univ_4_56_1_9_20ms.pta',
     }
 
     @classmethod
     def required_pulse_files(cls, vendor: str, sequence: str, localization: str) -> list[str]:
-        """Pulse files MRSCloud will demand for this (vendor, seq, loc) combo."""
-        return list(cls._PULSE_FILES_BY_VENDOR_LOC_SEQ.get(
-            (vendor, localization, sequence), []))
+        """Vendor-confidential pulse files MRSCloud will demand for this
+        (vendor, seq, loc) combo, as paths relative to externals/mrscloud/.
+        Bundled and aliased universal waveforms are not listed."""
+        if vendor not in cls._REFOC_PULSES:
+            return []
+        names = []
+        if localization == 'PRESS':
+            names.append(cls._REFOC_PULSES[vendor][0])
+        elif localization == 'sLASER':
+            names.append(cls._REFOC_PULSES[vendor][1])
+        names += cls._EDIT_PULSES[vendor].get(sequence, [])
+        out = []
+        for name in names:
+            rel = f'pulses/{name}'
+            if (name in cls._BUNDLED_PULSES or name in cls._PULSE_ALIASES
+                    or rel in out):
+                continue
+            out.append(rel)
+        return out
 
     @classmethod
     def missing_pulse_files(cls, vendor: str, sequence: str, localization: str,
                             mrscloud_root: str = './externals/mrscloud') -> list[str]:
         """Subset of required pulse files that are NOT present on disk."""
-        import os
-        out = []
-        for rel in cls.required_pulse_files(vendor, sequence, localization):
-            if not os.path.exists(os.path.join(mrscloud_root, rel)):
-                out.append(rel)
-        return out
+        return [rel for rel in cls.required_pulse_files(vendor, sequence, localization)
+                if not os.path.exists(os.path.join(mrscloud_root, rel))]
 
     def __init__(self):
         super().__init__()
@@ -303,23 +342,22 @@ class MRSCloudBackend(Backend):
                 self.mandatory_params.pop(k, None)
 
         # ---- ask for the missing vendor pulse file when needed ---------------
-        # Only Non-Universal mode may need a vendor-confidential pulse file;
-        # Universal mode always uses the bundled univ_*.pta waveforms.
+        # Universal mode covers PRESS with bundled waveforms, but sLASER
+        # (GOIA-WURST) and HERCULES (vendor dual-lobe pulses) need
+        # vendor-confidential files in either mode.
         cur_loc = params.get('Localization') or loc
         self.file_selection = []
-        if self.current_mode == 'Non-Universal' and seq and vendor and cur_loc:
-            missing = self.missing_pulse_files(vendor, seq, cur_loc)
-            if missing:
-                label = self._pulse_param_label
-                self.file_selection.append(label)
-                params[label] = self.mandatory_params.get(label)
-                self.mandatory_params.setdefault(label, None)
-            else:
-                # All required pulses are present on disk — no picker needed.
-                params.pop(self._pulse_param_label, None)
-                self.mandatory_params.pop(self._pulse_param_label, None)
+        missing = []
+        if seq and vendor and cur_loc:
+            missing = self.missing_pulse_files(
+                self._mrscloud_vendor(vendor), seq, cur_loc)
+        if missing:
+            label = self._pulse_param_label
+            self.file_selection.append(label)
+            params[label] = self.mandatory_params.get(label)
+            self.mandatory_params.setdefault(label, None)
         else:
-            # Universal mode (bundled) or nothing selected yet — no picker.
+            # everything MRSCloud will load is bundled or on disk — no picker
             params.pop(self._pulse_param_label, None)
             self.mandatory_params.pop(self._pulse_param_label, None)
 
@@ -470,6 +508,9 @@ class MRSCloudBackend(Backend):
         # Pull in MRSCloud (functions + bundled FID-A) recursively
         self.octave.addpath(self.octave.genpath('./externals/mrscloud/functions/'))
         self.octave.addpath(self.octave.genpath('./externals/mrscloud/pulses_universal/'))
+        # vendor-confidential waveforms the user placed next to the bundled ones
+        if os.path.isdir('./externals/mrscloud/pulses'):
+            self.octave.addpath('./externals/mrscloud/pulses/')
 
     # ----------------------------------------------------- pulse-file shimming
     def _stage_user_pulse(self, workdir: str, vendor: str, sequence: str,
@@ -486,12 +527,13 @@ class MRSCloudBackend(Backend):
         if not user_path:
             return
         missing = self.missing_pulse_files(vendor, sequence, localization)
-        # Drop the excitation Philips_spredrex.pta — that one is shimmed
-        # automatically by `_stage_universal_excite_shim` below.
-        missing = [m for m in missing if not m.endswith('Philips_spredrex.pta')]
         if not missing:
             return
-        target_name = os.path.basename(missing[0])
+        wanted = [os.path.basename(m) for m in missing]
+        picked = os.path.basename(user_path)
+        # a file named like one of the missing waveforms keeps its name;
+        # anything else is taken as the first missing one
+        target_name = picked if picked in wanted else wanted[0]
         dst = os.path.join(workdir, target_name)
         try:
             if os.path.abspath(user_path) != os.path.abspath(dst):
@@ -501,8 +543,10 @@ class MRSCloudBackend(Backend):
         except Exception as e:
             print(f"  ⚠️  Could not stage user pulse {user_path}: {e}")
 
-    def _stage_universal_excite_shim(self, workdir: str) -> None:
-        """Work around the hard-coded `Philips_spredrex.pta` excitation pulse.
+    def _stage_pulse_shims(self, workdir: str) -> None:
+        """Stage the bundled universal waveforms under the names MRSCloud asks for.
+
+        Excitation: work around the hard-coded `Philips_spredrex.pta` pulse.
 
         `externals/mrscloud/functions/load_parameters.m` (line ~485) calls
 
@@ -533,6 +577,17 @@ class MRSCloudBackend(Backend):
                       f"MRSCloud will likely fail with 'File not found'.")
                 return
             shutil.copyfile(src, dst)
+        # Universal dual-lobe pulses that load_parameters.m requests under a
+        # name the public repo never had (see _PULSE_ALIASES); a user-supplied
+        # file of the requested name takes precedence.
+        univ_dir = os.path.abspath('./externals/mrscloud/pulses_universal')
+        vendor_dir = os.path.abspath('./externals/mrscloud/pulses')
+        for wanted, shipped in self._PULSE_ALIASES.items():
+            alias_dst = os.path.join(workdir, wanted)
+            alias_src = os.path.join(univ_dir, shipped)
+            if (not os.path.exists(os.path.join(vendor_dir, wanted))
+                    and not os.path.exists(alias_dst) and os.path.exists(alias_src)):
+                shutil.copyfile(alias_src, alias_dst)
         # Prepend the workdir so the shim is found *first*. The Octave runtime
         # may be running inside a Docker container that mounts the project root
         # at /workspace, so we MUST pass a path relative to the project root —
@@ -576,6 +631,13 @@ class MRSCloudBackend(Backend):
             raise ValueError(
                 "MRSCloud: Sequence and Localization must be selected before "
                 "simulating.")
+        if localization == 'STEAM_7T':
+            raise ValueError(
+                "MRSCloud: STEAM_7T cannot be simulated from the public MRSCloud "
+                "repository — sim_signals_STEAM.m is unfinished upstream (no "
+                "mixing time is ever set, and the value is used as the flip "
+                "angle of the third pulse). Use FID-A's STEAM (ideal or shaped) "
+                "or Vespa's STEAM instead.")
 
         # Stage the user-supplied vendor pulse (if any) FIRST, then drop in
         # the bundled universal excitation waveform under the name MRSCloud
@@ -583,7 +645,7 @@ class MRSCloudBackend(Backend):
         # for every vendor.
         self._stage_user_pulse(workdir, vendor, sequence, localization,
                                params.get(self._pulse_param_label))
-        self._stage_universal_excite_shim(workdir)
+        self._stage_pulse_shims(workdir)
         try:
             bfield = float(params.get('Bfield'))
         except (TypeError, ValueError):
@@ -629,19 +691,33 @@ class MRSCloudBackend(Backend):
                   f"({sequence}/{localization} on {vendor}, TE={te:g} ms, "
                   f"B0={bfield:g} T, {field_str} parameter set)")
             try:
-                fid_re, fid_im, npts, _sw, _cf = self.octave.feval(
+                # MEGA: the adapter also hands back the edit-OFF sub-spectrum
+                is_mega = sequence == 'MEGA'
+                out = self.octave.feval(
                     'mrscloud_run_metab',
                     metab, vendor, sequence, localization,
                     te, field_str, edit_target,
                     edit_on, edit_off, edit_tp, float(spatial), save_dir,
                     float(samples), float(bandwidth), float(bfield),
-                    nout=5,
+                    nout=7 if is_mega else 5,
                 )
-                fid = np.asarray(fid_re, dtype=np.float64).flatten() \
-                    + 1j * np.asarray(fid_im, dtype=np.float64).flatten()
+                fid = np.asarray(out[0], dtype=np.float64).flatten() \
+                    + 1j * np.asarray(out[1], dtype=np.float64).flatten()
                 if fid.size == 0:
                     raise RuntimeError("empty FID returned")
-                basis_set[metab] = fid
+                if is_mega:
+                    off = np.asarray(out[5], dtype=np.float64).flatten() \
+                        + 1j * np.asarray(out[6], dtype=np.float64).flatten()
+                    if off.size != fid.size:
+                        raise RuntimeError("edit-OFF sub-spectrum missing")
+                    basis_set[f'{metab} (ON)'] = fid
+                    basis_set[f'{metab} (OFF)'] = off
+                    basis_set[f'{metab} (DIFF)'] = fid - off
+                else:
+                    # TODO: HERMES / HERCULES — expose sub-experiments A–D and
+                    # their GABA / GSH difference combinations (needs a naming
+                    # decision: the GUI and exporters know ON / OFF / DIFF).
+                    basis_set[metab] = fid
             except Exception as e:
                 # Don't kill the whole run — record the failure (surfaced by
                 # the GUI) and skip; a zero-filled FID would look like success.

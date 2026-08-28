@@ -188,10 +188,11 @@ class Backend:
             # Octave workspace and raises Oct2PyError for a local instance)
             from basisremy.docker.docker_octave import DockerOctave
             if isinstance(self.octave, DockerOctave):
-                existing = self.octave.check_running_processes()
+                existing = self.octave.check_running_processes()   # ours only
                 if existing:
-                    print(f"⚠️  Found {len(existing)} existing Octave process(es)")
-                    print("   Cleaning up old processes...")
+                    print(f"⚠️  Found {len(existing)} stale Octave process(es) "
+                          f"from this session")
+                    print("   Cleaning up...")
                     self.octave.kill_running_processes()
                     print("✓ Ready for new simulation")
 

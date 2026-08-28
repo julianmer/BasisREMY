@@ -87,7 +87,9 @@ def cleanup_docker_processes():
             # Container names are per-project (see DockerOctave.__init__)
             digest = hashlib.sha256(os.getcwd().encode()).hexdigest()[:8]
             container = client.containers.get(f'octave_runner_{digest}')
-            container.exec_run("pkill -9 octave-cli")
+            # only this test process's Octave (per-pid script name) — other
+            # BasisREMY sessions share the container and keep running
+            container.exec_run(f"pkill -9 -f run_{os.getpid()}.m")
         except:
             pass
     except:
