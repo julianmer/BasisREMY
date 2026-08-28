@@ -66,3 +66,17 @@ def test_application_class_loads():
         raise
     assert isinstance(app_cls, type)
     assert app_cls.__name__ == "BasisREMYApp"
+
+
+def test_version_is_single_sourced():
+    """pyproject must not carry its own version string — basisremy.__version__
+    is the single source (via [tool.setuptools.dynamic])."""
+    import os
+    import re
+    import basisremy
+    assert re.fullmatch(r"\d+\.\d+\.\d+", basisremy.__version__)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "pyproject.toml")) as f:
+        pyproject = f.read()
+    assert 'dynamic = ["version"]' in pyproject
+    assert re.search(r'^version\s*=\s*"', pyproject, re.M) is None

@@ -1,0 +1,161 @@
+####################################################################################################
+#                                       pygamma_worker.py                                          #
+####################################################################################################
+#                                                                                                  #
+# Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
+#                                                                                                  #
+# Created: 27/08/26                                                                                #
+#                                                                                                  #
+# Purpose: Standalone PyGAMMA simulation worker for the Vespa backend. Runs inside the dedicated   #
+#          Python 3.9 side-environment (PyGAMMA has no wheels for modern Pythons), so this file    #
+#          must stay Python-3.9 compatible and import nothing from basisremy.                      #
+#                                                                                                  #
+#          Usage: python pygamma_worker.py <job.json> <out.json>                                   #
+#                                                                                                  #
+#          The job carries acquisition parameters and per-metabolite spin systems (shifts in ppm,  #
+#          J-couplings in Hz). Transition-table binning follows Vespa-Simulation's canonical       #
+#          binning code (pulse_sequences.xml, "Based on TTable1D::calc_spectra()").                #
+#                                                                                                  #
+####################################################################################################
+
+import json
+import math
+import sys
+
+import numpy as np
+import pygamma as pg
+
+
+def build_spin_system(shifts_ppm, j_hz, cf_mhz, centre_ppm):
+    """Spin system with shifts relative to the rotating-frame centre."""
+    nspins = len(shifts_ppm)
+    system = pg.spin_system(nspins)
+    system.Omega(cf_mhz)
+    for i in range(nspins):
+        system.PPM(i, shifts_ppm[i] - centre_ppm)
+    for i in range(nspins):
+        for k in range(i + 1, nspins):
+            jval = j_hz[i][k]
+            if jval:
+                system.J(i, k, jval)
+    return system
+
+
+def bin_table(mx, system, cf_mhz):
+    """Vespa's canonical transition-table binning -> (ppm_rel, area, phase_deg).
+
+    ppm values are relative to the rotating-frame centre (the spin system was
+    built with centred shifts).
+    """
+    nlines = mx.size()
+    obs_qn = pg.Isotope('1H').qn()
+    qnscale = system.qnStates().size()
+    qnscale = qnscale / (2.0 * (2.0 * obs_qn + 1))
+
+    indx = mx.Sort(0, -1, 0)
+    ppms, areas, phases = [], [], []
+    for i in range(nlines):
+        freq_ppm = -1 * mx.Fr(indx[i]) / (2.0 * math.pi * cf_mhz)
+        val = mx.I(indx[i])
+        area = math.sqrt(val.real() ** 2 + val.imag() ** 2) / qnscale
+        phase = -math.degrees(math.atan2(val.imag(), val.real()))
+        ppms.append(freq_ppm)
+        areas.append(area)
+        phases.append(phase)
+    return ppms, areas, phases
+
+
+def synthesize_fid(ppms, areas, phases, cf_mhz, samples, bandwidth, linewidth):
+    """Sum of damped complex exponentials (Vespa's calculate_fid formula).
+
+    The sign convention matches FID-A / the BasisREMY plot: a line at
+    ppm_rel (relative to centre) oscillates at -ppm_rel * f0 Hz... with the
+    binned freq already carrying Vespa's sign, the peak lands at the correct
+    ppm on an axis of +freq/f0 + centre.
+    """
+    t = np.arange(samples) / float(bandwidth)
+    fid = np.zeros(samples, dtype=complex)
+    for ppm, area, phase in zip(ppms, areas, phases):
+        # binned ppm is relative to the centre; the GUI/FID-A axis is
+        # ppm = +freq/f0 + centre, so a line at relative ppm oscillates
+        # at +ppm*f0 Hz (verified: 2.0 ppm singlet -> -2.65 ppm rel).
+        hz = ppm * cf_mhz
+        fid += area * np.exp(1j * (2.0 * math.pi * hz * t
+                                   + math.radians(phase)))
+    fid *= np.exp(-math.pi * float(linewidth) * t)
+    return fid
+
+
+def sequence_sigma(system, sequence, te_ms, h_op):
+    """Return the density matrix at acquisition start for ideal sequences."""
+    te = float(te_ms) / 1000.0
+    sigma = pg.sigma_eq(system)
+    if sequence in ('PRESS',):
+        # 90y - TE/4 - 180x - TE/2 - 180x - TE/4 (symmetric PRESS)
+        sigma = pg.Iypuls(system, sigma, 90.0)
+        u1 = pg.prop(h_op, te / 4.0)
+        u2 = pg.prop(h_op, te / 2.0)
+        sigma = pg.evolve(sigma, u1)
+        sigma = pg.Ixpuls(system, sigma, 180.0)
+        sigma = pg.evolve(sigma, u2)
+        sigma = pg.Ixpuls(system, sigma, 180.0)
+        sigma = pg.evolve(sigma, u1)
+        return sigma
+    if sequence in ('Spin Echo',):
+        sigma = pg.Iypuls(system, sigma, 90.0)
+        u = pg.prop(h_op, te / 2.0)
+        sigma = pg.evolve(sigma, u)
+        sigma = pg.Ixpuls(system, sigma, 180.0)
+        sigma = pg.evolve(sigma, u)
+        return sigma
+    raise ValueError("unsupported sequence: %r" % (sequence,))
+
+
+def run_job(job):
+    cf = float(job['cf_mhz'])
+    centre = float(job.get('centre_ppm', 4.65))
+    samples = int(job['samples'])
+    bandwidth = float(job['bandwidth'])
+    linewidth = float(job.get('linewidth', 1.0))
+    sequence = job['sequence']
+    te = float(job['te_ms'])
+
+    basis = {}
+    for name, subsystems in job['metabolites'].items():
+        # denmatsim convention: a metabolite is a list of sub-spin-systems
+        # (e.g. NAA = acetyl + aspartyl groups), summed with scale factors.
+        total = np.zeros(samples, dtype=complex)
+        for sub in subsystems:
+            system = build_spin_system(sub['shifts_ppm'], sub['j_hz'],
+                                       cf, centre)
+            h_op = pg.Hcs(system) + pg.HJ(system)
+            sigma = sequence_sigma(system, sequence, te, h_op)
+            detector = pg.gen_op(pg.Fm(system))
+            # acq must outlive mx: the table references memory owned by the
+            # acquire1D object (a one-liner here corrupts the table/crashes)
+            acq = pg.acquire1D(detector, h_op, 0.001)
+            mx = acq.table(sigma)
+            ppms, areas, phases = bin_table(mx, system, cf)
+            del acq
+            fid = synthesize_fid(ppms, areas, phases, cf,
+                                 samples, bandwidth, linewidth)
+            total += float(sub.get('scale', 1.0)) * fid
+        basis[name] = {'re': total.real.tolist(), 'im': total.imag.tolist()}
+    return basis
+
+
+def main():
+    job_path, out_path = sys.argv[1], sys.argv[2]
+    with open(job_path, 'r') as f:
+        job = json.load(f)
+    try:
+        basis = run_job(job)
+        result = {'ok': True, 'basis': basis}
+    except Exception as exc:  # noqa: BLE001 - the parent surfaces this
+        result = {'ok': False, 'error': '%s: %s' % (type(exc).__name__, exc)}
+    with open(out_path, 'w') as f:
+        json.dump(result, f)
+
+
+if __name__ == '__main__':
+    main()

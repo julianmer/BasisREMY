@@ -75,12 +75,81 @@ class TestVespaBackend:
     def test_sequence_synonyms(self):
         b = VespaBackend()
         assert b.map_sequence_in('UnEdited') == 'PRESS'
-        assert b.map_sequence_in('steam_te11') == 'STEAM'
+        assert b.map_sequence_in('steam_te11') is None  # not supported (yet)
         assert b.map_sequence_in('MEGA-PRESS') is None  # not supported (yet)
 
-    @pytest.mark.skipif(VespaBackend.pygamma_available(),
-                        reason="PyGAMMA installed — guidance path not reachable")
-    def test_run_without_pygamma_gives_guidance(self):
+    def test_unsupported_sequence_raises(self):
         b = VespaBackend()
-        with pytest.raises(RuntimeError, match="PyGAMMA"):
-            b.run_simulation(dict(b.mandatory_params))
+        params = dict(b.mandatory_params)
+        params['Sequence'] = 'STEAM'
+        with pytest.raises(ValueError, match='unsupported Sequence'):
+            b.run_simulation(params)
+
+
+class TestPyGammaManager:
+    """Worker plumbing, tested with a fake worker (no PyGAMMA needed)."""
+
+    def _fake_worker(self, tmp_path, body):
+        w = tmp_path / 'fake_worker.py'
+        w.write_text(body)
+        return w
+
+    def test_run_worker_roundtrip(self, tmp_path):
+        import sys as _sys
+        from basisremy.core.pygamma_manager import run_worker
+        worker = self._fake_worker(tmp_path, (
+            "import json, sys\n"
+            "job = json.load(open(sys.argv[1]))\n"
+            "out = {'ok': True, 'basis': {m: {'re': [1.0], 'im': [0.0]}\n"
+            "       for m in job['metabolites']}}\n"
+            "json.dump(out, open(sys.argv[2], 'w'))\n"
+        ))
+        basis = run_worker({'metabolites': {'NAA': []}},
+                           python=_sys.executable, worker=worker)
+        assert basis['NAA']['re'] == [1.0]
+
+    def test_run_worker_error_surfaces(self, tmp_path):
+        import sys as _sys
+        from basisremy.core.pygamma_manager import run_worker
+        worker = self._fake_worker(tmp_path, (
+            "import json, sys\n"
+            "json.dump({'ok': False, 'error': 'boom'}, open(sys.argv[2], 'w'))\n"
+        ))
+        with pytest.raises(RuntimeError, match='boom'):
+            run_worker({'metabolites': {}}, python=_sys.executable, worker=worker)
+
+    def test_run_worker_timeout(self, tmp_path):
+        import sys as _sys
+        from basisremy.core.pygamma_manager import run_worker
+        worker = self._fake_worker(tmp_path, "import time\ntime.sleep(30)\n")
+        with pytest.raises(RuntimeError, match='timed out'):
+            run_worker({'metabolites': {}}, timeout=1.0,
+                       python=_sys.executable, worker=worker)
+
+
+@pytest.mark.backend
+@pytest.mark.slow
+@pytest.mark.requires_docker
+class TestVespaLive:
+    """Live PyGAMMA simulation through the real backend (Docker runtime)."""
+
+    def test_press_naa_cr(self):
+        import numpy as np
+        from basisremy.core import pygamma_manager
+        if pygamma_manager.preferred_runtime() == 'env' \
+                and not pygamma_manager.is_available():
+            pytest.skip("no PyGAMMA runtime available")
+        br = BasisREMY()
+        br.set_backend('Vespa')
+        basis = br.backend.run_simulation({
+            'Sequence': 'PRESS', 'Samples': 2048, 'Bandwidth': 2000,
+            'Bfield': 3.0, 'TE': 35, 'Nucleus': '1H',
+            'Center Freq': 127.732, 'Metabolites': ['NAA', 'Cr'],
+        })
+        assert not br.backend.last_failures
+        ppm = np.linspace(-1000, 1000, 2048) / 127.732 + 4.65
+        for metab, expected in (('NAA', 2.01), ('Cr', 3.03)):
+            spec = np.abs(np.fft.fftshift(np.fft.fft(basis[metab])))
+            peak = ppm[np.argmax(spec)]
+            assert abs(peak - expected) < 0.05, \
+                f"{metab} peak at {peak:.2f}, expected {expected}"

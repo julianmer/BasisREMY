@@ -1,3 +1,3 @@
 """BasisREMY — study-specific MR spectroscopy basis set generation."""
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"

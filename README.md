@@ -63,18 +63,28 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-**2. Launch BasisREMY** directly from the repository, without cloning:
+**2. Launch BasisREMY** — the released version, straight from PyPI:
 
 ```bash
-uvx --from git+https://github.com/julianmer/BasisREMY basisremy
+uvx basisremy
 ```
 
 Or, for repeated use, install the command once and then run it by name:
 
 ```bash
-uv tool install git+https://github.com/julianmer/BasisREMY
+uv tool install basisremy
 basisremy
 ```
+
+To run the latest development state instead of the release:
+
+```bash
+uvx --from git+https://github.com/julianmer/BasisREMY basisremy
+```
+
+> **Using BasisREMY from Python instead of the GUI?** The package is on PyPI —
+> `pip install basisremy` gives you the programmatic API
+> (see [Examples](#examples-no-gui) below) without any GUI setup.
 
 `uv` automatically downloads a compatible Python and all dependencies into an
 isolated environment — nothing is installed globally and your data never leaves

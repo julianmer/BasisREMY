@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "basisremy"
-version = "0.1.1"
+# version is single-sourced from basisremy/__init__.py (__version__)
+dynamic = ["version"]
 description = "A tool for generating study-specific MR spectroscopy basis sets directly from raw MRS data."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,6 +45,9 @@ dev = [
 # Single, stable command. The launcher starts the NiceGUI front-end in a native
 # desktop window (pywebview); the same user-facing command works under uvx.
 basisremy = "basisremy.__main__:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "basisremy.__version__"}
 
 [tool.setuptools]
 # Ship ONLY the data files explicitly listed under [tool.setuptools.package-data]

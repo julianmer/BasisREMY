@@ -13,8 +13,6 @@
 #                                                                                                  #
 ####################################################################################################
 
-import importlib.util
-
 from basisremy.backends.base import Backend
 
 
@@ -39,8 +37,10 @@ class VespaBackend(Backend):
 
         self.metabs = {m: True for m in _DEFAULT_METABS}
 
+        # v1 sequences (ideal pulses). STEAM needs coherence-order filtering
+        # during TM and returns in a later iteration.
         self.dropdown = {
-            'Sequence': ['PRESS', 'STEAM', 'Spin Echo'],
+            'Sequence': ['PRESS', 'Spin Echo'],
         }
         # Scan-physics values have NO defaults — they must come from REMY or
         # the user, never masquerade as file metadata.
@@ -78,7 +78,7 @@ class VespaBackend(Backend):
         if 'mega' in s or 'hermes' in s or 'hercules' in s:
             return None   # edited sequences not supported (yet)
         if 'steam' in s:
-            return 'STEAM'
+            return None   # STEAM not supported (yet)
         # 'UnEdited' is the MRSCloud/BigGABA name for a plain acquisition
         if 'press' in s or 'unedited' in s:
             return 'PRESS'
@@ -126,18 +126,107 @@ class VespaBackend(Backend):
     # -------------------------------------------------- simulation
     @staticmethod
     def pygamma_available() -> bool:
-        return importlib.util.find_spec('pygamma') is not None
+        from basisremy.core import pygamma_manager
+        return pygamma_manager.is_available()
+
+    @staticmethod
+    def _load_spin_systems():
+        """denmatsim's spin-system library: {name: [sub-system, ...]}."""
+        import json
+        from basisremy.core.externals import ensure
+        from basisremy.core.paths import externals_root
+        ensure('fsl_mrs')
+        spins_path = (externals_root() / 'fsl_mrs' / 'fsl_mrs'
+                      / 'denmatsim' / 'spinSystems.json')
+        with open(spins_path, 'r') as f:
+            raw = json.load(f)
+        def _as_list(v):
+            return list(v) if isinstance(v, (list, tuple)) else [v]
+
+        def _as_matrix(v):
+            if not isinstance(v, (list, tuple)):
+                return [[float(v)]]
+            if v and not isinstance(v[0], (list, tuple)):
+                return [list(v)]
+            return [list(row) for row in v]
+
+        library = {}
+        for key, entry in raw.items():
+            name = key[3:] if key.startswith('sys') else key
+            subs = entry if isinstance(entry, list) else [entry]
+            library[name] = [
+                {'shifts_ppm': [float(s) for s in _as_list(sub['shifts'])],
+                 'j_hz': _as_matrix(sub['j']),
+                 'scale': float(sub.get('scaleFactor', 1.0))}
+                for sub in subs
+            ]
+        return library
 
     def run_simulation(self, params, progress_callback=None, stop_event=None):
-        if not self.pygamma_available():
-            raise RuntimeError(
-                "The Vespa backend needs PyGAMMA, which is not installed.\n"
-                "PyGAMMA only publishes wheels for Python <= 3.9 (x86_64):\n"
-                "  • a Python 3.9 (x86_64) environment: pip install pygamma\n"
-                "A Docker-based PyGAMMA runtime (like the Octave one) is in\n"
-                "the works so this will run out of the box on any setup."
-            )
-        raise NotImplementedError(
-            "Vespa (PyGAMMA) simulation is under development — the parameter "
-            "interface is ready; the density-matrix simulation lands next."
-        )
+        from basisremy.core import pygamma_manager
+        import numpy as np
+
+        sequence = params.get('Sequence')
+        if sequence not in self.dropdown['Sequence']:
+            raise ValueError(
+                f"Vespa: unsupported Sequence {sequence!r} — choose one of "
+                f"{self.dropdown['Sequence']}.")
+
+        runtime = pygamma_manager.preferred_runtime()
+        if runtime == 'docker':
+            pygamma_manager.ensure_docker_image()
+        else:
+            pygamma_manager.ensure_env(create=True)
+        print(f"Vespa (PyGAMMA) runtime: {runtime}")
+        library = self._load_spin_systems()
+
+        cf = float(params['Center Freq'])
+        base_job = {
+            'sequence': sequence,
+            'te_ms': float(params['TE']),
+            'samples': int(float(params['Samples'])),
+            'bandwidth': float(params['Bandwidth']),
+            'cf_mhz': cf,
+            'centre_ppm': 4.65,
+            'linewidth': float(params.get('Linewidth') or 1.0),
+        }
+
+        metabs = params.get('Metabolites') or []
+        self.last_failures = {}   # metab -> reason, surfaced by the GUI
+        basis = {}
+        for i, metab in enumerate(metabs):
+            if stop_event and stop_event.is_set():
+                print(f"  ⏹  Stopped before simulating {metab}.")
+                break
+            if metab not in library:
+                print(f"  ⚠️  No denmatsim spin system for '{metab}', skipping")
+                self.last_failures[metab] = 'no spin system'
+                continue
+            job = dict(base_job)
+            job['metabolites'] = {metab: library[metab]}
+            try:
+                try:
+                    result = pygamma_manager.run_worker(job, runtime=runtime)
+                except RuntimeError as exc:
+                    if runtime == 'env' and 'timed out' in str(exc) \
+                            and pygamma_manager.docker_available():
+                        # wedged side-env (e.g. corrupt Rosetta translation):
+                        # switch to Docker now and remember for future runs
+                        print("  ⚠️  side-env timed out — switching to the "
+                              "Docker runtime")
+                        pygamma_manager.prefer_docker(str(exc))
+                        runtime = 'docker'
+                        pygamma_manager.ensure_docker_image()
+                        result = pygamma_manager.run_worker(job, runtime=runtime)
+                    else:
+                        raise
+                entry = result[metab]
+                basis[metab] = (np.asarray(entry['re'], dtype=float)
+                                + 1j * np.asarray(entry['im'], dtype=float))
+                print(f"  ✓ {metab} simulated (PyGAMMA)")
+            except Exception as exc:  # noqa: BLE001
+                print(f"  ✗ {metab}: {exc}")
+                self.last_failures[metab] = str(exc)
+            if progress_callback:
+                progress_callback(i + 1, len(metabs))
+        return basis
