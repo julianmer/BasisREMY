@@ -145,7 +145,8 @@ class TestExportFormats:
         out = export(_synthetic_basis(), str(tmp_path / 'basis.basis'),
                      'lcmodel_basis', params)
         assert os.path.exists(out)
-        text = open(out).read()
+        with open(out) as f:
+            text = f.read()
         assert ' $SEQPAR' in text
         assert ' $BASIS1' in text
         # kbsct writes a $NMUSED fitting-defaults block + a $BASIS block per metab
@@ -165,8 +166,8 @@ class TestExportFormats:
         out = export(_synthetic_basis(), str(out_dir), 'lcmodel_raw', params)
         assert os.path.isdir(out)
         for name in ('NAA', 'Cr'):
-            fp = out_dir / f'{name}.RAW'
-            assert fp.exists(), f'{name}.RAW missing'
+            fp = out_dir / f'{name}.raw'   # kbsct writes lowercase .raw
+            assert fp.exists(), f'{name}.raw missing'
             assert ' $NMID' in fp.read_text()
         assert (out_dir / 'basis_sidecar.json').exists()
 

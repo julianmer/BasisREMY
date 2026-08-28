@@ -17,6 +17,18 @@ jobs:
         with:
           submodules: recursive
 
+      # example_data/** lives in Git LFS (~120 MB). Fetch it through the
+      # Actions cache so the LFS bandwidth quota is only spent when the
+      # data changes, not on every run.
+      - name: LFS object list
+        run: git lfs ls-files -l | cut -d' ' -f1 | sort > .lfs-assets-id
+      - uses: actions/cache@v4
+        with:
+          path: .git/lfs
+          key: lfs-${{ hashFiles('.lfs-assets-id') }}
+      - name: Fetch example data
+        run: git lfs pull
+
       # Local Octave so the Octave-backed tests (FID-A, MRSCloud, CustomSLaser)
       # run for real instead of being skipped; Docker is not used on CI.
       - name: Install Octave

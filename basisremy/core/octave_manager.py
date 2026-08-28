@@ -59,7 +59,10 @@ class OctaveManager:
             # First try default (works for most setups)
             try:
                 client = docker.from_env()
-                client.ping()
+                try:
+                    client.ping()
+                finally:
+                    client.close()
                 self.docker_available = True
                 return True
             except Exception:
@@ -68,7 +71,10 @@ class OctaveManager:
                     orbstack_socket = os.path.expanduser('~/.orbstack/run/docker.sock')
                     if os.path.exists(orbstack_socket):
                         client = docker.DockerClient(base_url=f'unix://{orbstack_socket}')
-                        client.ping()
+                        try:
+                            client.ping()
+                        finally:
+                            client.close()
                         self.docker_available = True
                         return True
                 except Exception:
@@ -80,7 +86,10 @@ class OctaveManager:
                     try:
                         if os.path.exists(socket_path):
                             client = docker.DockerClient(base_url=f'unix://{socket_path}')
-                            client.ping()
+                            try:
+                                client.ping()
+                            finally:
+                                client.close()
                             self.docker_available = True
                             return True
                     except Exception:

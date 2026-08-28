@@ -46,7 +46,10 @@ def docker_available():
     try:
         import docker
         client = docker.from_env()
-        client.ping()
+        try:
+            client.ping()
+        finally:
+            client.close()
         return True
     except:
         return False
@@ -156,7 +159,10 @@ def pytest_collection_modifyitems(config, items):
         # Try default connection first
         try:
             client = docker.from_env()
-            client.ping()
+            try:
+                client.ping()
+            finally:
+                client.close()
             docker_available = True
         except:
             # On macOS with OrbStack, try OrbStack socket
@@ -165,7 +171,10 @@ def pytest_collection_modifyitems(config, items):
             if os.path.exists(orbstack_socket):
                 try:
                     client = docker.DockerClient(base_url=f'unix://{orbstack_socket}')
-                    client.ping()
+                    try:
+                        client.ping()
+                    finally:
+                        client.close()
                     docker_available = True
                 except:
                     docker_available = False

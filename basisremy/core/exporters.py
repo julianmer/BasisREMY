@@ -36,7 +36,7 @@ import numpy as np
 
 SUPPORTED_FORMATS = (
     "lcmodel_basis",   # single .basis file
-    "lcmodel_raw",     # folder of <metab>.RAW files
+    "lcmodel_raw",     # folder of <metab>.raw files (kbsct naming)
     "jmrui_txt",       # folder of <metab>.txt files
     "fsl_json",        # folder of <metab>.json files (FSL-MRS basis dir)
     "osprey_mat",      # single .mat with Osprey-style BASIS struct
