@@ -37,10 +37,13 @@ class VespaBackend(Backend):
 
         self.metabs = {m: True for m in _DEFAULT_METABS}
 
-        # Ideal-pulse sequences (shaped pulses are a later iteration).
+        # 'PRESS shaped' replaces both ideal 180s with a real refocusing
+        # waveform (Vespa's 'PRESS with real 180 pulses'), on-resonance,
+        # single voxel position - no spatial grid.
         self.dropdown = {
-            'Sequence': ['PRESS', 'STEAM', 'Spin Echo'],
+            'Sequence': ['PRESS', 'PRESS shaped', 'STEAM', 'Spin Echo'],
         }
+        self.file_selection = ['Path to Pulse']
         # Scan-physics values have NO defaults — they must come from REMY or
         # the user, never masquerade as file metadata.
         self.mandatory_params = {
@@ -50,6 +53,8 @@ class VespaBackend(Backend):
             'Bfield':      None,
             'TE':          None,
             'TM':          10,          # STEAM only — hidden otherwise
+            'Path to Pulse': None,      # PRESS shaped only — hidden otherwise
+            'RefTp':       5.0,         # PRESS shaped only — pulse duration [ms]
             'Nucleus':     '1H',
             'Center Freq': None,        # MHz
             'Metabolites': [m for m, v in self.metabs.items() if v],
@@ -64,6 +69,9 @@ class VespaBackend(Backend):
         params = dict(self.mandatory_params)
         if params.get('Sequence') != 'STEAM':
             params.pop('TM', None)
+        if params.get('Sequence') != 'PRESS shaped':
+            params.pop('Path to Pulse', None)
+            params.pop('RefTp', None)
         return params
 
     # -------------------------------------------------- sequence mapping
@@ -172,6 +180,19 @@ class VespaBackend(Backend):
                 f"{self.dropdown['Sequence']}.")
         if sequence == 'STEAM' and params.get('TM') in (None, ''):
             raise ValueError("Vespa: STEAM needs a mixing time 'TM' (ms).")
+        pulse = None
+        if sequence == 'PRESS shaped':
+            path = params.get('Path to Pulse')
+            if not path:
+                raise ValueError("Vespa: 'PRESS shaped' needs a refocusing "
+                                 "waveform ('Path to Pulse').")
+            if params.get('RefTp') in (None, ''):
+                raise ValueError("Vespa: 'PRESS shaped' needs the pulse "
+                                 "duration 'RefTp' (ms).")
+            from basisremy.core.rf_pulses import load_pulse
+            pulse = load_pulse(str(path), float(params['RefTp']), 'ref')
+            print(f"  RF pulse '{pulse['name']}': {len(pulse['amp_hz'])} "
+                  f"steps, w1max {max(pulse['amp_hz']) / 42.577:.2f} µT")
 
         runtime = pygamma_manager.preferred_runtime()
         if runtime == 'docker':
@@ -193,6 +214,8 @@ class VespaBackend(Backend):
         }
         if sequence == 'STEAM':
             base_job['tm_ms'] = float(params['TM'])
+        if pulse is not None:
+            base_job['pulse'] = pulse
 
         metabs = params.get('Metabolites') or []
         self.last_failures = {}   # metab -> reason, surfaced by the GUI

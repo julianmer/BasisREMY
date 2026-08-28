@@ -127,9 +127,85 @@ def steam_sigma(system, te, tm, h_op):
     return pg.evolve(sigma_res, u_half_te)
 
 
-def sequence_sigma(system, sequence, te_ms, h_op, tm_ms=None):
-    """Return the density matrix at acquisition start for ideal sequences."""
+def shaped_pulse_propagator(system, pulse):
+    """Propagator of a shaped RF pulse: the product over waveform steps of
+    exp(-i (H0 + Hrf_k) dt_k), with H0 the chemical-shift + J Hamiltonian and
+    Hrf_k = amp_k (cos(phi_k) Fx + sin(phi_k) Fy) in Hz, so off-resonance
+    spins see the pulse's real bandwidth (Vespa's recipe builds this through
+    pg.PulComposite(...).GetUsum(-1); measured in this PyGAMMA build that
+    propagator showed no offset dependence at all, so it is built explicitly
+    here). Returns (U, pulse_duration_s)."""
+    h0 = pg.Hcs(system) + pg.HJ(system)
+    fx = pg.gen_op(pg.Fx(system))
+    fy = pg.gen_op(pg.Fy(system))
+    u = None
+    total = 0.0
+    for amp, phase_deg, dt in zip(pulse['amp_hz'], pulse['phase_deg'],
+                                  pulse['dt_s']):
+        phi = math.radians(float(phase_deg))
+        hx = pg.gen_op(fx)
+        hx *= float(amp) * math.cos(phi)
+        hy = pg.gen_op(fy)
+        hy *= float(amp) * math.sin(phi)
+        hrf = hx + hy
+        u_step = pg.prop(h0 + hrf, float(dt))
+        u = u_step if u is None else u_step * u
+        total += float(dt)
+    return u, total
+
+
+def _crushed_refocus(system, sigma, u180, nsteps=8):
+    """Apply a refocusing propagator between emulated crusher gradients.
+
+    Same device as Vespa's STEAM crushers: the block is run on copies of the
+    density matrix rotated about z by 0..360 degrees before and (with the
+    same rotation) after the pulse, then averaged. Only pathways with
+    p(after) = -p(before) survive, i.e. the refocused magnetisation; what the
+    pulse failed to refocus is dephased instead of surviving as a phase error.
+    Vespa's own 'PRESS with real 180 pulses' has no crushers (single voxel).
+    """
+    res = None
+    for k in range(nsteps):
+        riz = pg.gen_op(pg.Rz(system, 360.0 * k / nsteps))
+        s = pg.evolve(pg.gen_op(sigma), riz)
+        s = pg.evolve(s, u180)
+        s = pg.evolve(s, riz)
+        s *= 1.0 / float(nsteps)
+        res = pg.gen_op(s) if res is None else res + s
+    return res
+
+
+def press_shaped_sigma(system, te, h_op, pulse):
+    """PRESS with a shaped refocusing pulse replacing both ideal 180s
+    (after Vespa's 'PRESS with real 180 pulses'): each pulse is centred where
+    the ideal 180 would be, so the free-evolution delays shrink by its
+    length, and is flanked by emulated crusher gradients. Symmetric PRESS
+    (TE1 = TE2 = TE/2), on-resonance single voxel position - no spatial
+    grid, so the slice profile is not simulated, only the pulse's spectral
+    response."""
+    u180, tp = shaped_pulse_propagator(system, pulse)
+    te1 = te2 = te / 2.0
+    if tp >= min(te1, te2):
+        raise ValueError("refocusing pulse (%.2f ms) does not fit into TE/2"
+                         " (%.2f ms)" % (tp * 1e3, te1 * 1e3))
+    u1 = pg.prop(h_op, 0.5 * (te1 - tp))
+    u2 = pg.prop(h_op, 0.5 * (te1 - tp + te2 - tp))
+    u3 = pg.prop(h_op, 0.5 * (te2 - tp))
+    sigma = pg.Iypuls(system, pg.sigma_eq(system), 90.0)
+    sigma = pg.evolve(sigma, u1)
+    sigma = _crushed_refocus(system, sigma, u180)
+    sigma = pg.evolve(sigma, u2)
+    sigma = _crushed_refocus(system, sigma, u180)
+    return pg.evolve(sigma, u3)
+
+
+def sequence_sigma(system, sequence, te_ms, h_op, tm_ms=None, pulse=None):
+    """Return the density matrix at acquisition start."""
     te = float(te_ms) / 1000.0
+    if sequence in ('PRESS shaped',):
+        if not pulse:
+            raise ValueError("PRESS shaped needs a refocusing pulse waveform")
+        return press_shaped_sigma(system, te, h_op, pulse)
     if sequence in ('STEAM',):
         if tm_ms is None:
             raise ValueError("STEAM needs a mixing time (tm_ms)")
@@ -165,6 +241,7 @@ def run_job(job):
     sequence = job['sequence']
     te = float(job['te_ms'])
     tm = job.get('tm_ms')
+    pulse = job.get('pulse')
 
     basis = {}
     for name, subsystems in job['metabolites'].items():
@@ -175,7 +252,8 @@ def run_job(job):
             system = build_spin_system(sub['shifts_ppm'], sub['j_hz'],
                                        cf, centre)
             h_op = pg.Hcs(system) + pg.HJ(system)
-            sigma = sequence_sigma(system, sequence, te, h_op, tm_ms=tm)
+            sigma = sequence_sigma(system, sequence, te, h_op, tm_ms=tm,
+                                   pulse=pulse)
             detector = pg.gen_op(pg.Fm(system))
             # acq must outlive mx: the table references memory owned by the
             # acquire1D object (a one-liner here corrupts the table/crashes)

@@ -53,6 +53,23 @@ class TestVespaBackend:
         b.mandatory_params['Sequence'] = 'STEAM'
         assert 'TM' in b.get_params_for_mode()
 
+    def test_pulse_params_only_for_press_shaped(self):
+        b = VespaBackend()
+        b.mandatory_params['Sequence'] = 'PRESS'
+        assert 'Path to Pulse' not in b.get_params_for_mode()
+        assert 'RefTp' not in b.get_params_for_mode()
+        b.mandatory_params['Sequence'] = 'PRESS shaped'
+        assert 'Path to Pulse' in b.get_params_for_mode()
+        assert 'RefTp' in b.get_params_for_mode()
+        assert b.file_selection == ['Path to Pulse']
+
+    def test_press_shaped_requires_pulse(self):
+        b = VespaBackend()
+        params = dict(b.mandatory_params)
+        params.update({'Sequence': 'PRESS shaped', 'Path to Pulse': None})
+        with pytest.raises(ValueError, match='Path to Pulse'):
+            b.run_simulation(params)
+
     def test_parse_remy_mapping(self):
         b = VespaBackend()
         mandatory, optional = b.parseREMY({
@@ -188,3 +205,33 @@ class TestVespaLive:
         sel = np.abs(ppm - 2.01) < 0.1
         ratio = s_naa[sel].max() / p_naa[sel].max()
         assert abs(ratio - 0.5) < 0.05, f"STEAM/PRESS NAA singlet ratio {ratio:.3f}, expected 0.5"
+
+    def test_press_shaped_matches_ideal_on_resonance(self, project_root_dir):
+        """A good refocusing pulse on resonance reproduces the ideal PRESS
+        singlets (same ppm, amplitude within a few %)."""
+        import numpy as np
+        from basisremy.core import pygamma_manager
+        if pygamma_manager.preferred_runtime() == 'env' \
+                and not pygamma_manager.is_available():
+            pytest.skip("no PyGAMMA runtime available")
+        pulse = os.path.join(project_root_dir, 'externals', 'fidA',
+                             'rfPulseTools', 'rfPulses', 'sampleRefocPulse.pta')
+        if not os.path.exists(pulse):
+            pytest.skip("sampleRefocPulse.pta not available")
+        br = BasisREMY()
+        br.set_backend('Vespa')
+        common = {'Samples': 2048, 'Bandwidth': 2000, 'Bfield': 3.0,
+                  'TE': 35, 'Nucleus': '1H', 'Center Freq': 127.732,
+                  'Metabolites': ['NAA', 'Cr']}
+        ideal = br.backend.run_simulation({**common, 'Sequence': 'PRESS'})
+        shaped = br.backend.run_simulation({**common, 'Sequence': 'PRESS shaped',
+                                            'Path to Pulse': pulse, 'RefTp': 5.0})
+        assert not br.backend.last_failures
+        ppm = np.linspace(-1000, 1000, 2048) / 127.732 + 4.65
+        for metab, expected in (('NAA', 2.01), ('Cr', 3.03)):
+            si = np.abs(np.fft.fftshift(np.fft.fft(ideal[metab])))
+            ss = np.abs(np.fft.fftshift(np.fft.fft(shaped[metab])))
+            assert abs(ppm[np.argmax(ss)] - expected) < 0.05
+            sel = np.abs(ppm - expected) < 0.1
+            ratio = ss[sel].max() / si[sel].max()
+            assert 0.85 < ratio < 1.05, f"{metab} shaped/ideal = {ratio:.3f}"
