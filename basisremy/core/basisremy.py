@@ -6,7 +6,7 @@
 #                                                                                                  #
 # Created: 08/10/25                                                                                #
 #                                                                                                  #
-# Purpose: Defines the BasisREMY class for extracting REMY parameters from MRS data                 #
+# Purpose: Defines the BasisREMY class for extracting REMY parameters from MRS data                #
 #          and simulating a basis set using different backends.                                    #
 #                                                                                                  #
 ####################################################################################################
@@ -25,6 +25,7 @@ from basisremy.backends.mrscloud_backend import MRSCloudBackend
 from basisremy.backends.custom_backends import CustomSLaser
 from basisremy.backends.fida_backends import FIDA_BACKENDS
 from basisremy.backends.vespa_backend import VespaBackend
+from basisremy.backends.spant_backend import SpantBackend
 from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
 
 
@@ -38,7 +39,7 @@ from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
 #**************************************************************************************************#
 class BasisREMY:
     # Display order for the top-level Category dropdown.
-    CATEGORY_ORDER = ['MRSCloud', 'FID-A', 'FSL-MRS', 'Vespa', 'Custom']
+    CATEGORY_ORDER = ['MRSCloud', 'FID-A', 'FSL-MRS', 'Vespa', 'spant', 'Custom']
 
     def __init__(self, backend='MRSCloud'):
         self.DRead = DataReaders()
@@ -62,6 +63,7 @@ class BasisREMY:
         mc = MRSCloudBackend(); self.backends[mc.name] = mc
         fm = FSLMRSBackend();   self.backends[fm.name] = fm
         vp = VespaBackend();    self.backends[vp.name] = vp
+        sp = SpantBackend();    self.backends[sp.name] = sp
 
         # Snapshot each backend's pristine defaults so a new file import can
         # start clean instead of inheriting the previous file's values.

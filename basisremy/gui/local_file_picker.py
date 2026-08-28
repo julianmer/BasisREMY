@@ -1,15 +1,15 @@
 ####################################################################################################
-#                                       local_file_picker.py                                        #
+#                                       local_file_picker.py                                       #
 ####################################################################################################
 #                                                                                                  #
 # Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
 #                                                                                                  #
 # Created: 26/06/26                                                                                #
 #                                                                                                  #
-# Purpose: A NiceGUI dialog that browses the *local* filesystem of the machine running the app      #
+# Purpose: A NiceGUI dialog that browses the *local* filesystem of the machine running the app     #
 #          and returns an on-disk path. Because the NiceGUI server runs on the user's own          #
-#          machine (localhost / native window), this reads files in place — nothing is uploaded     #
-#          or copied, preserving the path-based workflow the Octave/Docker backends rely on.        #
+#          machine (localhost / native window), this reads files in place — nothing is uploaded    #
+#          or copied, preserving the path-based workflow the Octave/Docker backends rely on.       #
 #                                                                                                  #
 ####################################################################################################
 

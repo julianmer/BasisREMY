@@ -5,9 +5,9 @@
 # Purpose: Console entry point for the BasisREMY application (the ``basisremy`` command).          #
 #                                                                                                  #
 #          This thin launcher resolves the project root, makes the vendored ``externals/`` code    #
-#          importable, and anchors the working directory at the project root so the Octave/Docker   #
-#          backends that use relative ``./externals`` and ``./output`` paths keep working exactly   #
-#          as before.                                                                               #
+#          importable, and anchors the working directory at the project root so the Octave/Docker  #
+#          backends that use relative ``./externals`` and ``./output`` paths keep working exactly  #
+#          as before.                                                                              #
 #                                                                                                  #
 #          The front-end is NiceGUI: a pure-web UI shown in a native desktop window (pywebview),   #
 #          which installs cleanly under uvx with no system tcl/tk dependency.                      #

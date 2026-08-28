@@ -6,7 +6,7 @@
 #                                                                                                  #
 # Created: 24/04/26                                                                                #
 #                                                                                                  #
-# Purpose: Test MRSCloudBackend (rewritten 24/04/26 to drive the real MRSCloud workflow             #
+# Purpose: Test MRSCloudBackend (rewritten 24/04/26 to drive the real MRSCloud workflow            #
 #          through `adapters/backends/mrscloud_run_metab.m` instead of FID-A's                     #
 #          `sim_lcmrawbasis`).                                                                     #
 #                                                                                                  #
@@ -17,7 +17,7 @@
 #              one parametrize per (sequence × localization) combo. These require                  #
 #              a working MRSCloud + FID-A install.                                                 #
 #                                                                                                  #
-#          TODO: get vendor-specific testing data for HERMES / HERCULES / MEGA-sLASER and           #
+#          TODO: get vendor-specific testing data for HERMES / HERCULES / MEGA-sLASER and          #
 #          extend the integration suite to cover them with real REMY-extracted parameters.         #
 #                                                                                                  #
 ####################################################################################################

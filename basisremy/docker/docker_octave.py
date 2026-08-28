@@ -7,7 +7,7 @@
 #                                                                                                  #
 # Created: 14/10/25                                                                                #
 #                                                                                                  #
-# Purpose: Defines a Docker-based interface to run Octave commands.                                 #
+# Purpose: Defines a Docker-based interface to run Octave commands.                                #
 #                                                                                                  #
 ####################################################################################################
 

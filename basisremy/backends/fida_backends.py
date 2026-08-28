@@ -1,5 +1,5 @@
 ####################################################################################################
-#                                         fida_backends.py                                          #
+#                                         fida_backends.py                                         #
 ####################################################################################################
 #                                                                                                  #
 # Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
@@ -7,7 +7,7 @@
 # Created: 25/04/26                                                                                #
 #                                                                                                  #
 # Purpose: One-stop module for the entire "FID-A" backend family. Each FID-A simulation entry      #
-#          point under externals/fidA/simulationTools/ is exposed as a small subclass of            #
+#          point under externals/fidA/simulationTools/ is exposed as a small subclass of           #
 #          FidaBackend. They all share:                                                            #
 #            * the spinSystems.mat metabolite library                                              #
 #            * Octave path setup                                                                   #

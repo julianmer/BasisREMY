@@ -6,7 +6,7 @@
 #                                                                                                  #
 # Created: 08/10/25                                                                                #
 #                                                                                                  #
-# Purpose: Defines the abstract Backend class as a base for all simulation backends.                #
+# Purpose: Defines the abstract Backend class as a base for all simulation backends.               #
 #                                                                                                  #
 ####################################################################################################
 
@@ -18,7 +18,7 @@ from __future__ import annotations
 #                                             Backend                                              #
 #**************************************************************************************************#
 #                                                                                                  #
-# Defines the backend structure for the simulations. Inherit from this class to create a new        #
+# Defines the backend structure for the simulations. Inherit from this class to create a new       #
 # simulation backend with all mandatory attributes and methods.                                    #
 #                                                                                                  #
 #**************************************************************************************************#

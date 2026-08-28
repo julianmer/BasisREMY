@@ -23,7 +23,7 @@ import shutil
 #                                         OctaveManager                                            #
 #**************************************************************************************************#
 #                                                                                                  #
-# Manages the Octave runtime environment. Attempts to use Docker first, then falls back to local    #
+# Manages the Octave runtime environment. Attempts to use Docker first, then falls back to local   #
 # Octave installation if Docker is not available.                                                  #
 #                                                                                                  #
 #**************************************************************************************************#

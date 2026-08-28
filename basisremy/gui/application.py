@@ -6,13 +6,13 @@
 #                                                                                                  #
 # Created: 08/10/25                                                                                #
 #                                                                                                  #
-# Purpose: Defines the GUI application for the BasisREMY tool. Each tab is a different              #
+# Purpose: Defines the GUI application for the BasisREMY tool. Each tab is a different             #
 #          step in the process, starting with the data selection and REMY extraction,              #
-#          continuing with the parameter configuration, and ending with the basis set simulation.   #
+#          continuing with the parameter configuration, and ending with the basis set simulation.  #
 #                                                                                                  #
 #          NiceGUI front-end: a sleek, pure-web UI that runs in a native desktop window            #
 #          (via pywebview) and installs cleanly under uvx — no system tcl/tk required. The         #
-#          server runs on localhost, so local data files are read in place by path; nothing         #
+#          server runs on localhost, so local data files are read in place by path; nothing        #
 #          is uploaded or copied.                                                                  #
 #                                                                                                  #
 ####################################################################################################
@@ -299,7 +299,7 @@ body, .body--dark {{ background: var(--br-bg); color: var(--br-fg); }}
 
 
 #**************************************************************************************************#
-#                                         BasisREMYApp                                              #
+#                                         BasisREMYApp                                             #
 #**************************************************************************************************#
 #                                                                                                  #
 # Builds the whole single-page UI. One instance is created per client connection (in native        #

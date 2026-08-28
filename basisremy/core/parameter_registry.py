@@ -223,6 +223,27 @@ REGISTRY: dict[str, ParamInfo] = {
         description="Scanner manufacturer (Siemens, Philips, GE, Bruker). Selects vendor-specific pulse files in some backends.",
         widget_hint="combobox",
     ),
+    "Edit Bandwidth (Hz)": ParamInfo(
+        label="Editing pulse bandwidth",
+        description=(
+            "Bandwidth of the Gaussian editing pulse in spant's MEGA-PRESS "
+            "(seq_mega_press_ideal, default 110 Hz); the pulse is applied at "
+            "'Edit On' for the ON and at 'Edit Off' for the OFF sub-spectrum."
+        ),
+        units="Hz",
+        typical="80 - 140 Hz",
+    ),
+    "STEAM Variant": ParamInfo(
+        label="STEAM simulation variant",
+        description=(
+            "How spant handles the STEAM mixing period: 'Standard' "
+            "(seq_steam_ideal), 'Coherence filter' (seq_steam_ideal_cof, keeps "
+            "only the zero-order coherences during TM, like FID-A and BasisREMY's "
+            "Vespa STEAM) or 'z-rotation (Young)' (seq_steam_ideal_young, "
+            "gradient simulation by z-rotations)."
+        ),
+        widget_hint="combobox",
+    ),
     "Edit Frequency": ParamInfo(
         label="Editing frequency",
         description=(
@@ -526,12 +547,30 @@ METABOLITE_NAMES: dict[str, str] = {
     "iLe": "Isoleucine",
     "mI": "myo-Inositol",
     "sI": "scyllo-Inositol",
+    # spant names (get_mol_names) that differ from the other libraries
+    "sins": "scyllo-Inositol",
+    "peth": "Phosphorylethanolamine",
+    "2hg": "2-Hydroxyglutarate",
+    "a_glc": "α-Glucose",
+    "b_glc": "β-Glucose",
+    "mm09": "Macromolecule (0.9 ppm)",
+    "mm12": "Macromolecule (1.2 ppm)",
+    "mm14": "Macromolecule (1.4 ppm)",
+    "mm17": "Macromolecule (1.7 ppm)",
+    "mm20": "Macromolecule (2.0 ppm)",
 }
 
 
+_METABOLITE_NAMES_CI = {k.lower(): v for k, v in METABOLITE_NAMES.items()}
+
+
 def metabolite_full_name(abbr: str) -> "str | None":
-    """Full display name for a metabolite abbreviation, or None if unknown."""
-    return METABOLITE_NAMES.get(str(abbr))
+    """Full display name for a metabolite abbreviation, or None if unknown
+    (case-insensitive: spant uses lower-case keys such as 'naa')."""
+    name = METABOLITE_NAMES.get(str(abbr))
+    if name is None:
+        name = _METABOLITE_NAMES_CI.get(str(abbr).lower())
+    return name
 
 
 def tooltip_text(param: str) -> str:

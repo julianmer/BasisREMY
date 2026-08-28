@@ -76,6 +76,7 @@ basisremy = [
     "assets/*.md",
     # First-party Octave adapter scripts (run inside Octave/Docker at runtime).
     "adapters/backends/*.m",
+    "adapters/backends/*.R",
     "adapters/utils/*.m",
     # Vendored third-party MRSinMRS data + license (BSD-3, see remy/LICENSE).
     "remy/*.csv",

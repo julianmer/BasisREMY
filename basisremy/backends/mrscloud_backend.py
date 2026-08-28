@@ -13,12 +13,12 @@
 #          returns the FID as plain numeric arrays so oct2py can ferry them across.                #
 #                                                                                                  #
 # Notes                                                                                            #
-#   - Output Path / Make .raw / Add Ref. are no longer user-facing; final export is handled by the  #
+#   - Output Path / Make .raw / Add Ref. are no longer user-facing; final export is handled by the #
 #     post-simulation Export dialog (core/exporters).                                              #
-#   - The metabolite list matches the official MRSCloud README. Some entries (Cystat, HCar, iLe,    #
-#     Lys, Glc) simulate slowly — flagged with TODO.                                                #
-#   - MEGA returns '<metab> (ON)' / '(OFF)' / '(DIFF)' entries (DIFF = ON − OFF, as the FID-A     #
-#     backends do). HERMES / HERCULES sub-experiment recombination is not exposed yet; only their   #
+#   - The metabolite list matches the official MRSCloud README. Some entries (Cystat, HCar, iLe,   #
+#     Lys, Glc) simulate slowly — flagged with TODO.                                               #
+#   - MEGA returns '<metab> (ON)' / '(OFF)' / '(DIFF)' entries (DIFF = ON − OFF, as the FID-A      #
+#     backends do). HERMES / HERCULES sub-experiment recombination is not exposed yet; only their  #
 #     first sub-spectrum 'A' is returned. TODO marked below.                                       #
 #                                                                                                  #
 ####################################################################################################

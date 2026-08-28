@@ -4,11 +4,11 @@
 #                                                                                                  #
 # Authors: J. P. Merkofer (j.p.merkofer@tue.nl)                                                    #
 #                                                                                                  #
-# Purpose: Unified basis-set exporter. Backends only need to return a                               #
+# Purpose: Unified basis-set exporter. Backends only need to return a                              #
 #          { metabolite_name: complex_FID_array } dictionary; this module turns that               #
 #          dict into any of the formats commonly used in the MRS community:                        #
 #                                                                                                  #
-#            - LCModel  .basis              (single combined file)                                  #
+#            - LCModel  .basis              (single combined file)                                 #
 #            - LCModel  .RAW (per metab)    (folder of individual FIDs)                            #
 #            - jMRUI    .txt (per metab)                                                           #
 #            - FSL-MRS  .json (per metab)   (FSL-MRS basis directory)                              #

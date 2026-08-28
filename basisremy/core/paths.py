@@ -2,11 +2,11 @@
 #                                            paths.py                                              #
 ####################################################################################################
 #                                                                                                  #
-# Purpose: Single source of truth for runtime file-system locations so the backends work both       #
+# Purpose: Single source of truth for runtime file-system locations so the backends work both      #
 #          from a source checkout and from an installed wheel (pip / uvx), regardless of the       #
 #          current working directory.                                                              #
 #                                                                                                  #
-#          - ADAPTERS_DIR : first-party Octave adapter scripts shipped *inside* the package.        #
+#          - ADAPTERS_DIR : first-party Octave adapter scripts shipped *inside* the package.       #
 #          - runtime_root(): directory that contains ``externals/`` (the third-party submodules).  #
 #                            In a source checkout this is the repo root; for an installed copy it  #
 #                            is a per-user data directory that ``externals`` are fetched into.     #
