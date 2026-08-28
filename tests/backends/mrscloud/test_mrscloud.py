@@ -286,6 +286,15 @@ class TestMRSCloudLive:
             assert np.allclose(result['NAA (DIFF)'],
                                result['NAA (ON)'] - result['NAA (OFF)'])
             fid = result['NAA (OFF)']   # the 1.9 ppm ON pulse acts on the 2.01 singlet
+        elif sequence in ('HERMES', 'HERCULES'):
+            # Hadamard schemes: the four sub-experiments, their sum and the
+            # GABA (DIFF1) / GSH (DIFF2) difference spectra
+            assert ({f'NAA ({t})' for t in 'ABCD'}
+                    | {'NAA (SUM)', 'NAA (DIFF1)', 'NAA (DIFF2)'}) <= set(result)
+            assert np.allclose(result['NAA (SUM)'],
+                               sum(result[f'NAA ({t})'] for t in 'ABCD'))
+            # a sub-experiment whose pulse stays clear of 2.01 ppm
+            fid = result['NAA (D)'] if sequence == 'HERMES' else result['NAA (A)']
         else:
             assert 'NAA' in result
             fid = result['NAA']

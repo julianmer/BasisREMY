@@ -368,16 +368,26 @@ class FidaIdeal(FidaBackend):
         # keeps the path structure consistent across runs).
         out = self._make_relative(self.ensure_workdir()) + os.sep
         seq = params['Sequence']
-        # sim_lcmrawbasis: for STEAM the second timing argument is the mixing
-        # time TM; for the other sequences it is the second sub-echo TE2.
-        tau2 = (float(params.get('TM') or 10.0) if seq == 'STEAM'
-                else float(params.get('TE2') or 0))
+        te = float(params['TE'])
+        if seq == 'STEAM':
+            tau1, tau2 = te, float(params.get('TM') or 10.0)   # sim_steam: (TE, TM)
+        elif seq == 'PRESS':
+            # sim_press evolves tau1/2 - 180 - (tau1+tau2)/2 - 180 - tau2/2 with
+            # TE = tau1 + tau2. 'TE2' is the second echo; blank or 0 means a
+            # symmetric PRESS (TE/2 each). Passing (TE, 0) — the old behaviour —
+            # put the second 180 right before the readout, i.e. a spin echo:
+            # singlets were unaffected, strongly coupled spins (Glu) were not.
+            te2 = float(params.get('TE2') or 0)
+            tau2 = te2 if te2 > 0 else te / 2.0
+            tau1 = te - tau2
+        else:
+            tau1, tau2 = te, 0.0   # spin echo / LASER use tau1 only
         return [
             float(params['Samples']),
             float(params['Bandwidth']),
             float(params['Bfield']),
             float(params.get('Linewidth') or 1),
-            float(params['TE']),
+            tau1,
             tau2,
             self._seq_to_fida(seq),
             out,
@@ -386,7 +396,9 @@ class FidaIdeal(FidaBackend):
 
 # =================================================================== PRESS shaped
 class FidaPressShaped(FidaBackend):
-    """sim_press_shaped: PRESS with shaped refocusing pulses + spatial grid."""
+    """PRESS with a shaped refocusing pulse on a spatial grid — FID-A's fast
+    method (Zhang 2017): first pulse over the x grid, second over the y grid,
+    nX + nY runs with coherence-order filtering instead of nX × nY."""
 
     _kind = 'press_shaped'
 
@@ -449,8 +461,14 @@ class FidaPressShaped(FidaBackend):
 # NotImplementedError in run_simulation.)
 
 class FidaSemiLaserShaped(FidaBackend):
-    """sim_semiLASER_shaped: semi-LASER (Öz 2018) with one shaped AFP
-    waveform for both refocusing pairs + spatial grid."""
+    """semi-LASER (Öz 2018) with one shaped AFP waveform for both refocusing
+    pairs on a spatial grid. 'Standard' uses FID-A's fast method (Zhang 2017:
+    the X pair over the x grid, the Y pair over the y grid, nX + nY runs,
+    coherence-order filtered — r = 0.99 against the phase cycle at a fifth of
+    the cost); 'Phase cycled' runs FID-A's explicit 4-step cycle on the full
+    nX × nY grid. FID-A's own `sim_semiLASER_shaped` is not used: it ignores
+    its centreFreq / flipAngle arguments (`nargin < 18` in a 14-argument
+    function)."""
 
     _kind = 'semilaser_shaped'
 

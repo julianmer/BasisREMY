@@ -17,6 +17,25 @@
 import os
 import subprocess
 import shutil
+import time
+
+# Probe results (Docker socket pings, an `octave --eval` with a 5 s timeout)
+# are remembered for a short while: the GUI asks on every backend switch and
+# every Simulate click.
+_PROBE_TTL_S = 120.0
+_probe_cache: dict[str, tuple[float, bool]] = {}
+
+
+def _cached(key):
+    hit = _probe_cache.get(key)
+    if hit and time.monotonic() - hit[0] < _PROBE_TTL_S:
+        return hit[1]
+    return None
+
+
+def _remember(key, value):
+    _probe_cache[key] = (time.monotonic(), bool(value))
+    return value
 
 
 #**************************************************************************************************#
@@ -52,6 +71,13 @@ class OctaveManager:
 
     def check_docker_availability(self):
         """Check if Docker is installed and running."""
+        cached = _cached('docker')
+        if cached is not None:
+            self.docker_available = cached
+            return cached
+        return _remember('docker', self._probe_docker())
+
+    def _probe_docker(self):
         try:
             import docker
 
@@ -106,6 +132,13 @@ class OctaveManager:
 
     def check_local_octave_availability(self):
         """Check if Octave is installed locally."""
+        cached = _cached('local')
+        if cached is not None:
+            self.local_octave_available = cached
+            return cached
+        return _remember('local', self._probe_local_octave())
+
+    def _probe_local_octave(self):
         try:
             # Check if octave or octave-cli is in PATH
             octave_cmd = shutil.which('octave-cli') or shutil.which('octave')

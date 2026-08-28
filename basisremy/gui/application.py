@@ -979,11 +979,17 @@ class BasisREMYApp:
     def _set_metabs(self, value: 'bool | None') -> None:
         """Set every metabolite checkbox: True=all, False=none, None=defaults."""
         defaults = getattr(self.BasisREMY.backend, '_default_metabs', {})
-        for m, cb in self.metab_checks.items():
-            cb.value = defaults.get(m, False) if value is None else value
+        self._metab_batch = True   # every checkbox fires _update_metabs — once is enough
+        try:
+            for m, cb in self.metab_checks.items():
+                cb.value = defaults.get(m, False) if value is None else value
+        finally:
+            self._metab_batch = False
         self._update_metabs()
 
     def _update_metabs(self, _event=None) -> None:
+        if getattr(self, "_metab_batch", False):
+            return
         backend = self.BasisREMY.backend
         selected = []
         for m, cb in self.metab_checks.items():
@@ -1224,12 +1230,13 @@ class BasisREMYApp:
                     "text-base font-bold text-grey-9"
                 )
 
-            # Edited sequences return '<metab> (ON/OFF/DIFF)' entries — show
-            # exactly one sub-spectrum at a time, switched with a toggle.
+            # Edited sequences return '<metab> (TAG)' entries (ON / OFF /
+            # DIFF, or A–D / SUM for Hadamard schemes) — show exactly one
+            # sub-spectrum at a time, switched with a toggle.
+            from basisremy.core.exporters import subspectra_present
             self._subspec_toggle = None
             self._legend_rows = {}
-            subs = [s for s in ("DIFF", "ON", "OFF")
-                    if any(k.endswith(f" ({s})") for k in self.basis_set)]
+            subs = subspectra_present(self.basis_set)
             if subs:
                 with ui.row().classes("items-center gap-4 self-start"):
                     ui.label("Sub-spectrum:").classes(
@@ -1289,9 +1296,10 @@ class BasisREMYApp:
         toggle = getattr(self, "_subspec_toggle", None)
         if toggle is None:
             return True
-        for sub in ("DIFF", "ON", "OFF"):
-            if name.endswith(f" ({sub})"):
-                return sub == toggle.value
+        from basisremy.core.exporters import subspectrum_tag
+        tag = subspectrum_tag(name)[1]
+        if tag:
+            return tag == toggle.value
         return True
 
     def _on_subspec_switch(self, _event=None) -> None:

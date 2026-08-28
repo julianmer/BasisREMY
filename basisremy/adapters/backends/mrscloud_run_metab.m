@@ -1,18 +1,20 @@
-function [fid_re, fid_im, npts, sw_out, cf_mhz, off_re, off_im] = mrscloud_run_metab( ...
+function [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = mrscloud_run_metab( ...
         metab, vendor, sequence, localization, te, field_str, ...
         edit_target, edit_on, edit_off, edit_tp, spatial_points, save_dir, ...
         samples, bandwidth, b0)
 % MRSCLOUD_RUN_METAB  Adapter that runs the MRSCloud workflow for ONE metabolite.
 %
-%   [fid_re, fid_im, npts, sw_out, cf_mhz, off_re, off_im] = ...
+%   [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = ...
 %       mrscloud_run_metab(metab, vendor, sequence, localization, te, ...
 %                          field_str, edit_target, edit_on, edit_off, ...
 %                          edit_tp, spatial_points, save_dir, ...
 %                          samples, bandwidth, b0)
 %
 %   Outputs (additions vs. upstream)
-%     off_re, off_im  MEGA only: the edit-OFF sub-spectrum (fid_re/fid_im is
-%                     then the edit-ON one); empty for the other schemes.
+%     sub_re, sub_im  the further sub-spectra as columns: MEGA — the edit-OFF
+%                     scan (fid_re/fid_im is the edit-ON one); HERMES /
+%                     HERCULES — sub-experiments B, C, D (fid is A). Empty
+%                     for UnEdited.
 %
 %   This function mirrors the per-metabolite portion of MRSCloud's
 %   externals/mrscloud/run/run_simulations_cloud.m but exposes a clean
@@ -30,7 +32,7 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, off_re, off_im] = mrscloud_run_m
     if nargin < 13 || isempty(samples);   samples   = 0; end
     if nargin < 14 || isempty(bandwidth); bandwidth = 0; end
     if nargin < 15 || isempty(b0);        b0        = 0; end
-    off_re = []; off_im = [];
+    sub_re = []; sub_im = [];
 % MRSCLOUD_RUN_METAB  Adapter that runs the MRSCloud workflow for ONE metabolite.
 %
 %   [fid_re, fid_im, npts, sw_out, cf_mhz] = ...
@@ -65,10 +67,10 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, off_re, off_im] = mrscloud_run_m
 %     sw_out          spectral width [Hz]
 %     cf_mhz          centre / Larmor frequency [MHz]
 %
-%   MEGA returns both sub-spectra (fid = edit-ON at edit_on, off = edit-OFF
-%   at edit_off). HERMES / HERCULES return only their first sub-experiment
-%   'A' (the other three remain on disk in `save_dir`) — see the TODO in
-%   mrscloud_backend.py.
+%   MEGA returns both sub-spectra (fid = edit-ON at edit_on, sub = edit-OFF
+%   at edit_off). HERMES / HERCULES return sub-experiment A in fid and B, C,
+%   D as the columns of sub (editing pulses at the scheme's four offsets, in
+%   the order of MRS_temp.editON).
 %
 %   See also: externals/mrscloud/run/run_simulations_cloud.m
 %             externals/mrscloud/functions/load_parameters.m
@@ -173,7 +175,7 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, off_re, off_im] = mrscloud_run_m
         case 'PRESS'
             switch sequence
                 case {'HERMES','HERCULES','HERMES_GABA_GSH_EtOH'}
-                    [~, outA, ~, ~, ~] = sim_signals(MRS_opt);
+                    [~, outA, outB, outC, outD] = sim_signals(MRS_opt);
                 case 'MEGA'
                     [~, outA, outB]    = sim_signals(MRS_opt);
                 otherwise
@@ -183,9 +185,9 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, off_re, off_im] = mrscloud_run_m
             switch sequence
                 case {'HERMES','HERCULES','HERMES_GABA_GSH_EtOH'}
                     if strcmp(vendor, 'GE')
-                        [~, outA, ~, ~, ~] = sim_signals_GE_sLASER_HERMES(MRS_opt);
+                        [~, outA, outB, outC, outD] = sim_signals_GE_sLASER_HERMES(MRS_opt);
                     else
-                        [~, outA, ~, ~, ~] = sim_signals_sLASER(MRS_opt);
+                        [~, outA, outB, outC, outD] = sim_signals_sLASER(MRS_opt);
                     end
                 case 'MEGA'
                     [~, outA, outB] = sim_signals_sLASER(MRS_opt);
@@ -210,11 +212,16 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, off_re, off_im] = mrscloud_run_m
     fid_re = real(fid);
     fid_im = imag(fid);
     npts   = numel(fid);
-    if strcmp(sequence, 'MEGA')
-        off    = outB.fids(:);
-        off_re = real(off);
-        off_im = imag(off);
+    switch sequence
+        case 'MEGA'                                          % edit-OFF
+            sub = outB.fids(:);
+        case {'HERMES', 'HERCULES', 'HERMES_GABA_GSH_EtOH'}  % B, C, D
+            sub = [outB.fids(:), outC.fids(:), outD.fids(:)];
+        otherwise
+            sub = [];
     end
+    sub_re = real(sub);
+    sub_im = imag(sub);
 
     if isstruct(outA) && isfield(outA, 'spectralwidth')
         sw_out = outA.spectralwidth;

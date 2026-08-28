@@ -120,14 +120,15 @@ REGISTRY: dict[str, ParamInfo] = {
         typical="20 - 288 ms",
     ),
     "TE2": ParamInfo(
-        label="Second sub-TE",
+        label="Second echo time (PRESS)",
         description=(
-            "Second TE component for multi-echo sequences (e.g. PRESS uses "
-            "TE = TE1 + TE2). Set to 0 for spin-echo. For STEAM, the mixing "
-            "time is the separate TM parameter."
+            "Second spin-echo time of the ideal PRESS (FID-A sim_press: "
+            "TE = TE1 + TE2). Leave 0 / blank for a symmetric PRESS with TE/2 "
+            "per echo; enter the scanner's TE2 to model an asymmetric product "
+            "PRESS. Ignored by Spin Echo / LASER; STEAM uses TM instead."
         ),
         units="ms",
-        typical="0 - TE/2",
+        typical="0 (symmetric) or the vendor's TE2",
     ),
     "TM": ParamInfo(
         label="Mixing time (TM)",
@@ -317,13 +318,23 @@ REGISTRY: dict[str, ParamInfo] = {
     ),
     "fovX": ParamInfo(
         label="FOV X",
-        description="Spatial field-of-view along X for the simulation grid (defaults to thkX + 1 cm if unknown).",
+        description=(
+            "Spatial field-of-view along X for the simulation grid. FID-A places "
+            "the nX points at linspace(-fov/2, fov/2, nX), so the outermost "
+            "points sit at the FOV edge: keep fovX ≥ thkX for a proper voxel "
+            "average, and note that a 2-point grid samples only the FOV edges."
+        ),
         units="cm",
         typical="thkX + 1 cm",
     ),
     "fovY": ParamInfo(
         label="FOV Y",
-        description="Spatial field-of-view along Y for the simulation grid (defaults to thkY + 1 cm if unknown).",
+        description=(
+            "Spatial field-of-view along Y for the simulation grid. FID-A places "
+            "the nY points at linspace(-fov/2, fov/2, nY), so the outermost "
+            "points sit at the FOV edge: keep fovY ≥ thkY for a proper voxel "
+            "average, and note that a 2-point grid samples only the FOV edges."
+        ),
         units="cm",
         typical="thkY + 1 cm",
     ),

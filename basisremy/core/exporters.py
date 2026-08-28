@@ -26,6 +26,7 @@ import datetime as _dt
 import hashlib as _hashlib
 import json as _json
 import os
+import re
 import subprocess
 from typing import Any
 
@@ -184,14 +185,31 @@ def sequence_label(params: dict) -> str:
 
 
 # ----------------------------- edited sub-spectra ----------------------------
-# Edited backends return flat '<metab> (ON)' / '(OFF)' / '(DIFF)' entries.
-# Fitting tools expect one basis set per sub-spectrum with plain metabolite
-# names (LCModel: separate DIFF and edit-OFF .basis files; FSL-MRS: one basis
-# directory per condition, combined with `basis_tools diff`; Osprey: separate
-# files per sub-experiment), so an edited basis is written as one output per
-# sub-spectrum, tagged '_ON' / '_OFF' / '_DIFF' in the file or folder name.
+# Edited backends return flat '<metab> (TAG)' entries — ON / OFF / DIFF for
+# MEGA, A / B / C / D / SUM (and the difference combinations) for the
+# Hadamard schemes. Fitting tools expect one basis set per sub-spectrum with
+# plain metabolite names (LCModel: separate DIFF and edit-OFF .basis files;
+# FSL-MRS: one basis directory per condition, combined with `basis_tools
+# diff`; Osprey: separate files per sub-experiment), so an edited basis is
+# written as one output per sub-spectrum, tagged '_<TAG>' in the file or
+# folder name.
 
-SUBSPECTRA = ("ON", "OFF", "DIFF")
+# Display / export order of the known tags; any other ' (TAG)' suffix made of
+# upper-case letters and digits is recognised as well.
+SUBSPECTRA = ("DIFF", "DIFF1", "DIFF2", "SUM", "ON", "OFF", "A", "B", "C", "D")
+_SUB_RE = re.compile(r"^(.*) \(([A-Z][A-Z0-9]*)\)$")
+
+
+def subspectrum_tag(name: Any) -> tuple[str, str | None]:
+    """('NAA', 'ON') for 'NAA (ON)'; ('NAA', None) for a plain entry."""
+    m = _SUB_RE.match(str(name))
+    return (m.group(1), m.group(2)) if m else (str(name), None)
+
+
+def subspectra_present(basis: dict[str, Any]) -> list[str]:
+    """The sub-spectrum tags used in a basis, in SUBSPECTRA order."""
+    tags = {tag for _, tag in (subspectrum_tag(k) for k in basis) if tag}
+    return [t for t in SUBSPECTRA if t in tags] + sorted(tags - set(SUBSPECTRA))
 
 
 def split_subspectra(basis: dict[str, Any]) -> dict[str | None, dict[str, Any]]:
@@ -201,14 +219,8 @@ def split_subspectra(basis: dict[str, Any]) -> dict[str | None, dict[str, Any]]:
     """
     groups: dict[str | None, dict[str, Any]] = {}
     for name, fid in basis.items():
-        name = str(name)
-        for sub in SUBSPECTRA:
-            suffix = f" ({sub})"
-            if name.endswith(suffix):
-                groups.setdefault(sub, {})[name[:-len(suffix)]] = fid
-                break
-        else:
-            groups.setdefault(None, {})[name] = fid
+        stem, tag = subspectrum_tag(name)
+        groups.setdefault(tag, {})[stem] = fid
     return groups
 
 
@@ -227,17 +239,17 @@ def export_subspectra(basis: dict[str, Any], path: str, fmt: str,
                       extra_metadata: dict | None = None) -> list[str]:
     """Export an edited basis as one output per sub-spectrum.
 
-    ``which`` is 'All' or one of SUBSPECTRA. Entries without a sub-spectrum
-    suffix (e.g. a reference singlet) go into every output. Returns the
-    written paths in SUBSPECTRA order.
+    ``which`` is 'All' or one sub-spectrum tag. Entries without a
+    sub-spectrum suffix (e.g. a reference singlet) go into every output.
+    Returns the written paths in SUBSPECTRA order.
     """
     groups = split_subspectra(basis)
     common = groups.pop(None, {})
-    subs = [s for s in SUBSPECTRA if s in groups] if which == "All" else [which]
+    subs = subspectra_present(basis) if which == "All" else [which]
     if not subs or any(s not in groups for s in subs):
         raise ValueError(
             f"No {which} sub-spectrum entries in this basis — names must end "
-            f"in ' (ON)', ' (OFF)' or ' (DIFF)'.")
+            f"in a tag such as ' (ON)', ' (OFF)', ' (DIFF)' or ' (A)'.")
     outs = []
     for sub in subs:
         outs.append(export({**groups[sub], **common},

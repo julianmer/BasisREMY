@@ -23,6 +23,7 @@ from nicegui import run, ui
 from basisremy.core.exporters import (
     export as _export,
     export_subspectra as _export_subspectra,
+    subspectra_present,
     subspectrum_path,
     sequence_label,
     SUPPORTED_FORMATS,
@@ -85,12 +86,11 @@ def open_export_dialog(basis: dict, params: dict) -> None:
             help_icon("Output Format")
 
         # ---- sub-spectra (edited sequences only) ----
-        has_subspectra = any(
-            k.endswith((' (ON)', ' (OFF)', ' (DIFF)')) for k in basis)
+        present = subspectra_present(basis)
         subspec_select = None
-        if has_subspectra:
+        if present:
             subspec_select = ui.select(
-                ['All', 'DIFF only', 'ON only', 'OFF only'],
+                ['All'] + [f'{s} only' for s in present],
                 value='All', label='Sub-spectra',
             ).classes("w-full")
 
@@ -146,7 +146,7 @@ def open_export_dialog(basis: dict, params: dict) -> None:
                 n = f"{len(basis)} metabolites"
             elif selection == "All":
                 n = (f"{len(basis)} entries, one basis set per sub-spectrum "
-                     f"(_ON / _OFF / _DIFF)")
+                     f"({' / '.join('_' + s for s in present)})")
             else:
                 sub = selection.split()[0]
                 n = (f"{sum(k.endswith(f'({sub})') for k in basis)} "
@@ -194,8 +194,8 @@ def open_export_dialog(basis: dict, params: dict) -> None:
             targets = [final]
             if subspec_select is not None:
                 # edited basis: one output per sub-spectrum, tagged in the name
-                which = subspec_select.value.split()[0]   # All / DIFF / ON / OFF
-                subs = ("ON", "OFF", "DIFF") if which == "All" else (which,)
+                which = subspec_select.value.split()[0]   # All / DIFF / ON / A …
+                subs = present if which == "All" else (which,)
                 targets = [subspectrum_path(final, fmt, s) for s in subs]
             existing = [p for p in targets if ext and os.path.isfile(p)]
             if existing and not await confirm_overwrite(existing[0]):

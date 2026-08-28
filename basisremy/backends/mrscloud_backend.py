@@ -18,8 +18,9 @@
 #   - The metabolite list matches the official MRSCloud README. Some entries (Cystat, HCar, iLe,   #
 #     Lys, Glc) simulate slowly — flagged with TODO.                                               #
 #   - MEGA returns '<metab> (ON)' / '(OFF)' / '(DIFF)' entries (DIFF = ON − OFF, as the FID-A      #
-#     backends do). HERMES / HERCULES sub-experiment recombination is not exposed yet; only their  #
-#     first sub-spectrum 'A' is returned. TODO marked below.                                       #
+#     backends do). HERMES / HERCULES return the four sub-experiments '(A)' … '(D)' (editing       #
+#     pulses at the scheme's offsets, in MRSCloud's order) and their '(SUM)'; the GABA / GSH       #
+#     difference combinations are a TODO (see run_simulation).                                     #
 #                                                                                                  #
 ####################################################################################################
 
@@ -599,6 +600,18 @@ class MRSCloudBackend(Backend):
         except Exception as e:
             print(f"  ⚠️  Could not addpath({workdir}): {e}")
 
+    @staticmethod
+    def _column(re, im, i, npts):
+        """Column i of the adapter's sub-spectrum matrices (N×k; a single
+        column arrives squeezed to a vector)."""
+        re = np.asarray(re, dtype=np.float64)
+        im = np.asarray(im, dtype=np.float64)
+        if re.ndim == 1:
+            re, im = re[:, None], im[:, None]
+        if re.shape[0] != npts or i >= re.shape[1]:
+            raise RuntimeError("sub-spectrum missing from the adapter output")
+        return re[:, i] + 1j * im[:, i]
+
     # --------------------------------------------------------------- main entry
     def run_simulation(self, params, progress_callback=None, stop_event=None):
         """Run MRSCloud per-metabolite and return { metab : 1-D complex FID }."""
@@ -691,32 +704,52 @@ class MRSCloudBackend(Backend):
                   f"({sequence}/{localization} on {vendor}, TE={te:g} ms, "
                   f"B0={bfield:g} T, {field_str} parameter set)")
             try:
-                # MEGA: the adapter also hands back the edit-OFF sub-spectrum
-                is_mega = sequence == 'MEGA'
+                # edited schemes: the adapter also hands back the further
+                # sub-spectra (MEGA: edit-OFF; HERMES / HERCULES: B, C, D)
+                multi = sequence in ('MEGA', 'HERMES', 'HERCULES')
                 out = self.octave.feval(
                     'mrscloud_run_metab',
                     metab, vendor, sequence, localization,
                     te, field_str, edit_target,
                     edit_on, edit_off, edit_tp, float(spatial), save_dir,
                     float(samples), float(bandwidth), float(bfield),
-                    nout=7 if is_mega else 5,
+                    nout=7 if multi else 5,
                 )
                 fid = np.asarray(out[0], dtype=np.float64).flatten() \
                     + 1j * np.asarray(out[1], dtype=np.float64).flatten()
                 if fid.size == 0:
                     raise RuntimeError("empty FID returned")
-                if is_mega:
-                    off = np.asarray(out[5], dtype=np.float64).flatten() \
-                        + 1j * np.asarray(out[6], dtype=np.float64).flatten()
-                    if off.size != fid.size:
-                        raise RuntimeError("edit-OFF sub-spectrum missing")
+                if sequence == 'MEGA':
+                    off = self._column(out[5], out[6], 0, fid.size)
                     basis_set[f'{metab} (ON)'] = fid
                     basis_set[f'{metab} (OFF)'] = off
                     basis_set[f'{metab} (DIFF)'] = fid - off
+                elif multi:
+                    # Hadamard-encoded schemes: the four sub-experiments A–D
+                    # (editing pulses at the scheme's offsets, in the order of
+                    # the adapter's editON), their SUM and the two difference
+                    # spectra named as Osprey does (DIFF1 = GABA, DIFF2 = GSH).
+                    subs = {'A': fid}
+                    for i, tag in enumerate('BCD'):
+                        subs[tag] = self._column(out[5], out[6], i, fid.size)
+                    for tag, arr in subs.items():
+                        basis_set[f'{metab} ({tag})'] = arr
+                    basis_set[f'{metab} (SUM)'] = sum(subs.values())
+                    a, b, c, d = (subs[t] for t in 'ABCD')
+                    if sequence == 'HERMES':
+                        # A 4.56 (GSH on), B 1.90 (GABA on), C dual (both), D 7.5
+                        # (neither) — measured: (B + C) − (A + D) isolates the
+                        # 3 ppm GABA signal (0.69 of SUM; upstream's own
+                        # B + D − A − C gives 0.02 with this pulse order)
+                        basis_set[f'{metab} (DIFF1)'] = (b + c) - (a + d)
+                        basis_set[f'{metab} (DIFF2)'] = (a + c) - (b + d)
+                    else:
+                        # HERCULES: A 4.58 (GSH on), B 4.18, C dual 4.58 + 1.9,
+                        # D dual 4.18 + 1.9 — GABA is edited in C and D, GSH in
+                        # A and C (from the pulse assignment; not measured)
+                        basis_set[f'{metab} (DIFF1)'] = (c + d) - (a + b)
+                        basis_set[f'{metab} (DIFF2)'] = (a + c) - (b + d)
                 else:
-                    # TODO: HERMES / HERCULES — expose sub-experiments A–D and
-                    # their GABA / GSH difference combinations (needs a naming
-                    # decision: the GUI and exporters know ON / OFF / DIFF).
                     basis_set[metab] = fid
             except Exception as e:
                 # Don't kill the whole run — record the failure (surfaced by

@@ -30,6 +30,9 @@ import scipy.io
 #                                                                                                  #
 #**************************************************************************************************#
 class DockerOctave:
+    # must match the LABEL in docker/dockerfile; bump both to force a rebuild
+    IMAGE_VERSION = 'lean-1'
+
     # Default ``addpath`` prefix for the bundled adapter scripts, relative to
     # ``/workspace`` (the container working dir). ``__init__`` overrides this
     # per instance based on where the adapters sit relative to the mounted
@@ -155,10 +158,15 @@ class DockerOctave:
                 for src, spec in volumes.items()
             }
             mounts_ok = actual == expected
-            if not mounts_ok:
+            # a container created from a previous image keeps running the old
+            # Octave — recreate it on the current image as well
+            current_image = self.client.images.get('basisremy-octave:latest').id
+            image_ok = self.container.image.id == current_image
+            if not (mounts_ok and image_ok):
                 print(
                     f"Recreating Docker container '{container_name}' to refresh "
-                    "stale, missing, or obsolete volume mounts..."
+                    + ("the Octave image..." if mounts_ok
+                       else "stale, missing, or obsolete volume mounts...")
                 )
                 self.container.remove(force=True)
                 raise docker.errors.NotFound('recreate')
@@ -205,17 +213,24 @@ class DockerOctave:
         #   except docker.errors.ImageNotFound:
         #       print("Prebuilt image not found, building locally...")
 
+        stale_image = None
         try:
             # Try to get existing image
-            self.client.images.get(image_name)
+            image = self.client.images.get(image_name)
+            if image.labels.get('org.basisremy.octave-image') != self.IMAGE_VERSION:
+                # an image built from an older dockerfile (the original one
+                # carried the whole Python stack and weighed 16 GB) — rebuild
+                print(f"Docker image '{image_name}' comes from an older BasisREMY — "
+                      "rebuilding the lean Octave image...")
+                stale_image = image
+                raise docker.errors.ImageNotFound(image_name)
             print(f"✓ Using existing Docker image '{image_name}'")
         except docker.errors.ImageNotFound:
             # Image doesn't exist, build it
             print("Building BasisREMY Octave Docker image (this may take a few minutes)...")
             print("=" * 80)
             try:
-                # The dockerfile (and a requirements.txt for its COPY step)
-                # ship next to this module inside the package.
+                # The dockerfile ships next to this module inside the package.
                 dockerfile_dir = os.path.dirname(os.path.abspath(__file__))
 
                 # Build the image from the Dockerfile with streaming output
@@ -238,6 +253,17 @@ class DockerOctave:
 
                 print("=" * 80)
                 print("✓ BasisREMY Octave Docker image built successfully")
+                if stale_image is not None:
+                    # the old image is untagged now; free its space (containers
+                    # still using it are recreated by __init__)
+                    try:
+                        for c in self.client.containers.list(all=True,
+                                                             filters={'ancestor': stale_image.id}):
+                            c.remove(force=True)
+                        self.client.images.remove(stale_image.id, force=True)
+                        print("✓ Removed the previous Octave image")
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"  (previous image left in place: {exc})")
             except docker.errors.BuildError as e:
                 print("=" * 80)
                 raise RuntimeError(

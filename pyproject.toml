@@ -83,5 +83,4 @@ basisremy = [
     "remy/LICENSE",
     # Docker image build context (used to build the Octave runtime on first use).
     "docker/dockerfile",
-    "docker/requirements.txt",
 ]

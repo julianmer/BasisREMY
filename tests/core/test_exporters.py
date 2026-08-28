@@ -318,8 +318,9 @@ class TestSubspectra:
         assert set(groups['DIFF']) == {'NAA', 'Cr'}
         outs = export_subspectra(basis, str(tmp_path / 'mega.basis'),
                                  'lcmodel_basis', _PARAMS_LEGACY)
+        # DIFF first: it is the basis people fit an edited scan with
         assert [os.path.basename(o) for o in outs] == \
-            ['mega_ON.basis', 'mega_OFF.basis', 'mega_DIFF.basis']
+            ['mega_DIFF.basis', 'mega_ON.basis', 'mega_OFF.basis']
         text = (tmp_path / 'mega_DIFF.basis').read_text()
         assert "METABO='NAA   '" in text and '(DIFF)' not in text
         sc = json.loads((tmp_path / 'mega_DIFF_sidecar.json').read_text())
@@ -330,6 +331,24 @@ class TestSubspectra:
         with pytest.raises(ValueError):
             export_subspectra(base, str(tmp_path / 'x.basis'),
                               'lcmodel_basis', _PARAMS_LEGACY)
+
+    def test_hadamard_tags(self, tmp_path):
+        """HERMES-style A / B / C / D / SUM entries use the same machinery."""
+        from basisremy.core.exporters import (export_subspectra, split_subspectra,
+                                              subspectra_present)
+        base = _synthetic_basis()
+        basis = {f'{m} ({s})': fid
+                 for s in ('A', 'B', 'C', 'D', 'SUM') for m, fid in base.items()}
+        basis['Ref0ppm'] = base['NAA']          # untagged entries go everywhere
+        assert subspectra_present(basis) == ['SUM', 'A', 'B', 'C', 'D']
+        groups = split_subspectra(basis)
+        assert set(groups['A']) == {'NAA', 'Cr'} and set(groups[None]) == {'Ref0ppm'}
+        outs = export_subspectra(basis, str(tmp_path / 'hermes.basis'),
+                                 'lcmodel_basis', _PARAMS_LEGACY)
+        assert [os.path.basename(o) for o in outs] == \
+            ['hermes_SUM.basis', 'hermes_A.basis', 'hermes_B.basis',
+             'hermes_C.basis', 'hermes_D.basis']
+        assert "METABO='Ref0pp'" in (tmp_path / 'hermes_C.basis').read_text()
 
 
 # ----------------------------------------------------------------- sidecar

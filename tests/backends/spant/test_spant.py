@@ -223,23 +223,27 @@ class TestSpantLive:
         # editing must change the GABA signal
         assert np.max(np.abs(result['gaba (DIFF)'])) > 1e-3 * np.max(np.abs(result['gaba (OFF)']))
 
-    @pytest.mark.requires_docker
     def test_matches_fida_ideal_press(self):
-        """Same acquisition through FID-A's ideal PRESS (Docker Octave): the
-        singlet-dominated metabolites must agree closely (spant and FID-A ship
-        different spin-system parameter sets, so coupled ones differ more)."""
+        """Same acquisition through FID-A's ideal PRESS (Docker or local
+        Octave): the singlet-dominated metabolites must agree closely."""
         from basisremy.core.basisremy import BasisREMY
+        from basisremy.core.octave_manager import OctaveManager
+        om = OctaveManager()
+        if not (om.check_docker_availability() or om.check_local_octave_availability()):
+            pytest.skip("no Octave runtime for the FID-A reference")
         spant = SpantBackend().run_simulation(
-            {**_BASE, 'Sequence': 'PRESS', 'Metabolites': ['naa', 'cr', 'lac']})
+            {**_BASE, 'Sequence': 'PRESS', 'Metabolites': ['naa', 'cr', 'lac', 'glu']})
         br = BasisREMY()
         br.set_backend('FidaIdeal')
         br.backend.initialize_octave(prefer_docker=True)
         fida = br.backend.run_simulation(
             {'Sequence': 'PRESS', 'Samples': 2048, 'Bandwidth': 2000, 'Bfield': 3.0,
-             'Linewidth': 1.0, 'TE': 35, 'TE2': 0, 'Metabolites': ['NAA', 'Cr', 'Lac']})
+             'Linewidth': 1.0, 'TE': 35, 'TE2': 0, 'Metabolites': ['NAA', 'Cr', 'Lac', 'Glu']})
         ppm = np.linspace(-1000, 1000, 2048) / (42.577 * 3.0) + 4.65
         win = (ppm > 0.5) & (ppm < 4.2)
-        for a, b in (('naa', 'NAA'), ('cr', 'Cr'), ('lac', 'Lac')):
+        # Glu (strongly coupled) only agrees because FidaIdeal's PRESS is a
+        # symmetric TE/2 + TE/2 like spant's — it guards that echo split
+        for a, b in (('naa', 'NAA'), ('cr', 'Cr'), ('lac', 'Lac'), ('glu', 'Glu')):
             s1 = np.abs(np.fft.fftshift(np.fft.fft(spant[a])))
             s2 = np.abs(np.fft.fftshift(np.fft.fft(fida[b])))
             r = np.corrcoef(s1[win], s2[win])[0, 1]

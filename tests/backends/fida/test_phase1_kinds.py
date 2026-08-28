@@ -74,6 +74,9 @@ class TestFidaPhase1Kinds:
         assert np.max(np.abs(diff)) > 1e-6 * np.max(np.abs(off))
 
     # ---- Phase 2: shaped kinds (small grids for speed) ----
+    # FID-A grids are linspace(-fov/2, fov/2, n): with n = 2 the two points
+    # sit at the FOV edge, so the FOV (1.5 cm) is kept inside the 2 cm slab —
+    # with fov 3 both points were outside it and the signals were ~0.
 
     def test_spinecho_shaped(self, cleanup_docker_processes, project_root_dir):
         pulse = os.path.join(project_root_dir, 'externals', 'fidA',
@@ -86,7 +89,7 @@ class TestFidaPhase1Kinds:
         result = br.backend.run_simulation({
             'Samples': 1024, 'Bandwidth': 2000, 'Bfield': 3.0,
             'Linewidth': 1.0, 'TE': 30, 'RefTp': 5.0,
-            'thkX': 2.0, 'fovX': 3.0, 'nX': 2,
+            'thkX': 2.0, 'fovX': 1.5, 'nX': 2,
             'Path to Pulse': pulse, 'Metabolites': ['NAA'],
         })
         _assert_valid_fid(result)
@@ -102,7 +105,7 @@ class TestFidaPhase1Kinds:
         result = br.backend.run_simulation({
             'Samples': 1024, 'Bandwidth': 2000, 'Bfield': 3.0,
             'Linewidth': 1.0, 'TE': 20, 'TM': 10, 'RefTp': 5.0,
-            'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
+            'thkX': 2.0, 'thkY': 2.0, 'fovX': 1.5, 'fovY': 1.5,
             'nX': 2, 'nY': 2, 'Flip Angle': 90.0,
             'Sim Centre (ppm)': 4.65,
             'Path to Pulse': pulse, 'Metabolites': ['NAA'],
@@ -120,7 +123,7 @@ class TestFidaPhase1Kinds:
         result = br.backend.run_simulation({
             'Samples': 1024, 'Bandwidth': 2000, 'Bfield': 3.0,
             'Linewidth': 1.0, 'TE': 35, 'RefTp': 4.5008,
-            'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
+            'thkX': 2.0, 'thkY': 2.0, 'fovX': 1.5, 'fovY': 1.5,
             'nX': 2, 'nY': 2, 'Flip Angle': 180.0,
             'Sim Centre (ppm)': 4.65,
             'Path to Pulse': pulse, 'Metabolites': ['NAA'],
@@ -166,7 +169,7 @@ class TestFidaPhase1Kinds:
             'Path to Pulse': refoc, 'RefTp': 5.0,
             'Edit Pulse Path': edit, 'Edit Tp': 14.0,
             'Edit On': 1.9, 'Edit Off': 7.5,
-            'thkX': 2.0, 'fovX': 3.0, 'nX': 2,
+            'thkX': 2.0, 'fovX': 1.5, 'nX': 2,
             'Sim Centre (ppm)': 4.65,
             'Metabolites': ['GABA'],
         })
@@ -200,6 +203,16 @@ class TestFidaModes:
         with pytest.raises(ValueError, match='Path to Pulse'):
             b._build_args({'Samples': 2048, 'Bandwidth': 2000, 'Bfield': 3.0},
                           'NAA')
+
+    def test_ideal_press_echo_split(self):
+        from basisremy.backends.fida_backends import FidaIdeal
+        b = FidaIdeal()
+        base = {'Sequence': 'PRESS', 'Samples': 2048, 'Bandwidth': 2000,
+                'Bfield': 3.0, 'TE': 35, 'TE2': 0}
+        assert b._build_args(base, 'NAA')[4:6] == [17.5, 17.5]   # symmetric by default
+        assert b._build_args({**base, 'TE2': 24}, 'NAA')[4:6] == [11.0, 24.0]
+        assert b._build_args({**base, 'Sequence': 'STEAM', 'TM': 10}, 'NAA')[4:6] == [35.0, 10.0]
+        assert b._build_args({**base, 'Sequence': 'Spin Echo'}, 'NAA')[4:6] == [35.0, 0.0]
 
     def test_semilaser_modes_map_to_kinds(self):
         from basisremy.backends.fida_backends import FidaSemiLaserShaped
@@ -279,7 +292,7 @@ class TestFidaModesLive:
         br.backend.current_mode = 'Phase cycled'
         result = br.backend.run_simulation({
             **self._base(), 'TE': 30, 'RefTp': 4.5,
-            'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
+            'thkX': 2.0, 'thkY': 2.0, 'fovX': 1.5, 'fovY': 1.5,
             'nX': 2, 'nY': 2, 'Flip Angle': 180.0, 'Sim Centre (ppm)': 4.65,
             'Path to Pulse': self._rf(project_root_dir, 'GOIA_tthk0.01_R120.txt'),
         })
@@ -293,7 +306,7 @@ class TestFidaModesLive:
         result = br.backend.run_simulation({
             **self._base(), 'TE': 68, 'Edit On': 1.9, 'Edit Bandwidth (ppm)': 1.0,
             'Path to Pulse': self._rf(project_root_dir, 'sampleRefocPulse.pta'),
-            'RefTp': 5.0, 'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
+            'RefTp': 5.0, 'thkX': 2.0, 'thkY': 2.0, 'fovX': 1.5, 'fovY': 1.5,
             'nX': 2, 'nY': 2,
         })
         assert {'Cr (ON)', 'Cr (OFF)', 'Cr (DIFF)'} <= set(result)
@@ -310,7 +323,7 @@ class TestFidaModesLive:
             'Edit Pulse Path': self._rf(project_root_dir, 'sampleEditPulse.pta'),
             'Edit Tp': 20.0, 'Edit On': 1.9, 'Edit Off': 7.5,
             'Path to Pulse': self._rf(project_root_dir, 'sampleRefocPulse.pta'),
-            'RefTp': 5.0, 'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
+            'RefTp': 5.0, 'thkX': 2.0, 'thkY': 2.0, 'fovX': 1.5, 'fovY': 1.5,
             'nX': 2, 'nY': 2,
         })
         assert {'Cr (ON)', 'Cr (OFF)', 'Cr (DIFF)'} <= set(result)

@@ -90,17 +90,25 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             if nY < 2; nY = 2; end
             x = linspace(-fovX/2, fovX/2, nX);
             y = linspace(-fovY/2, fovY/2, nY);
-            accumFid = [];
+            % Fast method (Zhang et al. 2017, FID-A run_simPressShaped_fast):
+            % the two slice-selective pulses act along orthogonal axes, so the
+            % spatial average factorises — the first pulse over the x grid
+            % (density matrices summed), the second over the y grid — nX + nY
+            % runs instead of nX * nY, with coherence-order filtering in place
+            % of phase cycling.
+            dsum = [];
             for ix = 1:nX
-                for iy = 1:nY
-                    out = sim_press_shaped(n, sw, Bfield, lw, sys, tau1, tau2, ...
-                                           RF, tp, x(ix), y(iy), Gx, Gy, ...
-                                           flipAngle, centreFreq);
-                    if isempty(accumFid)
-                        accumFid = out.fids(:);
-                    else
-                        accumFid = accumFid + out.fids(:);
-                    end
+                dsum = sim_dAdd(dsum, press_fast_ref1(Bfield, sys, tau1, tau2, ...
+                                RF, tp, x(ix), Gx, flipAngle, centreFreq));
+            end
+            accumFid = [];
+            for iy = 1:nY
+                out = press_fast_ref2(dsum, n, sw, Bfield, lw, sys, tau1, tau2, ...
+                                      RF, tp, y(iy), Gy, flipAngle, centreFreq);
+                if isempty(accumFid)
+                    accumFid = out.fids(:);
+                else
+                    accumFid = accumFid + out.fids(:);
                 end
             end
             accumFid = accumFid / (nX * nY);
@@ -168,17 +176,24 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             if nY < 2; nY = 2; end
             x = linspace(-fovX/2, fovX/2, nX);
             y = linspace(-fovY/2, fovY/2, nY);
-            accumFid = [];
+            % Fast method (FID-A run_simSemiLASERShaped_fast, Zhang 2017): the
+            % X refocusing pair over the x grid, the Y pair over the y grid —
+            % nX + nY runs, coherence-order filtered like sim_semiLASER_shaped.
+            % The 'Phase cycled' kind below keeps FID-A's explicit 4-step cycle
+            % on the full grid.
+            dsum = [];
             for ix = 1:nX
-                for iy = 1:nY
-                    out = sim_semiLASER_shaped(n, sw, Bfield, lw, sys, te, ...
-                                               RF, tp, x(ix), y(iy), Gx, Gy, ...
-                                               flipAngle, centreFreq);
-                    if isempty(accumFid)
-                        accumFid = out.fids(:);
-                    else
-                        accumFid = accumFid + out.fids(:);
-                    end
+                dsum = sim_dAdd(dsum, slaser_fast_ref1(Bfield, sys, te, RF, tp, ...
+                                x(ix), Gx, flipAngle, centreFreq));
+            end
+            accumFid = [];
+            for iy = 1:nY
+                out = slaser_fast_ref2(dsum, n, sw, Bfield, lw, sys, te, RF, tp, ...
+                                       y(iy), Gy, flipAngle, centreFreq);
+                if isempty(accumFid)
+                    accumFid = out.fids(:);
+                else
+                    accumFid = accumFid + out.fids(:);
                 end
             end
             accumFid = accumFid / (nX * nY);
@@ -681,4 +696,88 @@ function [RF, Gx, Gy] = gm_prepare(RF, kind, Gx, Gy)
     RF = rf_scaleGrad(RF, Gx);
     Gx = 0;
     Gy = 0;
+end
+
+% ---------- fast spatial method kernels ---------------------------------------
+% Adapted from the local functions of FID-A's run_simPressShaped_fast.m and
+% run_simSemiLASERShaped_fast.m (Goerzen & Near, McGill 2021; BSD 3-Clause),
+% implementing Zhang et al., Med Phys 2017;44(8):4169-78: the pulses along X
+% are simulated over the x grid and the density matrices summed, then the
+% pulses along Y over the y grid; coherence-order filtering (sim_COF) selects
+% the wanted pathways instead of a phase cycle. Verified against the full
+% nX*nY grid (see the adapter tests).
+
+function d = press_fast_ref1(Bfield, sys, tau1, tau2, RF, tp, dx, Gx, flipAngle, centreFreq)
+% Excitation, first shaped refocusing pulse at x = dx, evolution up to the
+% second pulse.
+    delays = [tau1 - tp, tau2 - tp];
+    if any(delays < 0)
+        error(['fida_run/press_shaped: the echo times must exceed the refocusing ' ...
+               'pulse duration (Tau 1 = %g, Tau 2 = %g, RefTp = %g ms)'], tau1, tau2, tp);
+    end
+    for k = 1:length(sys); sys(k).shifts = sys(k).shifts - centreFreq; end
+    [H, d] = sim_Hamiltonian(sys, Bfield);
+    d = sim_excite(d, H, 'x');
+    d = sim_COF(H, d, -1);
+    d = sim_evolve(d, H, delays(1) / 2000);
+    d = sim_shapedRF(d, H, RF, tp, flipAngle, 90, dx, Gx);
+    d = sim_COF(H, d, 1);
+    d = sim_evolve(d, H, (delays(1) + delays(2)) / 2000);
+end
+
+function out = press_fast_ref2(d, n, sw, Bfield, lw, sys, tau1, tau2, RF, tp, dy, Gy, flipAngle, centreFreq)
+% Second shaped refocusing pulse at y = dy and readout, from the summed
+% density matrix of press_fast_ref1.
+    delays = [tau1 - tp, tau2 - tp];
+    for k = 1:length(sys); sys(k).shifts = sys(k).shifts - centreFreq; end
+    H = sim_Hamiltonian(sys, Bfield);
+    d = sim_shapedRF(d, H, RF, tp, flipAngle, 90, dy, Gy);
+    d = sim_COF(H, d, -1);
+    d = sim_evolve(d, H, delays(2) / 2000);
+    [out, ~] = sim_readout(d, H, n, sw, lw, 90);
+end
+
+function d = slaser_fast_ref1(Bfield, sys, te, RF, tp, dx, Gx, flipAngle, centreFreq)
+% Excitation and the two adiabatic refocusing pulses along X at x = dx
+% (same chain as sim_semiLASER_shaped up to the third pulse).
+    if RF.isGM
+        RF = rf_scaleGrad(RF, Gx);   % gradient shape scaled to the thickness
+        Gx = 0;
+    end
+    if te / 4 < tp
+        error(['fida_run/semilaser_shaped: the refocusing pulse (%g ms) cannot be ' ...
+               'longer than a quarter of TE (%g ms)'], tp, te);
+    end
+    tau1 = (te / 4 - tp) / 2;
+    tau2 = te / 4 - tp;
+    for k = 1:length(sys); sys(k).shifts = sys(k).shifts - centreFreq; end
+    [H, d] = sim_Hamiltonian(sys, Bfield);
+    d = sim_excite(d, H, 'x');
+    d = sim_COF(H, d, -1);
+    d = sim_evolve(d, H, tau1 / 1000);
+    d = sim_shapedRF(d, H, RF, tp, flipAngle, 0, dx, Gx);
+    d = sim_COF(H, d, 1);
+    d = sim_evolve(d, H, tau2 / 1000);
+    d = sim_shapedRF(d, H, RF, tp, flipAngle, 0, dx, Gx);
+    d = sim_COF(H, d, -1);
+    d = sim_evolve(d, H, tau2 / 1000);
+end
+
+function out = slaser_fast_ref2(d, n, sw, Bfield, lw, sys, te, RF, tp, dy, Gy, flipAngle, centreFreq)
+% The two adiabatic refocusing pulses along Y at y = dy and the readout.
+    if RF.isGM
+        RF = rf_scaleGrad(RF, Gy);
+        Gy = 0;
+    end
+    tau1 = (te / 4 - tp) / 2;
+    tau2 = te / 4 - tp;
+    for k = 1:length(sys); sys(k).shifts = sys(k).shifts - centreFreq; end
+    H = sim_Hamiltonian(sys, Bfield);
+    d = sim_shapedRF(d, H, RF, tp, flipAngle, 0, dy, Gy);
+    d = sim_COF(H, d, 1);
+    d = sim_evolve(d, H, tau2 / 1000);
+    d = sim_shapedRF(d, H, RF, tp, flipAngle, 0, dy, Gy);
+    d = sim_COF(H, d, -1);
+    d = sim_evolve(d, H, tau1 / 1000);
+    [out, ~] = sim_readout(d, H, n, sw, lw, 90);
 end
