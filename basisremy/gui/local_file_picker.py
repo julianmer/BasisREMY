@@ -100,7 +100,7 @@ class LocalFilePicker(ui.dialog):
                 if self._dirs_only:
                     ui.button("Select this folder",
                               on_click=lambda: self.submit(str(self._path))) \
-                        .props(f"color=primary")
+                        .props("color=primary")
                 elif self._save_mode:
                     ui.button("Save", on_click=self._confirm_save) \
                         .props("color=primary")

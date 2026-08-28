@@ -327,7 +327,7 @@ class CustomSLaser(Backend):
 
             # Debug: Show what we got from Octave
             if hasattr(self.octave, 'verbose') and self.octave.verbose:
-                print(f"\nDebug: Received from Octave:")
+                print("\nDebug: Received from Octave:")
                 print(f"  metab_list type: {type(metab_list)}, value: {metab_list}")
                 print(f"  outputs type: {type(outputs)}")
                 print(f"  outputs shape: {outputs.shape if hasattr(outputs, 'shape') else 'N/A'}")
@@ -364,12 +364,12 @@ class CustomSLaser(Backend):
                         else:
                             output_struct = outputs
                             if hasattr(self.octave, 'verbose') and self.octave.verbose:
-                                print(f"    Accessed as outputs (scalar)")
+                                print("    Accessed as outputs (scalar)")
                     else:
                         # It's a mat_struct or similar object - treat as scalar
                         output_struct = outputs
                         if hasattr(self.octave, 'verbose') and self.octave.verbose:
-                            print(f"    Accessed as outputs (mat_struct/scalar, single metabolite)")
+                            print("    Accessed as outputs (mat_struct/scalar, single metabolite)")
 
                     if hasattr(self.octave, 'verbose') and self.octave.verbose:
                         print(f"    output_struct type: {type(output_struct)}")
@@ -381,16 +381,16 @@ class CustomSLaser(Backend):
                     if hasattr(output_struct, 'fids'):
                         fids_data = output_struct.fids
                         if hasattr(self.octave, 'verbose') and self.octave.verbose:
-                            print(f"    ✓ Accessed via attribute: output_struct.fids")
+                            print("    ✓ Accessed via attribute: output_struct.fids")
                     elif isinstance(output_struct, dict):
                         fids_data = output_struct['fids']
                         if hasattr(self.octave, 'verbose') and self.octave.verbose:
-                            print(f"    ✓ Accessed via dict: output_struct['fids']")
+                            print("    ✓ Accessed via dict: output_struct['fids']")
                     else:
                         # Try as item access
                         fids_data = output_struct['fids']
                         if hasattr(self.octave, 'verbose') and self.octave.verbose:
-                            print(f"    ✓ Accessed via item: output_struct['fids']")
+                            print("    ✓ Accessed via item: output_struct['fids']")
 
                     # Debug output
                     if hasattr(self.octave, 'verbose') and self.octave.verbose:
@@ -414,7 +414,7 @@ class CustomSLaser(Backend):
                         # If it's a structured array or object array, extract the actual data
                         if fids_data.dtype == object:
                             if hasattr(self.octave, 'verbose') and self.octave.verbose:
-                                print(f"    ⚠️  fids_data is object dtype, unwrapping...")
+                                print("    ⚠️  fids_data is object dtype, unwrapping...")
                             # Try to extract first element if it's an object array wrapping the real data
                             if fids_data.size == 1:
                                 fids_data = np.asarray(fids_data.item(), dtype=complex)
@@ -423,7 +423,7 @@ class CustomSLaser(Backend):
                             else:
                                 fids_data = np.array([complex(x) for x in fids_data.flat])
                                 if hasattr(self.octave, 'verbose') and self.octave.verbose:
-                                    print(f"    ✓ Converted object array to complex")
+                                    print("    ✓ Converted object array to complex")
                         else:
                             fids_data = fids_data.astype(complex)
 

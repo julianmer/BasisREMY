@@ -155,24 +155,26 @@ REGISTRY: dict[str, ParamInfo] = {
     "Tau 1": ParamInfo(
         label="Tau 1",
         description=(
-            TODO + " — preliminary: first sLASER inter-pulse delay, i.e. the "
-            "time between the excitation pulse and the centre of the first AFP "
-            "refocusing pair. Total echo time TE = 2·(Tau1 + Tau2). Please "
-            "confirm the exact convention used by the active backend."
+            "Echo time of the first PRESS spin echo (FID-A sim_press "
+            "convention: excitation → first refocusing → first echo); "
+            "TE = Tau 1 + Tau 2. PRESS shaped: leave blank for TE/2. "
+            "CustomSLaser: only used for the short reference PRESS run that "
+            "sets the ppm range (jbss); the sLASER timings themselves follow "
+            "from TE and RefTp."
         ),
         units="ms",
-        typical="6 - 15 ms",
+        typical="TE/2 (e.g. 17.5 ms at TE 35 ms)",
     ),
     "Tau 2": ParamInfo(
         label="Tau 2",
         description=(
-            TODO + " — preliminary: second sLASER inter-pulse delay between the "
-            "centres of the first and second AFP refocusing pairs. Total echo "
-            "time TE = 2·(Tau1 + Tau2). Please confirm the exact convention "
-            "used by the active backend."
+            "Echo time of the second PRESS spin echo (FID-A sim_press "
+            "convention); TE = Tau 1 + Tau 2. PRESS shaped: leave blank for "
+            "TE/2. CustomSLaser: only used for the reference PRESS run that "
+            "sets the ppm range (jbss), not for the sLASER timings."
         ),
         units="ms",
-        typical="6 - 15 ms",
+        typical="TE/2 (e.g. 17.5 ms at TE 35 ms)",
     ),
 
     # --- Sequence / mode -----------------------------------------------------
@@ -204,14 +206,12 @@ REGISTRY: dict[str, ParamInfo] = {
     "B1max": ParamInfo(
         label="B1 max",
         description=(
-            TODO + " — preliminary: peak RF amplitude of the refocusing (AFP) "
-            "pulse, used by FID-A / CustomSLaser to scale the simulated waveform. "
-            "FID-A typically expects Hz (γ·B1/2π). Please confirm the unit "
-            "convention of the backend you are using; convert via "
-            "B1[Hz] = 42.577 · B1[µT] for 1H."
+            "Maximum B1 amplitude available at the scanner, in µT. "
+            "CustomSLaser scales the loaded AFP refocusing waveform to it "
+            "(jbss io_loadRFwaveform: w1max = γ·B1max)."
         ),
-        units="Hz (FID-A) / µT",
-        typical="800 - 1500 Hz  ·  20 - 25 µT",
+        units="µT",
+        typical="22 µT (jbss default)",
     ),
     "Flip Angle": ParamInfo(
         label="Flip angle",
@@ -331,17 +331,6 @@ REGISTRY: dict[str, ParamInfo] = {
         label="Custom sequence JSON",
         description="Path to a user-supplied FSL-MRS sequence JSON (real pulses, custom timings).",
         widget_hint="file",
-    ),
-    "Auto Phase": ParamInfo(
-        label="Auto phase",
-        description=(
-            TODO + " — preliminary: when enabled, applies a zero-order phase "
-            "correction to each simulated metabolite FID so the on-resonance "
-            "singlet is purely absorptive (real-positive) at t = 0. Please "
-            "verify the exact behaviour for the FSL-MRS backend before relying "
-            "on it for quantification."
-        ),
-        widget_hint="checkbox",
     ),
     "Parallel": ParamInfo(
         label="Parallel processing",

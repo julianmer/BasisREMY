@@ -1,0 +1,33 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Local Octave so the Octave-backed tests (FID-A, MRSCloud, CustomSLaser)
+      # run for real instead of being skipped; Docker is not used on CI.
+      - name: Install Octave
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends octave
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Test
+        run: uv run pytest -q

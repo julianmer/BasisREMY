@@ -62,7 +62,6 @@ def open_export_dialog(basis: dict, params: dict) -> None:
         return
 
     params = dict(params or {})
-    label_to_key = {FORMAT_LABELS[k]: k for k in SUPPORTED_FORMATS}
     remembered = get_state("last_export_dir")
     default_dir = (remembered
                    if isinstance(remembered, str) and os.path.isdir(remembered)

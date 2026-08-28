@@ -93,12 +93,12 @@ class TestNIfTI:
         # Disable capturing to force output
         with capsys.disabled():
             print(f"\n{'='*80}")
-            print(f"Testing NIfTI .nii.gz Format")
+            print("Testing NIfTI .nii.gz Format")
             print(f"Found {len(spar_files)} files in example_data")
             print(f"{'='*80}")
 
             print(f"\n{'='*80}")
-            print(f"RESULTS: NIfTI .nii.gz Format")
+            print("RESULTS: NIfTI .nii.gz Format")
             print(f"{'='*80}")
             print(f"Total files:   {total}")
             print(f"Successful:    {success_count} ({success_count/total*100:.1f}%)")
@@ -116,7 +116,7 @@ class TestNIfTI:
             # Show field extraction statistics - "Field: X/Y files (Z%)" (ALWAYS SHOWN)
             if all_fields:
                 print(f"\n{'-'*80}")
-                print(f"FIELD EXTRACTION STATISTICS:")
+                print("FIELD EXTRACTION STATISTICS:")
                 print(f"{'-'*80}")
                 print(f"{'Field':<35s} | {'Extracted':>15s}")
                 print(f"{'-'*80}")

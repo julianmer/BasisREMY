@@ -207,7 +207,7 @@ class DockerOctave:
             print(f"✓ Using existing Docker image '{image_name}'")
         except docker.errors.ImageNotFound:
             # Image doesn't exist, build it
-            print(f"Building BasisREMY Octave Docker image (this may take a few minutes)...")
+            print("Building BasisREMY Octave Docker image (this may take a few minutes)...")
             print("=" * 80)
             try:
                 # The dockerfile (and a requirements.txt for its COPY step)
@@ -233,7 +233,7 @@ class DockerOctave:
                         print(log['status'])
 
                 print("=" * 80)
-                print(f"✓ BasisREMY Octave Docker image built successfully")
+                print("✓ BasisREMY Octave Docker image built successfully")
             except docker.errors.BuildError as e:
                 print("=" * 80)
                 raise RuntimeError(
@@ -304,7 +304,7 @@ class DockerOctave:
     def kill_running_processes(self):
         """Kill all running Octave processes in the container."""
         try:
-            result = self.container.exec_run("pkill -9 octave-cli")
+            self.container.exec_run("pkill -9 octave-cli")
             if self.verbose:
                 print("✓ Killed existing Octave processes")
             return True
@@ -400,7 +400,7 @@ class DockerOctave:
         code = '\n'.join(self.persistent_commands + assigns + self.commands + [call, save])
 
         if show_output:
-            print(f"\nGenerated Octave script:")
+            print("\nGenerated Octave script:")
             print(f"{'-'*80}")
             # Show only the key parts if verbose
             print('\n'.join(self.persistent_commands[:3]) + '\n...')
@@ -414,7 +414,7 @@ class DockerOctave:
 
         if show_output:
             print(f"\n✓ Script written to: {self.script_path}")
-            print(f"⏳ Executing Octave in Docker container...")
+            print("⏳ Executing Octave in Docker container...")
 
         # Execute in container - script path relative to /workspace
         script_rel = os.path.relpath(self.script_path, self.project_root).replace('\\', '/')
@@ -430,7 +430,7 @@ class DockerOctave:
             if existing_pids and existing_pids[0]:
                 print(f"⚠️  Warning: Found {len(existing_pids)} existing Octave process(es) running!")
                 print(f"   PIDs: {', '.join(existing_pids)}")
-                print(f"   This may slow down your simulation significantly.")
+                print("   This may slow down your simulation significantly.")
                 print(f"   Consider killing them with: docker exec {self.container_name} pkill -9 octave-cli")
                 print(f"{'-'*80}")
 
@@ -459,7 +459,7 @@ class DockerOctave:
 
         if show_output:
             print(f"{'-'*80}")
-            print(f"✓ Octave execution completed successfully")
+            print("✓ Octave execution completed successfully")
             print(f"⏳ Loading results from {result_file_rel}...")
 
         # Load results
@@ -468,7 +468,7 @@ class DockerOctave:
             # Use struct_as_record=False to get more intuitive struct access
             mat = scipy.io.loadmat(self.result_path, squeeze_me=True, struct_as_record=False)
             if show_output:
-                print(f"✓ Results loaded successfully")
+                print("✓ Results loaded successfully")
                 print(f"{'='*80}\n")
         except Exception as e:
             print(f"✗ Failed to load results: {e}")

@@ -186,9 +186,9 @@ class Backend:
                 existing = self.octave.check_running_processes()
                 if existing:
                     print(f"⚠️  Found {len(existing)} existing Octave process(es)")
-                    print(f"   Cleaning up old processes...")
+                    print("   Cleaning up old processes...")
                     self.octave.kill_running_processes()
-                    print(f"✓ Ready for new simulation")
+                    print("✓ Ready for new simulation")
 
             return True
         except RuntimeError as e:

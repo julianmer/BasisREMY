@@ -909,7 +909,6 @@ class BasisREMYApp:
                 sel.on_value_change(lambda e, k=key: self._update_param(k, e.value))
 
     def _param_file(self, key, value) -> None:
-        backend = self.BasisREMY.backend
         with self.params_col:
             with ui.element("div").classes("br-prow"):
                 label_with_help(key).classes("br-prow-label")

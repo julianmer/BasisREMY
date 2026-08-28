@@ -148,7 +148,6 @@ class FSLMRSBackend(Backend):
             'Edit Frequency': 1.9,
             'Linewidth': 2.0,
             'Add Reference': False,
-            'Auto Phase': None,
             'Parallel': True,
             'Custom Sequence': None,
         }
@@ -348,7 +347,6 @@ class FSLMRSBackend(Backend):
         # Optional parameters
         opt['Linewidth'] = 2.0
         opt['Add Reference'] = False
-        opt['Auto Phase'] = None
         opt['Parallel'] = True
         opt['Custom Sequence'] = None
 
@@ -432,7 +430,7 @@ class FSLMRSBackend(Backend):
         print(f"  File: {seq_rel_path}")
         print(f"  Parameters: B0={predefined_info['B0']}T, TE={predefined_info['TE']}ms, "
               f"Points={predefined_info['Rx_Points']}, BW={predefined_info['Rx_SW']}Hz")
-        print(f"  Note: This file contains REAL pulse shapes - highly accurate!")
+        print("  Note: This file contains REAL pulse shapes - highly accurate!")
         with open(seq_file_path, 'r') as f:
             seq_params = json.load(f)
 
@@ -659,12 +657,12 @@ class FSLMRSBackend(Backend):
                 'rephaseAreas': [[0, 0, 0]] * 5,
                 'CoherenceFilter': [-1, 1, -1, 1, -1],
             })
-            print(f"  HERMES editing: GABA @ 1.9 ppm, GSH @ 4.56 ppm")
+            print("  HERMES editing: GABA @ 1.9 ppm, GSH @ 4.56 ppm")
 
         elif sequence == 'HERCULES':
             # HERCULES - extension of HERMES
-            print(f"  HERCULES: Multi-metabolite editing")
-            print(f"  Using HERMES framework with optimized frequencies")
+            print("  HERCULES: Multi-metabolite editing")
+            print("  Using HERMES framework with optimized frequencies")
             # Similar to HERMES but with additional editing targets
             # offsets relative to the centralShift carrier (see MEGA-PRESS)
             gaba_freq_hz = (1.9 - central_shift) * bfield * 42.577
@@ -797,7 +795,7 @@ class FSLMRSBackend(Backend):
         print("✓ denmatsim imported successfully")
 
         print(f"\n{'='*80}")
-        print(f"Running FSL-MRS simulation (denmatsim)")
+        print("Running FSL-MRS simulation (denmatsim)")
         print(f"{'='*80}")
         print(f"Sequence: {params['Sequence']}")
         print(f"TE: {params['TE']} ms")
@@ -884,13 +882,13 @@ class FSLMRSBackend(Backend):
                 print(f"{'='*80}")
                 print(f"Predefined file: {predefined_info['description']}")
                 print(f"  Fixed parameters: B0={predefined_info['B0']}T, TE={predefined_info['TE']}ms")
-                print(f"\nYour parameters:")
+                print("\nYour parameters:")
                 for warning in warnings:
                     print(f"  ⚠️  {warning}")
-                print(f"\n⚠️  Using predefined file with different parameters would be INACCURATE!")
-                print(f"     (Real pulse shapes are field-strength and TE dependent)")
-                print(f"\nGenerating IDEALIZED sequence instead (perfect pulses, no realistic effects)")
-                print(f"For accurate simulations at your parameters, provide a custom sequence file.")
+                print("\n⚠️  Using predefined file with different parameters would be INACCURATE!")
+                print("     (Real pulse shapes are field-strength and TE dependent)")
+                print("\nGenerating IDEALIZED sequence instead (perfect pulses, no realistic effects)")
+                print("For accurate simulations at your parameters, provide a custom sequence file.")
                 print(f"{'='*80}\n")
 
                 seq_params = self._generate_sequence_json(params)
@@ -981,7 +979,7 @@ class FSLMRSBackend(Backend):
                 continue
 
         print(f"\n{'='*80}")
-        print(f"Simulation complete!")
+        print("Simulation complete!")
         print(f"Generated {len(basis_set)}/{total_metabs} metabolite spectra")
         print(f"Output location: {output_path}")
         print(f"{'='*80}\n")
@@ -992,12 +990,12 @@ class FSLMRSBackend(Backend):
         """Save FID in LCModel RAW format"""
         with open(filepath, 'w') as f:
             # LCModel RAW header
-            f.write(f" $NMID\n")
-            f.write(f" ID='BasisREMY FSL-MRS simulation'\n")
-            f.write(f" FMTDAT='(2E15.6)'\n")
-            f.write(f" VOLUME=1.0\n")
-            f.write(f" TRAMP=1.0\n")
-            f.write(f" $END\n")
+            f.write(" $NMID\n")
+            f.write(" ID='BasisREMY FSL-MRS simulation'\n")
+            f.write(" FMTDAT='(2E15.6)'\n")
+            f.write(" VOLUME=1.0\n")
+            f.write(" TRAMP=1.0\n")
+            f.write(" $END\n")
 
             # Write FID data (real, imag pairs)
             for point in fid:

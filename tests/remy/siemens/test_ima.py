@@ -93,12 +93,12 @@ class TestSiemensIMA:
         # Disable capturing to force output
         with capsys.disabled():
             print(f"\n{'='*80}")
-            print(f"Testing Siemens .ima Format")
+            print("Testing Siemens .ima Format")
             print(f"Found {len(spar_files)} files in example_data")
             print(f"{'='*80}")
 
             print(f"\n{'='*80}")
-            print(f"RESULTS: Siemens .ima Format")
+            print("RESULTS: Siemens .ima Format")
             print(f"{'='*80}")
             print(f"Total files:   {total}")
             print(f"Successful:    {success_count} ({success_count/total*100:.1f}%)")
@@ -116,7 +116,7 @@ class TestSiemensIMA:
             # Show field extraction statistics - "Field: X/Y files (Z%)" (ALWAYS SHOWN)
             if all_fields:
                 print(f"\n{'-'*80}")
-                print(f"FIELD EXTRACTION STATISTICS:")
+                print("FIELD EXTRACTION STATISTICS:")
                 print(f"{'-'*80}")
                 print(f"{'Field':<35s} | {'Extracted':>15s}")
                 print(f"{'-'*80}")

@@ -154,7 +154,7 @@ class TestFSLMRSBackend:
     def test_denmatsim_importable(self):
         """Test that denmatsim can be imported from the submodule"""
         # The import happens at module level in fslmrs_backend.py
-        from denmatsim import simseq, utils as simutils
+        from denmatsim import simseq, utils as simutils  # noqa: F401
         spins = simutils.readBuiltInSpins()
         assert len(spins) > 20  # should have 30+ metabolites
 

@@ -1,0 +1,9 @@
+# Source-distribution contents. The wheel already ships only the files listed
+# under [tool.setuptools.package-data]; this keeps the sdist to the same set.
+# The remaining artwork under assets/imgs (README logos, workflow diagrams, the
+# other mouse colours) lives in git for GitHub and is never loaded at runtime.
+prune basisremy/assets/imgs
+include basisremy/assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_navy_blue.png
+include basisremy/assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_sky_blue.png
+include basisremy/assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_charcoal.png
+include basisremy/assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_light_gray.png

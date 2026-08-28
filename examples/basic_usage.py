@@ -8,6 +8,9 @@
 #                                                                                                  #
 # Purpose: Example showing how to use BasisREMY without the GUI.                                   #
 #                                                                                                  #
+#          Run from the repository root:  python examples/basic_usage.py                           #
+#          (needs an Octave runtime — Docker or a local Octave — for the simulation step).         #
+#                                                                                                  #
 ####################################################################################################
 
 
@@ -18,6 +21,7 @@ import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from basisremy.core.basisremy import BasisREMY
+from basisremy.core.exporters import export
 
 if __name__ == "__main__":
 
@@ -26,6 +30,7 @@ if __name__ == "__main__":
     # =============================================================================================
 
     br = BasisREMY()
+    print(f"Available backends: {br.available_backends}")
 
 
     # =============================================================================================
@@ -37,60 +42,54 @@ if __name__ == "__main__":
     import_fpath = './example_data/BigGABA_P1P_S01/S01_PRESS_35_act.SPAR'
 
     print(f"Processing file: {import_fpath}")
-    params = br.runREMY(import_fpath=import_fpath)
+    br.runREMY(import_fpath=import_fpath)
 
 
     # =============================================================================================
-    # Set backend and parse parameters
+    # Choose a backend
     # =============================================================================================
-    # Available backends:
-    #   - FidaIdeal   : Fast ideal pulse simulations (PRESS, STEAM, LASER, SE)
-    #   - CustomSLaser: Realistic Bloch simulations (sLASER, semi-LASER)
+    # set_backend() re-parses the extracted parameters for the chosen backend and
+    # fills its mandatory_params (Samples, Bandwidth, Bfield, TE, Center Freq, ...).
 
-    br.set_backend('FidaIdeal')
-    parsed_params, opt = br.backend.parseREMY(params)
-
-    # Handle empty parameters
-    def get_param(key, default):
-        value = parsed_params.get(key, default)
-        if value in [None, '', 'nan']:
-            return default
-        return value
+    br.set_backend('FidaIdeal')   # fast ideal-pulse FID-A simulation (SE / PRESS / STEAM / LASER)
 
 
     # =============================================================================================
     # Configure simulation parameters
     # =============================================================================================
+    # Start from what REMY extracted and override / complete by hand.
 
-    simulation_params = {
-        'Sequence': get_param('Sequence', 'PRESS'),
-        'Samples': get_param('Samples', 2048),
-        'Bandwidth': get_param('Bandwidth', 2000),
-        'Bfield': get_param('Bfield', 3.0),
+    params = dict(br.backend.mandatory_params)
+    params.update({
+        'Sequence': 'PRESS',
         'Linewidth': 1,
-        'TE': get_param('TE', 35),
-        'TE2': 0,
-        'Add Ref.': 'No',
-        'Make .raw': 'Yes',
-        'Output Path': './output/my_basis_set',
-        'Center Freq': get_param('Center Freq', 127.736713),
         'Metabolites': ['NAA', 'Cr', 'PCr', 'Glu', 'Gln', 'Ins', 'GABA', 'GSH', 'Lac', 'Tau'],
-    }
+    })
 
-    print(f"Simulating basis set with the following parameters:")
-    for key, value in simulation_params.items():
-        if key != 'Metabolites':
-            print(f"{key}: {value}")
-    print(f"Metabolites: {simulation_params['Metabolites']}")
+    missing = [k for k, v in params.items() if v in (None, '')]
+    if missing:
+        raise SystemExit(f"Parameters not found in the data, please set them by hand: {missing}")
+
+    print("Simulating basis set with the following parameters:")
+    for key, value in params.items():
+        print(f"  {key}: {value}")
 
 
     # =============================================================================================
     # Run simulation
     # =============================================================================================
+    # Returns { metabolite -> complex FID }. Octave (Docker or local) is started on first use.
 
-    basis_set = br.backend.run_simulation(simulation_params)
+    basis = br.backend.run_simulation(params)
+    print(f"\nSimulation complete: {len(basis)} metabolite spectra")
 
-    print(f"\nSimulation complete.")
-    print(f"Generated {len(basis_set)} metabolite spectra")
-    print(f"Output location: {simulation_params['Output Path']}")
 
+    # =============================================================================================
+    # Export
+    # =============================================================================================
+    # Formats: lcmodel_basis, lcmodel_raw, jmrui_txt, fsl_json, osprey_mat, fida_mat,
+    #          inspector_mat, profit_mat, marss_mat, mrscloud_mat, spinwizard
+    # A *_sidecar.json with the parameters and provenance is written next to every export.
+
+    out = export(basis, './output/PRESS_TE35_3T', 'lcmodel_basis', params)
+    print(f"Exported to: {out}")

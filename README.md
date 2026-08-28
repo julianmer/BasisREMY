@@ -4,8 +4,8 @@
   <p style="margin-top: 0px;"><em>A Unified Framework for Study-Specific Basis Set Generation in MR Spectroscopy</em></p>
   
   [![PyPI](https://img.shields.io/pypi/v/basisremy.svg)](https://pypi.org/project/basisremy/)
-  [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-  [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
+  [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+  [![Tests](https://github.com/julianmer/BasisREMY/actions/workflows/tests.yml/badge.svg)](https://github.com/julianmer/BasisREMY/actions/workflows/tests.yml)
   [![ISMRM 2026](https://img.shields.io/badge/ISMRM-Abstract%20%2301716-lightgrey.svg)](https://archive.ismrm.org)
 </div>
 
@@ -43,7 +43,7 @@ You only need:
   
   > **Note**: BasisREMY automatically detects and uses Docker if available, otherwise falls back to local Octave. Data extraction and parameter configuration work without an Octave runtime; only the simulation step requires it.
 
-> **Python 3.10+** is only required if you skip `uv` and install manually with
+> **Python 3.11+** is only required if you skip `uv` and install manually with
 > `pip` (see *Setting Up the Python Environment* below).
 
 ---
@@ -239,7 +239,7 @@ The example shows how to:
 ---
 
 ## Related References
-The project will build upon the methodologies used in existing tools. Some references include:
+The project builds upon the methodologies used in existing tools. Some references include:
 - [REMY](https://github.com/agudmundson/mrs_in_mrs) and related literature ([nbm.70039](https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/nbm.70039))
 - [FID-A](https://github.com/CIC-methods/FID-A) and related literature ([mrm.26091](https://doi.org/10.1002/mrm.26091))
 - [FSL-MRS](https://github.com/wtclarke/fsl_mrs) and related literature ([mrm.28630](https://doi.org/10.1002/mrm.28630))

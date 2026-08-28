@@ -31,7 +31,7 @@ class TestLCModelPRESS:
         Uses hardcoded parameters - just verifies the backend works
         """
         print(f"\n{'='*80}")
-        print(f"Testing LCModel Backend - PRESS Sequence")
+        print("Testing LCModel Backend - PRESS Sequence")
         print(f"{'='*80}\n")
 
         # Hardcoded PRESS parameters
@@ -63,7 +63,7 @@ class TestLCModelPRESS:
         assert np.max(np.abs(fid)) > 0, "NAA FID is all-zero"
         file_size = fid.size * fid.itemsize
 
-        print(f"\n✅ SUCCESS!")
+        print("\n✅ SUCCESS!")
         print(f"   Output: NAA.RAW ({file_size} bytes)")
         print(f"{'='*80}\n")
 

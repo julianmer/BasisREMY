@@ -91,7 +91,7 @@ class OctaveManager:
         except ImportError:
             # Docker Python package not installed
             return False
-        except Exception as e:
+        except Exception:
             # Docker not running or other error
             return False
 

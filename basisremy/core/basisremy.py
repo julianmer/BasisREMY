@@ -25,7 +25,7 @@ from basisremy.backends.mrscloud_backend import MRSCloudBackend
 from basisremy.backends.custom_backends import CustomSLaser
 from basisremy.backends.fida_backends import FIDA_BACKENDS
 from basisremy.backends.vespa_backend import VespaBackend
-from basisremy.remy.MRSinMRS import DataReaders, Table, setup_log, write_log
+from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
 
 
 #**************************************************************************************************#
@@ -271,9 +271,8 @@ class BasisREMY:
                       'github.com/isi-nmr/brukerapi-python')
             MRSinMRS, log = self.DRead.bruker_2dseq(import_fpath, log)
             vendor_selection = 'Bruker'
-        elif suf == '.nii' or suf == '.nii.gz':   # TODO: might want to adjust to be .nii.gz
+        elif suf == '.nii' or suf == '.nii.gz':
             write_log(log, 'Data Read: NIfTI json side car')  # log - NIfTI JSON side car
-            # MRSinMRS, log = self.DRead.nifti_json(import_fpath, log)   # TODO: fix for nifti
             try:
                 # replace only the suffix — a '.nii' elsewhere in the path
                 # must not be rewritten

@@ -38,7 +38,7 @@ class TestSLaserSLASER:
             pytest.skip(f"Pulse file not found: {pulse_file}")
 
         print(f"\n{'='*80}")
-        print(f"Testing sLaser Backend - sLASER Sequence")
+        print("Testing sLaser Backend - sLASER Sequence")
         print(f"{'='*80}\n")
 
         # Hardcoded sLASER parameters
@@ -71,7 +71,7 @@ class TestSLaserSLASER:
         basisremy.backend.initialize_octave(prefer_docker=True, verbose=False)
 
         print("Running sLASER simulation...")
-        result = basisremy.backend.run_simulation(test_params)
+        basisremy.backend.run_simulation(test_params)
 
         # Verify output file was created
         output_file = os.path.join(basisremy.backend._workdir, 'test_slaser.basis')
@@ -84,6 +84,6 @@ class TestSLaserSLASER:
         file_size = os.path.getsize(output_file)
         assert file_size > 0, f"Output file is empty: {output_file}"
 
-        print(f"\n✅ SUCCESS!")
+        print("\n✅ SUCCESS!")
         print(f"   Output: test_slaser.basis ({file_size} bytes)")
         print(f"{'='*80}\n")

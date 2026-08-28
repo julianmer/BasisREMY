@@ -25,7 +25,7 @@ class TestLCModelLASER:
         Uses hardcoded parameters - just verifies the backend works
         """
         print(f"\n{'='*80}")
-        print(f"Testing LCModel Backend - LASER Sequence")
+        print("Testing LCModel Backend - LASER Sequence")
         print(f"{'='*80}\n")
         # Hardcoded LASER parameters
         test_params = {
@@ -50,6 +50,6 @@ class TestLCModelLASER:
         assert fid.ndim >= 1 and fid.size > 0, "NAA FID is empty"
         assert np.max(np.abs(fid)) > 0, "NAA FID is all-zero"
         file_size = fid.size * fid.itemsize
-        print(f"\n✅ SUCCESS!")
+        print("\n✅ SUCCESS!")
         print(f"   Output: NAA.RAW ({file_size} bytes)")
         print(f"{'='*80}\n")

@@ -51,3 +51,7 @@ legacy/
 # Temporary files
 *.log
 *.tmp
+
+# Per-machine PyGAMMA runtime override (see core/pygamma_manager.py)
+pygamma-prefer-docker
+pygamma-env/
