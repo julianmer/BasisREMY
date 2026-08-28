@@ -37,6 +37,7 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
     % ---------- dispatch -----------------------------------------------
     sw_out = NaN;   % most simulators set this; defaults for safety
     cf_mhz = NaN;
+    sim_centre = 4.65;   % rotating-frame centre [ppm] of the FID the simulator returns
     switch lower(kind)
 
         % ----- IDEAL  (Spin Echo / PRESS / STEAM / LASER) ----------
@@ -341,6 +342,231 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             sw_out = sw;
             cf_mhz = Bfield * 42.577;
 
+        % ----- One pulse with ADC-onset delay (sim_onepulse_delay) --------
+        %   args: n, sw, Bfield, lw, delay [ms]
+        case 'onepulse_delay'
+            [n, sw, Bfield, lw, delay] = deal(varargin{1:5});
+            out = sim_onepulse_delay(n, sw, Bfield, lw, sys, delay);
+            fid    = out.fids(:);
+            fid_re = real(fid); fid_im = imag(fid);
+            npts   = numel(fid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
+        % ----- One pulse with arbitrary excitation phase (sim_onepulse_arbPh)
+        %   args: n, sw, Bfield, lw, phase [deg]
+        case 'onepulse_arbph'
+            [n, sw, Bfield, lw, ph] = deal(varargin{1:5});
+            out = sim_onepulse_arbPh(n, sw, Bfield, lw, sys, ph);
+            fid    = out.fids(:);
+            fid_re = real(fid); fid_im = imag(fid);
+            npts   = numel(fid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
+        % ----- One pulse, shaped frequency-selective excitation ----------
+        %   sim_onepulse_shaped without a gradient (frequency selective,
+        %   pulse centred on the simulation centre). The waveform is loaded
+        %   for the requested flip angle (numeric type -> flipCyc = angle/360).
+        %   args: n, sw, Bfield, lw, pulse_path, tp [ms], flipAngle [deg]
+        case 'onepulse_shaped'
+            [n, sw, Bfield, lw, pulse_path, tp, flipAngle] = deal(varargin{1:7});
+            if ~exist(pulse_path, 'file')
+                error('fida_run/onepulse_shaped: pulse waveform not found: "%s"', pulse_path);
+            end
+            RF  = io_loadRFwaveform(pulse_path, flipAngle, 0);
+            out = sim_onepulse_shaped(n, sw, Bfield, lw, sys, RF, tp, 0, 0);
+            fid    = out.fids(:);
+            fid_re = real(fid); fid_im = imag(fid);
+            npts   = numel(fid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
+        % ----- semi-LASER shaped, 4-step phase cycle -----------------------
+        %   sim_semiLASER_shaped_phCyc with FID-A's run_simSemiLASERShaped_phCyc
+        %   scheme: [ph1 ph2, ph3 ph4] = [0 0,0 0] - [0 0,0 90] - [0 90,0 0]
+        %   + [0 90,0 90], averaged over the spatial grid.
+        %   args: n, sw, Bfield, lw, te, pulse_path, tp,
+        %         thkX, thkY, fovX, fovY, nX, nY, flipAngle, centreFreq
+        case 'semilaser_shaped_phcyc'
+            [n, sw, Bfield, lw, te, pulse_path, tp, ...
+             thkX, thkY, fovX, fovY, nX, nY, flipAngle, centreFreq] = ...
+                deal(varargin{1:15});
+            if ~exist(pulse_path, 'file')
+                error('fida_run/semilaser_shaped_phcyc: pulse waveform not found: "%s"', pulse_path);
+            end
+            RF = io_loadRFwaveform(pulse_path, 'ref', 0);
+            gamma = 42577000;
+            if RF.isGM
+                Gx = (RF.tthk / (tp/1000)) / thkX;
+                Gy = (RF.tthk / (tp/1000)) / thkY;
+            else
+                Gx = (RF.tbw / (tp/1000)) / (gamma * thkX / 10000);
+                Gy = (RF.tbw / (tp/1000)) / (gamma * thkY / 10000);
+            end
+            if nX < 2; nX = 2; end
+            if nY < 2; nY = 2; end
+            x = linspace(-fovX/2, fovX/2, nX);
+            y = linspace(-fovY/2, fovY/2, nY);
+            ph1 = [0 0 0 0]; ph2 = [0 0 90 90];
+            ph3 = [0 0 0 0]; ph4 = [0 90 0 90];
+            sgn = [1 -1 -1 1];
+            accumFid = [];
+            for ix = 1:nX
+                for iy = 1:nY
+                    for m = 1:4
+                        out = sim_semiLASER_shaped_phCyc(n, sw, Bfield, lw, sys, te, ...
+                                  RF, tp, x(ix), y(iy), Gx, Gy, ...
+                                  ph1(m), ph2(m), ph3(m), ph4(m), flipAngle, centreFreq);
+                        if isempty(accumFid)
+                            accumFid = sgn(m) * out.fids(:);
+                        else
+                            accumFid = accumFid + sgn(m) * out.fids(:);
+                        end
+                    end
+                end
+            end
+            accumFid = accumFid / (nX * nY * 4);
+            fid_re = real(accumFid); fid_im = imag(accumFid);
+            npts   = numel(accumFid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
+        % ----- MEGA-PRESS, shaped refocusing + ideal editing ---------------
+        %   sim_megapress_shapedRefoc: refoc phase cycle [0,90]x[0,90] combined
+        %   as in run_simMegaPressShaped.m (subtract when exactly one pulse is
+        %   at 90), averaged over the spatial grid. Ideal editing flips as in
+        %   the 'megapress_ideal' kind (180 within editBand of editPpm).
+        %   args: n, sw, Bfield, lw, t1..t5 [ms], editPpm, editBand,
+        %         refoc_path, refTp, thkX, thkY, fovX, fovY, nX, nY, edit_on_flag
+        case 'megapress_shapedrefoc'
+            [n, sw, Bfield, lw, t1, t2, t3, t4, t5, editPpm, editBand, ...
+             refoc_path, refTp, thkX, thkY, fovX, fovY, nX, nY, editOn] = ...
+                deal(varargin{1:20});
+            if ~exist(refoc_path, 'file')
+                error('fida_run/megapress_shapedrefoc: refocusing waveform not found: "%s"', refoc_path);
+            end
+            taus = [t1 t2 t3 t4 t5];
+            nsub = numel(sys);
+            editFlip = cell(1, nsub);
+            for k = 1:nsub
+                shifts = sys(k).shifts(:)';
+                if editOn
+                    editFlip{k} = 180 * double(abs(shifts - editPpm) <= editBand/2);
+                else
+                    editFlip{k} = zeros(size(shifts));
+                end
+            end
+            refRF = io_loadRFwaveform(refoc_path, 'ref', 0);
+            gamma = 42577000;
+            if refRF.isGM
+                Gx = (refRF.tthk / (refTp/1000)) / thkX;
+                Gy = (refRF.tthk / (refTp/1000)) / thkY;
+            else
+                Gx = (refRF.tbw / (refTp/1000)) / (gamma * thkX / 10000);
+                Gy = (refRF.tbw / (refTp/1000)) / (gamma * thkY / 10000);
+            end
+            if nX < 2; nX = 2; end
+            if nY < 2; nY = 2; end
+            x = linspace(-fovX/2, fovX/2, nX);
+            y = linspace(-fovY/2, fovY/2, nY);
+            refPh = [0 90];
+            accumFid = [];
+            for ix = 1:nX
+                for iy = 1:nY
+                    for RP1 = 1:2
+                        for RP2 = 1:2
+                            out = sim_megapress_shapedRefoc(n, sw, Bfield, lw, taus, sys, ...
+                                      editFlip, refRF, refTp, Gx, Gy, x(ix), y(iy), ...
+                                      refPh(RP1), refPh(RP2));
+                            if xor(RP1 == 2, RP2 == 2); sgn = -1; else; sgn = 1; end
+                            if isempty(accumFid)
+                                accumFid = sgn * out.fids(:);
+                            else
+                                accumFid = accumFid + sgn * out.fids(:);
+                            end
+                        end
+                    end
+                end
+            end
+            accumFid = accumFid / (nX * nY * 4);
+            fid_re = real(accumFid); fid_im = imag(accumFid);
+            npts   = numel(accumFid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
+        % ----- MEGA-PRESS, fully shaped (refocusing + editing) -------------
+        %   sim_megapress_shaped: edit phase cycle [0,90]x[0,90,180,270]
+        %   summed, refoc cycle [0,90]x[0,90] combined with signs, averaged
+        %   over the spatial grid (8 x 4 x nX x nY simulations per call).
+        %   args: n, sw, Bfield, lw, t1..t5 [ms], edit_path, editTp,
+        %         editOnFreq, editOffFreq, refoc_path, refTp,
+        %         thkX, thkY, fovX, fovY, nX, nY, centreFreq, edit_on_flag
+        case 'megapress_shaped'
+            [n, sw, Bfield, lw, t1, t2, t3, t4, t5, edit_path, editTp, ...
+             editOnFreq, editOffFreq, refoc_path, refTp, ...
+             thkX, thkY, fovX, fovY, nX, nY, centreFreq, editOn] = ...
+                deal(varargin{1:23});
+            if ~exist(edit_path, 'file')
+                error('fida_run/megapress_shaped: edit pulse waveform not found: "%s"', edit_path);
+            end
+            if ~exist(refoc_path, 'file')
+                error('fida_run/megapress_shaped: refocusing waveform not found: "%s"', refoc_path);
+            end
+            taus = [t1 t2 t3 t4 t5];
+            gamma = 42577000;
+            editRF = io_loadRFwaveform(edit_path, 'inv', 0);
+            if editOn
+                targetFreq = editOnFreq;
+            else
+                targetFreq = editOffFreq;
+            end
+            editRFshift = rf_freqshift(editRF, editTp, ...
+                (3 - targetFreq) * Bfield * gamma / 1e6);   % this FID-A function's frame is 3 ppm
+            refRF = io_loadRFwaveform(refoc_path, 'ref', 0);
+            if refRF.isGM
+                Gx = (refRF.tthk / (refTp/1000)) / thkX;
+                Gy = (refRF.tthk / (refTp/1000)) / thkY;
+            else
+                Gx = (refRF.tbw / (refTp/1000)) / (gamma * thkX / 10000);
+                Gy = (refRF.tbw / (refTp/1000)) / (gamma * thkY / 10000);
+            end
+            if nX < 2; nX = 2; end
+            if nY < 2; nY = 2; end
+            x = linspace(-fovX/2, fovX/2, nX);
+            y = linspace(-fovY/2, fovY/2, nY);
+            editPhCyc1 = [0 90];
+            editPhCyc2 = [0 90 180 270];
+            refPh = [0 90];
+            accumFid = [];
+            for ix = 1:nX
+                for iy = 1:nY
+                    for EP1 = 1:numel(editPhCyc1)
+                        for EP2 = 1:numel(editPhCyc2)
+                            for RP1 = 1:2
+                                for RP2 = 1:2
+                                    out = sim_megapress_shaped(n, sw, Bfield, lw, taus, sys, ...
+                                              editRFshift, editTp, editPhCyc1(EP1), editPhCyc2(EP2), ...
+                                              refRF, refTp, Gx, Gy, x(ix), y(iy), ...
+                                              refPh(RP1), refPh(RP2));
+                                    if xor(RP1 == 2, RP2 == 2); sgn = -1; else; sgn = 1; end
+                                    if isempty(accumFid)
+                                        accumFid = sgn * out.fids(:);
+                                    else
+                                        accumFid = accumFid + sgn * out.fids(:);
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            accumFid = accumFid / (nX * nY * numel(editPhCyc1) * numel(editPhCyc2) * 4);
+            fid_re = real(accumFid); fid_im = imag(accumFid);
+            npts   = numel(accumFid);
+            sw_out = sw;
+            cf_mhz = Bfield * 42.577;
+
         % ----- MEGA-SPECIAL shaped (1-D; per run_simMegaSpecialShaped) -
         %   Shaped editing (loaded 'inv', frequency-shifted) + one shaped
         %   1-D refocusing pulse. Edit phase cycles [0,90]x[0,90,180,270]
@@ -368,7 +594,7 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
                 targetFreq = editOffFreq;
             end
             editRFshift = rf_freqshift(editRF, editTp, ...
-                (centreFreq - targetFreq) * Bfield * gamma / 1e6);
+                (3 - targetFreq) * Bfield * gamma / 1e6);   % this FID-A function's frame is 3 ppm
             if refRF.isGM
                 G = (refRF.tthk / (refTp/1000)) / thk;
             else
@@ -406,15 +632,26 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
             sw_out = sw;
             cf_mhz = Bfield * 42.577;
 
-        % ----- stubs ---------------------------------------------------
-        % The Python side already raises NotImplementedError for these
-        % kinds before reaching Octave, but we guard here as well so a
-        % buggy caller gets a clear MATLAB-side error too.
-        case {'megapress_shaped'}
-            error('fida_run: kind "%s" is a registered FID-A wrapper but the Octave-side branch is not implemented yet.', kind);
-
         otherwise
             error('fida_run: unknown kind "%s"', kind);
+    end
+
+    % ---------- reference the FID to the 4.65 ppm frame -------------------
+    % BasisREMY places the returned FID on a ppm axis centred at 4.65. The
+    % shaped simulators run in the frame given by 'Sim Centre (ppm)', and
+    % three FID-A functions hard-code a 3 ppm frame (sim_megapress_shaped,
+    % sim_megapress_shapedRefoc, sim_megaspecial_shaped), so demodulate here.
+    switch lower(kind)
+        case {'press_shaped', 'semilaser_shaped', 'semilaser_shaped_phcyc', ...
+              'steam_shaped', 'megapress_shapededit'}
+            sim_centre = centreFreq;
+        case {'megaspecial_shaped', 'megapress_shaped', 'megapress_shapedrefoc'}
+            sim_centre = 3;
+    end
+    if abs(sim_centre - 4.65) > 1e-9
+        t   = (0:npts-1)' / sw_out;
+        fid = (fid_re(:) + 1i * fid_im(:)) .* exp(-1i * 2 * pi * (4.65 - sim_centre) * cf_mhz * t);
+        fid_re = real(fid); fid_im = imag(fid);
     end
 end
 

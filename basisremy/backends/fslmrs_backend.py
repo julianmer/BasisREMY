@@ -508,9 +508,15 @@ class FSLMRSBackend(Backend):
 
         # Define sequences
         if sequence == 'PRESS':
-            # PRESS: 90° - delay - 180° - delay - 180° - delay - ACQ
+            # PRESS: 90° - TE/4 - 180° - TE/2 - 180° - TE/4 - ACQ (between pulse
+            # centres; denmatsim delays run from pulse end to next pulse start,
+            # so the pulse length is taken off). With TE/2 - TE/2 - TE/2 the
+            # echo formed at 1.5 x TE (verified against FID-A on Lac / Glu).
             # 3 RF pulses = 3 delays, 3 rephaseAreas, 3 CoherenceFilter
-            te_half = te / 2000  # convert ms to seconds
+            te_s = te / 1000.0
+            d_quarter = te_s / 4.0 - ideal_pulse_duration
+            d_half = te_s / 2.0 - ideal_pulse_duration
+            d_last = te_s / 4.0 - ideal_pulse_duration / 2.0
             seq_def.update({
                 'RF': [
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
@@ -520,7 +526,7 @@ class FSLMRSBackend(Backend):
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
                      'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},
                 ],
-                'delays': [te_half, te_half, te_half],
+                'delays': [d_quarter, d_half, d_last],
                 'rephaseAreas': [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
                 'CoherenceFilter': [-1, 1, -1],
             })
@@ -539,7 +545,8 @@ class FSLMRSBackend(Backend):
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
                      'amp': [amp_90], 'phase': [0], 'grad': [0, 0, 0]},
                 ],
-                'delays': [te/2000, tm/1000, te/2000],
+                'delays': [te/2000 - ideal_pulse_duration, tm/1000 - ideal_pulse_duration,
+                           te/2000 - ideal_pulse_duration/2],
                 'rephaseAreas': [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
                 'CoherenceFilter': [1, 0, -1],
                 'Rx_Phase': 1.5708,
@@ -548,7 +555,13 @@ class FSLMRSBackend(Backend):
         elif sequence == 'LASER':
             # LASER: 90° + 3 pairs of 180° AFP = 7 RF pulses
             # 7 RF = 7 delays, 7 rephaseAreas, 7 CoherenceFilter
-            d = te / 6000  # TE/6 in seconds
+            # 90 - tau/2 - 180 - tau - 180 - ... - 180 - tau/2 - ACQ with
+            # tau = TE/6 (six refocusing pulses, echo at the ADC). Seven equal
+            # TE/6 delays put the echo TE/12 late and made TE 7/6 too long.
+            tau = te / 6000.0  # TE/6 in seconds
+            d = tau - ideal_pulse_duration
+            d_start = tau / 2.0 - ideal_pulse_duration
+            d_end = tau / 2.0 - ideal_pulse_duration / 2.0
             seq_def.update({
                 'RF': [
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
@@ -566,7 +579,7 @@ class FSLMRSBackend(Backend):
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
                      'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},
                 ],
-                'delays': [d, d, d, d, d, d, d],
+                'delays': [d_start, d, d, d, d, d, d_end],
                 'rephaseAreas': [[0, 0, 0]] * 7,
                 'CoherenceFilter': [-1, 1, -1, 1, -1, 1, -1],
             })
@@ -574,7 +587,12 @@ class FSLMRSBackend(Backend):
         elif sequence == 'sLASER':
             # sLASER: 90° + 2 pairs of 180° AFP = 5 RF pulses
             # 5 RF = 5 delays, 5 rephaseAreas, 5 CoherenceFilter
-            d = te / 4000  # TE/4 in seconds
+            # 90 - TE/8 - 180 - TE/4 - 180 - TE/4 - 180 - TE/4 - 180 - TE/8 - ACQ
+            # (five equal TE/4 delays made the effective TE 5/4 too long).
+            te_s = te / 1000.0
+            d = te_s / 4.0 - ideal_pulse_duration
+            d_start = te_s / 8.0 - ideal_pulse_duration
+            d_end = te_s / 8.0 - ideal_pulse_duration / 2.0
             seq_def.update({
                 'RF': [
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
@@ -588,7 +606,7 @@ class FSLMRSBackend(Backend):
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
                      'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},
                 ],
-                'delays': [d, d, d, d, d],
+                'delays': [d_start, d, d, d, d_end],
                 'rephaseAreas': [[0, 0, 0]] * 5,
                 'CoherenceFilter': [-1, 1, -1, 1, -1],
             })
@@ -603,12 +621,8 @@ class FSLMRSBackend(Backend):
             # at p ppm needs (p − central_shift)·γ·B0 Hz (negative for 1.9 ppm)
             edit_freq_hz = (float(edit_freq) - central_shift) * bfield * 42.577
 
-            # Siemens timing (ms)
-            t1 = 4.545
-            t2 = 12.7025
-            t3 = 21.7975
-            t4 = 12.7025
-            t5 = 17.2526
+            # Siemens TE 68 ms timing, scaled to the requested TE (FID-A convention)
+            t1, t2, t3, t4, t5 = (t * te / 68.0 for t in (4.545, 12.7025, 21.7975, 12.7025, 17.2526))
 
             seq_def.update({
                 'RF': [
@@ -638,7 +652,7 @@ class FSLMRSBackend(Backend):
             gsh_freq_hz = (4.56 - central_shift) * bfield * 42.577
 
             # Use MEGA-PRESS timing
-            t1, t2, t3, t4, t5 = 4.545, 12.7025, 21.7975, 12.7025, 17.2526
+            t1, t2, t3, t4, t5 = (t * te / 68.0 for t in (4.545, 12.7025, 21.7975, 12.7025, 17.2526))  # Siemens TE 68 ms, scaled
 
             seq_def.update({
                 'RF': [
@@ -668,7 +682,7 @@ class FSLMRSBackend(Backend):
             gaba_freq_hz = (1.9 - central_shift) * bfield * 42.577
             glu_freq_hz = (2.3 - central_shift) * bfield * 42.577
 
-            t1, t2, t3, t4, t5 = 4.545, 12.7025, 21.7975, 12.7025, 17.2526
+            t1, t2, t3, t4, t5 = (t * te / 68.0 for t in (4.545, 12.7025, 21.7975, 12.7025, 17.2526))  # Siemens TE 68 ms, scaled
 
             seq_def.update({
                 'RF': [
@@ -815,8 +829,21 @@ class FSLMRSBackend(Backend):
                 and os.path.exists(params['Custom Sequence'])):
             # User provided custom sequence file
             print(f"Using custom sequence: {params['Custom Sequence']}")
-            with open(params['Custom Sequence'], 'r') as f:
-                seq_params = json.load(f)
+            try:
+                with open(params['Custom Sequence'], 'r') as f:
+                    seq_params = json.load(f)
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise ValueError(
+                    f"FSL-MRS: 'Custom Sequence' must be an FSL-MRS sequence "
+                    f"description (JSON, like fsl_mrs/denmatsim/examplePRESS.json); "
+                    f"'{os.path.basename(params['Custom Sequence'])}' is not JSON "
+                    f"({exc}). RF waveform files (.pta / .RF) belong to the FID-A "
+                    f"shaped backends, not here.") from exc
+            for key in ('RF', 'delays', 'CoherenceFilter'):
+                if key not in seq_params:
+                    raise ValueError(
+                        f"FSL-MRS: 'Custom Sequence' JSON has no '{key}' entry — "
+                        f"it is not an FSL-MRS sequence description.")
 
         elif (self.current_mode == 'Template'
               and not self._is_missing(params.get('Template File'))):
@@ -837,11 +864,13 @@ class FSLMRSBackend(Backend):
             except (TypeError, ValueError):
                 bf = None
             if bf is not None and abs(bf - predefined_info['B0']) > 0.5:
-                print(f"⚠️  Template is a {predefined_info['B0']}T sequence but the "
-                      f"session field strength is {bf}T. The simulation runs at "
-                      f"{predefined_info['B0']}T while plot/export axes follow the "
-                      f"session parameters — set Bfield to match the template "
-                      f"for consistent results.")
+                raise ValueError(
+                    f"FSL-MRS: the template '{predefined_info['description']}' is a "
+                    f"{predefined_info['B0']} T sequence with real pulse shapes, but "
+                    f"Bfield is {bf} T. Its basis would be computed at "
+                    f"{predefined_info['B0']} T and plotted/exported on a {bf} T "
+                    f"axis. Set Bfield (and Center Freq) to {predefined_info['B0']} T, "
+                    f"or use Simple mode for an ideal-pulse basis at {bf} T.")
             seq_params = self._load_predefined(predefined_info, params)
             lw = params.get('Linewidth')
             if not self._is_missing(lw):

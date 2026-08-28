@@ -180,3 +180,137 @@ class TestFidaPhase1Kinds:
         })
         for sub in ('ON', 'OFF', 'DIFF'):
             _assert_valid_fid(result, f'GABA ({sub})')
+
+
+# ------------------------------------------------------------------ modes
+# The previously gated modes (roadmap step 2): every mode maps to a real
+# fida_run.m kind and shows only its own parameters.
+
+class TestFidaModes:
+    def test_onepulse_modes_map_to_kinds(self):
+        from basisremy.backends.fida_backends import FidaOnePulse
+        b = FidaOnePulse()
+        for mode, kind in (('Ideal', 'onepulse'), ('Shaped', 'onepulse_shaped'),
+                           ('Delay', 'onepulse_delay'),
+                           ('Arbitrary phase', 'onepulse_arbph')):
+            b.current_mode = mode
+            assert b.active_kind() == kind
+        assert 'Delay' not in b.get_params_for_mode('Ideal')
+        assert set(b.get_params_for_mode('Delay')) & {'Delay', 'Pulse Phase',
+                                                       'Path to Pulse'} == {'Delay'}
+        assert {'Flip Angle', 'Path to Pulse', 'RefTp'} <= set(b.get_params_for_mode('Shaped'))
+        assert 'Pulse Phase' in b.get_params_for_mode('Arbitrary phase')
+
+    def test_semilaser_modes_map_to_kinds(self):
+        from basisremy.backends.fida_backends import FidaSemiLaserShaped
+        b = FidaSemiLaserShaped()
+        assert b.active_kind() == 'semilaser_shaped'
+        b.current_mode = 'Phase cycled'
+        assert b.active_kind() == 'semilaser_shaped_phcyc'
+
+    def test_megapress_shaped_modes(self):
+        from basisremy.backends.fida_backends import FidaMegaPressShaped
+        b = FidaMegaPressShaped()
+        assert b.active_kind() == 'megapress_shapededit'
+        p = b.get_params_for_mode('Edit-only shaped (ideal refoc)')
+        assert 'Path to Pulse' not in p and 'nX' not in p
+        b.current_mode = 'Full shaped (refoc + edit)'
+        assert b.active_kind() == 'megapress_shaped'
+        p = b.get_params_for_mode()
+        assert {'Edit Pulse Path', 'Path to Pulse', 'RefTp', 'nX'} <= set(p)
+        b.current_mode = 'Refoc-only shaped (ideal edit)'
+        assert b.active_kind() == 'megapress_shapedrefoc'
+        p = b.get_params_for_mode()
+        assert 'Edit Pulse Path' not in p
+        assert {'Edit On', 'Edit Bandwidth (ppm)', 'Path to Pulse'} <= set(p)
+        assert set(b.file_selection) == {'Edit Pulse Path', 'Path to Pulse'}
+
+
+@pytest.mark.backend
+@pytest.mark.slow
+class TestFidaModesLive:
+    """Small-grid live runs of the newly opened modes (Docker Octave)."""
+
+    def _rf(self, project_root_dir, name):
+        p = os.path.join(project_root_dir, 'externals', 'fidA',
+                         'rfPulseTools', 'rfPulses', name)
+        if not os.path.exists(p):
+            pytest.skip(f"{name} not available")
+        return p
+
+    def _base(self):
+        return {'Samples': 1024, 'Bandwidth': 2000, 'Bfield': 3.0,
+                'Linewidth': 1.0, 'Metabolites': ['Cr']}
+
+    def test_onepulse_delay_and_phase(self, cleanup_docker_processes):
+        import numpy as np
+        br = BasisREMY()
+        br.set_backend('FidaOnePulse')
+        br.backend.initialize_octave(prefer_docker=True)
+        br.backend.current_mode = 'Ideal'
+        ideal = br.backend.run_simulation(self._base())
+        br.backend.current_mode = 'Delay'
+        delayed = br.backend.run_simulation({**self._base(), 'Delay': 0.5})
+        br.backend.current_mode = 'Arbitrary phase'
+        phased = br.backend.run_simulation({**self._base(), 'Pulse Phase': 90.0})
+        for r in (ideal, delayed, phased):
+            _assert_valid_fid(r)
+        # same magnitude spectrum, different phase
+        s = lambda r: np.abs(np.fft.fft(r['Cr']))
+        assert np.corrcoef(s(ideal), s(phased))[0, 1] > 0.999
+        assert not np.allclose(ideal['Cr'], phased['Cr'])
+        assert not np.allclose(ideal['Cr'], delayed['Cr'])
+
+    def test_onepulse_shaped(self, cleanup_docker_processes, project_root_dir):
+        br = BasisREMY()
+        br.set_backend('FidaOnePulse')
+        br.backend.initialize_octave(prefer_docker=True)
+        br.backend.current_mode = 'Shaped'
+        result = br.backend.run_simulation({
+            **self._base(), 'Flip Angle': 90.0, 'RefTp': 5.0,
+            'Path to Pulse': self._rf(project_root_dir, 'sampleExcPulse.pta'),
+        })
+        _assert_valid_fid(result)
+
+    def test_semilaser_phase_cycled(self, cleanup_docker_processes, project_root_dir):
+        br = BasisREMY()
+        br.set_backend('FidaSemiLaserShaped')
+        br.backend.initialize_octave(prefer_docker=True)
+        br.backend.current_mode = 'Phase cycled'
+        result = br.backend.run_simulation({
+            **self._base(), 'TE': 30, 'RefTp': 4.5,
+            'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
+            'nX': 2, 'nY': 2, 'Flip Angle': 180.0, 'Sim Centre (ppm)': 4.65,
+            'Path to Pulse': self._rf(project_root_dir, 'GOIA_tthk0.01_R120.txt'),
+        })
+        _assert_valid_fid(result)
+
+    def test_megapress_refoc_only_shaped(self, cleanup_docker_processes, project_root_dir):
+        br = BasisREMY()
+        br.set_backend('FidaMegaPressShaped')
+        br.backend.initialize_octave(prefer_docker=True)
+        br.backend.current_mode = 'Refoc-only shaped (ideal edit)'
+        result = br.backend.run_simulation({
+            **self._base(), 'TE': 68, 'Edit On': 1.9, 'Edit Bandwidth (ppm)': 1.0,
+            'Path to Pulse': self._rf(project_root_dir, 'sampleRefocPulse.pta'),
+            'RefTp': 5.0, 'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
+            'nX': 2, 'nY': 2,
+        })
+        assert {'Cr (ON)', 'Cr (OFF)', 'Cr (DIFF)'} <= set(result)
+        _assert_valid_fid({'Cr': result['Cr (OFF)']})
+
+    def test_megapress_full_shaped(self, cleanup_docker_processes, project_root_dir):
+        br = BasisREMY()
+        br.set_backend('FidaMegaPressShaped')
+        br.backend.initialize_octave(prefer_docker=True)
+        br.backend.current_mode = 'Full shaped (refoc + edit)'
+        result = br.backend.run_simulation({
+            **self._base(), 'TE': 68,
+            'Edit Pulse Path': self._rf(project_root_dir, 'sampleEditPulse.pta'),
+            'Edit Tp': 20.0, 'Edit On': 1.9, 'Edit Off': 7.5,
+            'Path to Pulse': self._rf(project_root_dir, 'sampleRefocPulse.pta'),
+            'RefTp': 5.0, 'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
+            'nX': 2, 'nY': 2,
+        })
+        assert {'Cr (ON)', 'Cr (OFF)', 'Cr (DIFF)'} <= set(result)
+        _assert_valid_fid({'Cr': result['Cr (OFF)']})

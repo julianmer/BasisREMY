@@ -321,3 +321,78 @@ class TestFSLMRSIntegration:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+class TestFSLMRSSequenceTiming:
+    """The generated ideal sequences must put the echo at the ADC with the
+    requested TE (previously PRESS ran at 1.5 x TE, LASER at 7/6 x TE,
+    sLASER at 5/4 x TE, and MEGA-PRESS ignored TE)."""
+
+    def _gen(self, seq, te=40.0, **extra):
+        from basisremy.backends.fslmrs_backend import FSLMRSBackend
+        b = FSLMRSBackend()
+        params = {'Sequence': seq, 'TE': te, 'Bandwidth': 4000, 'Samples': 2048,
+                  'Bfield': 3.0, 'TM': 10, **extra}
+        return b._generate_sequence_json(params)
+
+    @staticmethod
+    def _centre_spacing(seq):
+        """Pulse-centre to pulse-centre (and last centre to ADC) spacings [ms]."""
+        pulses = [r['time'] for r in seq['RF']]
+        delays = seq['delays']
+        spacing = [(pulses[i] / 2 + delays[i] + pulses[i + 1] / 2) * 1e3
+                   for i in range(len(delays) - 1)]
+        spacing.append((pulses[-1] / 2 + delays[-1]) * 1e3)
+        return spacing
+
+    def test_press_is_symmetric(self):
+        sp = self._centre_spacing(self._gen('PRESS', te=40.0))
+        assert sp == pytest.approx([10.0, 20.0, 10.0], abs=1e-6)
+
+    def test_laser_total_te_and_echo(self):
+        sp = self._centre_spacing(self._gen('LASER', te=36.0))
+        assert sp == pytest.approx([3.0, 6.0, 6.0, 6.0, 6.0, 6.0, 3.0], abs=1e-6)
+        assert sum(sp) == pytest.approx(36.0, abs=1e-6)
+
+    def test_slaser_total_te_and_echo(self):
+        sp = self._centre_spacing(self._gen('sLASER', te=40.0))
+        assert sp == pytest.approx([5.0, 10.0, 10.0, 10.0, 5.0], abs=1e-6)
+
+    def test_steam_te_and_tm(self):
+        sp = self._centre_spacing(self._gen('STEAM', te=20.0, TM=12.0))
+        assert sp == pytest.approx([10.0, 12.0, 10.0], abs=1e-6)
+
+    def test_megapress_taus_scale_with_te(self):
+        d68 = self._gen('MEGA-PRESS', te=68.0)['delays']
+        d80 = self._gen('MEGA-PRESS', te=80.0)['delays']
+        assert d68 == pytest.approx([4.545e-3, 12.7025e-3, 21.7975e-3, 12.7025e-3, 17.2526e-3])
+        assert np.allclose(np.array(d80) / np.array(d68), 80.0 / 68.0)
+
+
+class TestFSLMRSModeErrors:
+    def _backend(self):
+        from basisremy.backends.fslmrs_backend import FSLMRSBackend
+        b = FSLMRSBackend()
+        p = dict(b.mandatory_params)
+        p.update({'Sequence': 'PRESS', 'Samples': 2048, 'Bandwidth': 4000,
+                  'Bfield': 2.89, 'TE': 35, 'Nucleus': '1H',
+                  'Center Freq': 123.25, 'Metabolites': ['Cr']})
+        return b, p
+
+    def test_template_with_other_field_strength_is_refused(self):
+        pytest.importorskip('denmatsim')
+        b, p = self._backend()
+        b.current_mode = 'Template'
+        p['Template File'] = 'PRESS at 7T with real pulse shapes'
+        with pytest.raises(ValueError, match='7.0 T'):
+            b.run_simulation(p)
+
+    def test_custom_sequence_must_be_json(self, tmp_path):
+        pytest.importorskip('denmatsim')
+        b, p = self._backend()
+        b.current_mode = 'Custom'
+        pta = tmp_path / 'pulse.pta'
+        pta.write_text('PULSENAME: x\n0.1 0.0 ; (0)\n')
+        p['Custom Sequence'] = str(pta)
+        with pytest.raises(ValueError, match='JSON'):
+            b.run_simulation(p)

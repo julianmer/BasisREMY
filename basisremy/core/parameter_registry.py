@@ -177,6 +177,22 @@ REGISTRY: dict[str, ParamInfo] = {
         typical="TE/2 (e.g. 17.5 ms at TE 35 ms)",
     ),
 
+    "Delay": ParamInfo(
+        label="ADC onset delay",
+        description=(
+            "Delay between the excitation pulse and the start of acquisition "
+            "(FID-A sim_onepulse_delay); produces the first-order phase a real "
+            "acquisition delay would."
+        ),
+        units="ms",
+        typical="0 - 1 ms",
+    ),
+    "Pulse Phase": ParamInfo(
+        label="Excitation pulse phase",
+        description="Phase of the ideal excitation pulse (FID-A sim_onepulse_arbPh); 0 = x, 90 = y.",
+        units="deg",
+        typical="0 - 360",
+    ),
     # --- Sequence / mode -----------------------------------------------------
     "Sequence": ParamInfo(
         label="Sequence",

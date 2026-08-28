@@ -188,7 +188,7 @@ class FidaBackend(Backend):
             fids = {}
             for label, flag in (('ON', 1), ('OFF', 0)):
                 results = self.octave.feval(
-                    'fida_run', metab, self._kind, *base_args, flag, nout=5,
+                    'fida_run', metab, self.active_kind(), *base_args, flag, nout=5,
                 )
                 fid_re, fid_im, _npts, _sw, _cf = results
                 fids[label] = (np.asarray(fid_re, dtype=float).flatten()
@@ -206,6 +206,11 @@ class FidaBackend(Backend):
         raise NotImplementedError
 
     # -------------------------------------------------- driver
+    def active_kind(self):
+        """`fida_run.m` kind for the current mode (subclasses with modes
+        override this)."""
+        return self._kind
+
     def run_simulation(self, params, progress_callback=None, stop_event=None):
         if self._is_stub or not self._kind:
             raise NotImplementedError(
@@ -230,7 +235,7 @@ class FidaBackend(Backend):
                 break
             extra_args = self._build_args(params, metab)
             results = self.octave.feval(
-                'fida_run', metab, self._kind, *extra_args, nout=5,
+                'fida_run', metab, self.active_kind(), *extra_args, nout=5,
             )
             fid_re, fid_im, _npts, _sw, _cf = results
             fid = (np.asarray(fid_re, dtype=float).flatten()
@@ -474,11 +479,13 @@ class FidaSemiLaserShaped(FidaBackend):
                 f"e.g. a GOIA pulse).")
         return self._make_relative(self._stage_into_workdir(pulse_src))
 
+    def active_kind(self):
+        # 'Phase cycled': FID-A's 4-step refocusing phase cycle
+        # (run_simSemiLASERShaped_phCyc.m) - 4x the simulations.
+        return ('semilaser_shaped_phcyc' if self.current_mode == 'Phase cycled'
+                else 'semilaser_shaped')
+
     def _build_args(self, params, metab):
-        if self.current_mode != 'Standard':
-            raise NotImplementedError(
-                f"{self.name}: '{self.current_mode}' mode is not implemented "
-                f"yet — use Standard.")
         return [
             float(params['Samples']),
             float(params['Bandwidth']),
@@ -599,7 +606,7 @@ class FidaMegaPressShaped(FidaBackend):
                       'Full shaped (refoc + edit)',
                       'Refoc-only shaped (ideal edit)']
         self.current_mode = 'Edit-only shaped (ideal refoc)'
-        self.file_selection = ['Edit Pulse Path']
+        self.file_selection = ['Edit Pulse Path', 'Path to Pulse']
         self.mandatory_params = {
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
             'Linewidth': 1.0,  'TE':        None,   # 68 ms is the standard
@@ -607,48 +614,106 @@ class FidaMegaPressShaped(FidaBackend):
             'Edit Tp':         20.0,
             'Edit On':         1.9,                 # ppm (GABA); 4.56 for GSH
             'Edit Off':        7.5,
+            'Edit Bandwidth (ppm)': 1.0,            # ideal-edit modes only
             'Sim Centre (ppm)': 4.65,
+            # shaped-refocusing modes only (spatial grid kept small: the
+            # fully shaped mode runs 32 simulations per grid point)
+            'Path to Pulse': None,
+            'RefTp':         5.0,
+            'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
+            'nX': 4, 'nY': 4,
             'Metabolites': [],
         }
         self._refresh_metab_list()
+
+    _MODE_KINDS = {
+        'Edit-only shaped (ideal refoc)': 'megapress_shapededit',
+        'Full shaped (refoc + edit)':     'megapress_shaped',
+        'Refoc-only shaped (ideal edit)': 'megapress_shapedrefoc',
+    }
+    _GRID_KEYS = ('Path to Pulse', 'RefTp', 'thkX', 'thkY', 'fovX', 'fovY',
+                  'nX', 'nY')
+
+    def active_kind(self):
+        return self._MODE_KINDS[self.current_mode]
+
+    def get_params_for_mode(self, mode=None):
+        mode = mode or self.current_mode
+        params = dict(self.mandatory_params)
+        if mode == 'Edit-only shaped (ideal refoc)':
+            for k in self._GRID_KEYS + ('Edit Bandwidth (ppm)',):
+                params.pop(k, None)
+        elif mode == 'Full shaped (refoc + edit)':
+            params.pop('Edit Bandwidth (ppm)', None)
+        else:  # ideal editing: no editing waveform
+            for k in ('Edit Pulse Path', 'Edit Tp', 'Edit Off', 'Sim Centre (ppm)'):
+                params.pop(k, None)
+        return params
 
     def parseProtocol(self, protocol):
         if protocol is None:
             return None
         return 'MEGA-PRESS' if 'mega' in str(protocol).lower() else None
 
+    def _staged(self, params, key, what):
+        src = params.get(key)
+        if not src:
+            raise ValueError(f"{self.name}: '{key}' is required ({what}).")
+        return self._make_relative(self._stage_into_workdir(src))
+
+    def _grid_args(self, params):
+        return [
+            self._staged(params, 'Path to Pulse', 'refocusing waveform'),
+            float(params.get('RefTp') or 5.0),
+            float(params.get('thkX') or 2.0),
+            float(params.get('thkY') or 2.0),
+            float(params.get('fovX') or 3.0),
+            float(params.get('fovY') or 3.0),
+            int(float(params.get('nX') or 4)),
+            int(float(params.get('nY') or 4)),
+        ]
+
     def run_simulation(self, params, progress_callback=None, stop_event=None):
-        if self.current_mode != 'Edit-only shaped (ideal refoc)':
-            raise NotImplementedError(
-                f"{self.name}: '{self.current_mode}' mode is not implemented "
-                f"yet — use 'Edit-only shaped (ideal refoc)'.")
         if self.octave is None:
             print("Initializing Octave runtime...")
             self.initialize_octave(prefer_docker=True)
         self.setup_octave_paths()
         self.ensure_workdir()
 
-        edit_src = params.get('Edit Pulse Path')
-        if not edit_src:
-            raise ValueError(
-                f"{self.name}: 'Edit Pulse Path' is required (editing waveform).")
-        edit_path = self._make_relative(self._stage_into_workdir(edit_src))
-
         te = float(params['TE'])
         scale = te / 68.0
         taus = [t * scale for t in self._TE68_TAUS]
-        base_args = [
+        head = [
             float(params['Samples']),
             float(params['Bandwidth']),
             float(params['Bfield']),
             float(params.get('Linewidth') or 1.0),
             *taus,
-            edit_path,
-            float(params.get('Edit Tp') or 20.0),
-            float(params.get('Edit On') or 1.9),
-            float(params.get('Edit Off') or 7.5),
-            float(params.get('Sim Centre (ppm)') or 4.65),
         ]
+        mode = self.current_mode
+        if mode == 'Edit-only shaped (ideal refoc)':
+            base_args = head + [
+                self._staged(params, 'Edit Pulse Path', 'editing waveform'),
+                float(params.get('Edit Tp') or 20.0),
+                float(params.get('Edit On') or 1.9),
+                float(params.get('Edit Off') or 7.5),
+                float(params.get('Sim Centre (ppm)') or 4.65),
+            ]
+        elif mode == 'Full shaped (refoc + edit)':
+            base_args = head + [
+                self._staged(params, 'Edit Pulse Path', 'editing waveform'),
+                float(params.get('Edit Tp') or 20.0),
+                float(params.get('Edit On') or 1.9),
+                float(params.get('Edit Off') or 7.5),
+                *self._grid_args(params),
+                float(params.get('Sim Centre (ppm)') or 4.65),
+            ]
+        else:  # 'Refoc-only shaped (ideal edit)'
+            base_args = head + [
+                float(params.get('Edit On') or 1.9),
+                float(params.get('Edit Bandwidth (ppm)') or 1.0),
+                *self._grid_args(params),
+            ]
         return self._run_on_off_subspectra(params, base_args,
                                            progress_callback, stop_event)
 
@@ -857,30 +922,60 @@ class FidaOnePulse(FidaBackend):
         self.mandatory_params = {
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
             'Linewidth': 1.0,
-            'Flip Angle': 90.0,
-            'Path to Pulse': None,
+            'Flip Angle': 90.0,       # Shaped only
+            'Path to Pulse': None,    # Shaped only
+            'RefTp': 5.0,             # Shaped only: pulse duration [ms]
+            'Delay': 0.5,             # Delay only: ADC onset delay [ms]
+            'Pulse Phase': 0.0,       # Arbitrary phase only [deg]
             'Metabolites': [],
         }
         self._refresh_metab_list()
 
+    _MODE_KINDS = {
+        'Ideal':           'onepulse',
+        'Shaped':          'onepulse_shaped',
+        'Delay':           'onepulse_delay',
+        'Arbitrary phase': 'onepulse_arbph',
+    }
+    _MODE_KEYS = {
+        'Ideal':           (),
+        'Shaped':          ('Flip Angle', 'Path to Pulse', 'RefTp'),
+        'Delay':           ('Delay',),
+        'Arbitrary phase': ('Pulse Phase',),
+    }
+
+    def active_kind(self):
+        return self._MODE_KINDS[self.current_mode]
+
     def get_params_for_mode(self, mode=None):
-        params = dict(self.mandatory_params)
-        if (mode or self.current_mode) == 'Ideal':
-            # the ideal pulse-acquire sim uses neither of these
-            params.pop('Flip Angle', None)
-            params.pop('Path to Pulse', None)
-        return params
+        mode = mode or self.current_mode
+        keep = set(self._MODE_KEYS[mode])
+        all_mode_keys = {k for keys in self._MODE_KEYS.values() for k in keys}
+        return {k: v for k, v in self.mandatory_params.items()
+                if k not in all_mode_keys or k in keep}
 
     def _build_args(self, params, metab):
-        if self.current_mode != 'Ideal':
-            raise NotImplementedError(
-                f"{self.name}: '{self.current_mode}' mode is not implemented "
-                f"yet — use Ideal.")
-        return [
+        head = [
             float(params['Samples']),
             float(params['Bandwidth']),
             float(params['Bfield']),
             float(params.get('Linewidth') or 1.0),
+        ]
+        mode = self.current_mode
+        if mode == 'Ideal':
+            return head
+        if mode == 'Delay':
+            return head + [float(params.get('Delay') or 0.0)]
+        if mode == 'Arbitrary phase':
+            return head + [float(params.get('Pulse Phase') or 0.0)]
+        pulse_src = params.get('Path to Pulse')
+        if not pulse_src:
+            raise ValueError(
+                f"{self.name}: 'Path to Pulse' is required (excitation waveform).")
+        return head + [
+            self._make_relative(self._stage_into_workdir(pulse_src)),
+            float(params.get('RefTp') or 5.0),
+            float(params.get('Flip Angle') or 90.0),
         ]
 
 
