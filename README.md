@@ -244,6 +244,7 @@ The project will build upon the methodologies used in existing tools. Some refer
 - [FID-A](https://github.com/CIC-methods/FID-A) and related literature ([mrm.26091](https://doi.org/10.1002/mrm.26091))
 - [FSL-MRS](https://github.com/wtclarke/fsl_mrs) and related literature ([mrm.28630](https://doi.org/10.1002/mrm.28630))
 - [MRSCloud](https://github.com/shui5/MRSCloud) and related literature ([mrm.29370](https://doi.org/10.1002/mrm.29370))
+- [Vespa](https://github.com/vespa-mrs/vespa) and related literature ([mrm.29686](https://doi.org/10.1002/mrm.29686)), simulating via the [GAMMA/PyGAMMA](https://github.com/pygamma-mrs/gamma) engine
 - [MRS Basis Set Conversion Toolbox](https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox)
 - [Custom Basis Set Simulation](https://github.com/arcj-hub/BasisSetSimulation/tree/main)
 
