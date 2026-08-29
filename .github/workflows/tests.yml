@@ -29,10 +29,13 @@ jobs:
       - name: Fetch example data
         run: git lfs pull
 
-      # Local Octave so the Octave-backed tests (FID-A, MRSCloud, CustomSLaser)
-      # run for real instead of being skipped; Docker is not used on CI. Only
-      # on one Python: the Octave side does not depend on the Python version
-      # and takes most of the wall time, so on 3.11 those tests skip.
+      # The Octave-backed tests (FID-A, MRSCloud, Spinach, CustomSLaser) run on
+      # one Python only: they do not depend on the Python version and take
+      # most of the wall time. The runner has Docker, so on 3.13 they run
+      # through BasisREMY's own Octave image (built on CI, which also tests the
+      # Dockerfile); the apt Octave is the local fallback. On 3.11 Docker is
+      # switched off (BASISREMY_NO_DOCKER, see the Test step) and no Octave is
+      # installed, so those tests skip and the job is the unit suite only.
       - name: Install Octave
         if: matrix.python-version == '3.13'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends octave
@@ -53,7 +56,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: externals/spinach
-          key: spinach-998fbc02777f4f7785757494b43dbb42a0954274
+          key: spinach-998fbc02777f4f7785757494b43dbb42a0954274-${{ hashFiles('basisremy/adapters/backends/spinach_octave.patch') }}
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -63,4 +66,6 @@ jobs:
         run: uv sync --extra dev
 
       - name: Test
+        env:
+          BASISREMY_NO_DOCKER: ${{ matrix.python-version == '3.11' && '1' || '' }}
         run: uv run pytest -q -m "not heavy"

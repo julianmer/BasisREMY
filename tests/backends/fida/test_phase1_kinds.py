@@ -241,6 +241,7 @@ class TestFidaModes:
 
 @pytest.mark.backend
 @pytest.mark.slow
+@pytest.mark.requires_octave_runtime
 class TestFidaModesLive:
     """Small-grid live runs of the newly opened modes (Docker Octave)."""
 

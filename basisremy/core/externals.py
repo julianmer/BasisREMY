@@ -193,20 +193,58 @@ def _init_nested_submodules(dest, env) -> None:
 
 def _apply_patch(name: str, dest, env) -> None:
     """Apply the Octave patch registered for ``name`` (no-op when absent or
-    already applied). Raises :class:`ExternalFetchError` if the patch fits
-    neither way — the checkout is not the pinned commit."""
+    already applied). A checkout that carries an *older* version of the patch
+    (a cached CI tree, a user upgrading BasisREMY) is completed file by file:
+    every per-file chunk is skipped when already applied and applied when it
+    fits. Raises :class:`ExternalFetchError` when a chunk fits neither way —
+    the checkout is not the pinned commit."""
     patch = PATCHES.get(name)
     if patch is None or not os.path.exists(os.path.join(str(dest), '.git')):
         return
     patch = os.path.abspath(patch)
     git = ['git', '-C', str(dest)]
     kw = dict(env=env, capture_output=True)
-    if subprocess.run([*git, 'apply', '--check', '--reverse', patch], **kw).returncode == 0:
+
+    def fits(path, reverse=False):
+        args = [*git, 'apply', '--check'] + (['--reverse'] if reverse else []) + [path]
+        return subprocess.run(args, **kw).returncode == 0
+
+    if fits(patch, reverse=True):
         return  # already applied
-    if subprocess.run([*git, 'apply', '--check', patch], **kw).returncode == 0:
+    if fits(patch):
         subprocess.run([*git, 'apply', patch], env=env, check=True)
         return
-    raise ExternalFetchError(
-        f"The Octave patch for '{name}' does not fit the checkout at {dest} "
-        f"(expected commit {REGISTRY[name][1][:10]})."
-    )
+    # partially applied: go chunk by chunk
+    import tempfile
+    with open(patch, encoding='utf-8') as f:
+        text = f.read()
+    for chunk in _split_patch(text):
+        tmp = tempfile.NamedTemporaryFile('w', suffix='.patch', delete=False, encoding='utf-8')
+        try:
+            tmp.write(chunk)
+            tmp.close()
+            if fits(tmp.name, reverse=True):
+                continue
+            if fits(tmp.name):
+                subprocess.run([*git, 'apply', tmp.name], env=env, check=True)
+                continue
+            target = chunk.splitlines()[0]
+            raise ExternalFetchError(
+                f"The Octave patch for '{name}' does not fit the checkout at {dest} "
+                f"({target}; expected commit {REGISTRY[name][1][:10]})."
+            )
+        finally:
+            os.remove(tmp.name)
+
+
+def _split_patch(text: str) -> list[str]:
+    """Split a unified git diff into one chunk per file."""
+    chunks, current = [], []
+    for line in text.splitlines(keepends=True):
+        if line.startswith('diff --git ') and current:
+            chunks.append(''.join(current))
+            current = []
+        current.append(line)
+    if current:
+        chunks.append(''.join(current))
+    return chunks

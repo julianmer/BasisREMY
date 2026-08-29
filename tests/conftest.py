@@ -42,7 +42,10 @@ def test_output_dir(output_dir, request):
 
 @pytest.fixture(scope="session")
 def docker_available():
-    """Check if Docker is available"""
+    """Check if Docker is available (BASISREMY_NO_DOCKER disables it)"""
+    from basisremy.core.octave_manager import docker_disabled
+    if docker_disabled():
+        return False
     try:
         import docker
         client = docker.from_env()
@@ -151,13 +154,20 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "requires_octave: mark test as requiring local Octave"
     )
+    config.addinivalue_line(
+        "markers", "requires_octave_runtime: mark test as requiring Docker or a local Octave"
+    )
 
 
 def pytest_collection_modifyitems(config, items):
     """Modify test collection to add skip markers based on availability"""
-    # Check Docker availability (supports both Docker Desktop and OrbStack on macOS)
+    # Check Docker availability (supports both Docker Desktop and OrbStack on macOS);
+    # BASISREMY_NO_DOCKER=1 (CI's Python 3.11 job) makes Docker count as absent
+    from basisremy.core.octave_manager import docker_disabled
     try:
         import docker
+        if docker_disabled():
+            raise RuntimeError('Docker disabled by BASISREMY_NO_DOCKER')
         # Try default connection first
         try:
             client = docker.from_env()
@@ -202,4 +212,7 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.skip(reason="Docker not available"))
         if "requires_octave" in item.keywords and not octave_available:
             item.add_marker(pytest.mark.skip(reason="Local Octave not available"))
+        if ("requires_octave_runtime" in item.keywords
+                and not (docker_available or octave_available)):
+            item.add_marker(pytest.mark.skip(reason="No Octave runtime (Docker or local)"))
 

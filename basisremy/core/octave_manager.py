@@ -26,6 +26,13 @@ _PROBE_TTL_S = 120.0
 _probe_cache: dict[str, tuple[float, bool]] = {}
 
 
+def docker_disabled() -> bool:
+    """True when ``BASISREMY_NO_DOCKER`` is set: never use (or probe) Docker,
+    even if a daemon is running — a local Octave is the only runtime then.
+    CI uses it so that only one job runs the Octave-backed tests."""
+    return os.environ.get('BASISREMY_NO_DOCKER', '').lower() in ('1', 'true', 'yes')
+
+
 def _cached(key):
     hit = _probe_cache.get(key)
     if hit and time.monotonic() - hit[0] < _PROBE_TTL_S:
@@ -78,6 +85,9 @@ class OctaveManager:
         return _remember('docker', self._probe_docker())
 
     def _probe_docker(self):
+        if docker_disabled():
+            self.docker_available = False
+            return False
         try:
             import docker
 

@@ -253,6 +253,14 @@ class TestSpantLive:
         """The Docker image and the local R give the same numbers (image
         built on first use elsewhere; here only if it already exists)."""
         import subprocess
+        from basisremy.core.octave_manager import docker_disabled
+        if docker_disabled():
+            pytest.skip('Docker disabled by BASISREMY_NO_DOCKER')
+        try:
+            have = subprocess.run(['docker', 'image', 'inspect', spant_manager._DOCKER_IMAGE],
+                                  capture_output=True)
+        except FileNotFoundError:
+            pytest.skip('no docker binary')
         have = subprocess.run(['docker', 'image', 'inspect', spant_manager._DOCKER_IMAGE],
                               capture_output=True)
         if have.returncode != 0:

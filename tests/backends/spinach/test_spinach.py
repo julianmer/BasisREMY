@@ -29,8 +29,11 @@ from basisremy.core.paths import ADAPTERS_DIR
 
 def _octave_runtime():
     """True if Docker (any engine) or a local Octave can run the backend."""
+    from basisremy.core.octave_manager import docker_disabled
     if shutil.which('octave-cli') or shutil.which('octave'):
         return True
+    if docker_disabled():
+        return False
     try:
         import docker
         docker.from_env().ping()
@@ -42,11 +45,13 @@ def _octave_runtime():
 
 
 def _spinach_fetchable():
+    """Skip the live tests only when Spinach cannot be downloaded (no network);
+    a patch that does not fit the checkout is a real failure and must show."""
     try:
         externals.ensure('spinach')
         return True
-    except externals.ExternalFetchError:
-        return False
+    except externals.ExternalFetchError as e:
+        return 'patch' in str(e)
 
 
 # ------------------------------------------------------------------ unit

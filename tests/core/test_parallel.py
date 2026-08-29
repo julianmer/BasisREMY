@@ -33,6 +33,9 @@ class _Fake(Backend):
 
 
 def _docker_available():
+    from basisremy.core.octave_manager import docker_disabled
+    if docker_disabled():
+        return False
     try:
         import docker
         docker.from_env().ping()
