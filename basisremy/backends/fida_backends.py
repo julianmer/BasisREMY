@@ -125,20 +125,21 @@ class FidaBackend(Backend):
         return path
 
     # -------------------------------------------------- Octave
-    def setup_octave_paths(self):
-        if self.octave is None:
+    def setup_octave_paths(self, octave=None):
+        octave = octave or self.octave
+        if octave is None:
             raise RuntimeError("Octave not initialized.")
         # Fetch FID-A on first use (no-op in a source checkout).
         from basisremy.core.externals import ensure
         from basisremy.core.paths import octave_adapters_base
         ensure('fidA')
-        adapters_base = octave_adapters_base(self.octave)
-        self.octave.eval("warning('off', 'all');")
+        adapters_base = octave_adapters_base(octave)
+        octave.eval("warning('off', 'all');")
         # First add the FID-A tree recursively so nested helpers (e.g.
         # rfPulseTools/mklassenTools/bes.m, used by io_loadRFwaveform for
         # phase-modulated waveforms like GOIA) are resolvable. Without this,
         # shaped-pulse sims fail with "error: 'bes' undefined".
-        self.octave.eval("addpath(genpath('./externals/fidA/'));")
+        octave.eval("addpath(genpath('./externals/fidA/'));")
         # THEN add our adapter dirs — addpath() prepends, so these now win
         # over the upstream FID-A files. We use this to:
         #   * ship a patched sim_lcmrawbasis.m
@@ -146,7 +147,7 @@ class FidaBackend(Backend):
         #     calls plot()/input() for phase-modulated pulses, which fails
         #     in headless Docker Octave with "ft_text_renderer: invalid
         #     bounding box, cannot render, unable to create graphics handle").
-        self.octave.addpath(adapters_base + '/backends/')
+        octave.addpath(adapters_base + '/backends/')
 
     # -------------------------------------------------- REMY
     def parseREMY(self, MRSinMRS):
@@ -177,25 +178,25 @@ class FidaBackend(Backend):
                                progress_callback=None, stop_event=None):
         """Run each metabolite twice (edit ON / OFF) and return the flat
         '<metab> (ON/OFF/DIFF)' basis convention used by edited backends."""
-        metabs = params.get('Metabolites') or []
-        basis = {}
-        for i, metab in enumerate(metabs):
-            if stop_event and stop_event.is_set():
-                print(f"  ⏹  Stopped before simulating {metab}.")
-                break
+        kind = self.active_kind()
+
+        def work(octave, metab):
             fids = {}
             for label, flag in (('ON', 1), ('OFF', 0)):
-                results = self.octave.feval(
-                    'fida_run', metab, self.active_kind(), *base_args, flag, nout=5,
+                fid_re, fid_im, _npts, _sw, _cf = octave.feval(
+                    'fida_run', metab, kind, *base_args, flag, nout=5,
                 )
-                fid_re, fid_im, _npts, _sw, _cf = results
                 fids[label] = (np.asarray(fid_re, dtype=float).flatten()
                                + 1j * np.asarray(fid_im, dtype=float).flatten())
+            return fids
+
+        basis = {}
+        per_metab = self.simulate_in_parallel(params.get('Metabolites') or [], work,
+                                              progress_callback, stop_event)
+        for metab, fids in per_metab.items():
             basis[f'{metab} (ON)'] = fids['ON']
             basis[f'{metab} (OFF)'] = fids['OFF']
             basis[f'{metab} (DIFF)'] = fids['ON'] - fids['OFF']
-            if progress_callback:
-                progress_callback(i + 1, len(metabs))
         return basis
 
     # -------------------------------------------------- per-subclass hook
@@ -225,19 +226,13 @@ class FidaBackend(Backend):
         self.setup_octave_paths()
         self.ensure_workdir()
 
-        metabs = params.get('Metabolites') or []
-        basis = {}
-        for i, metab in enumerate(metabs):
-            if stop_event and stop_event.is_set():
-                print(f"  ⏹  Stopped before simulating {metab}.")
-                break
+        kind = self.active_kind()
+
+        def work(octave, metab):
             extra_args = self._build_args(params, metab)
-            results = self.octave.feval(
-                'fida_run', metab, self.active_kind(), *extra_args, nout=5,
+            fid_re, fid_im, _npts, _sw, _cf = octave.feval(
+                'fida_run', metab, kind, *extra_args, nout=5,
             )
-            fid_re, fid_im, _npts, _sw, _cf = results
-            fid = (np.asarray(fid_re, dtype=float).flatten()
-                   + 1j * np.asarray(fid_im, dtype=float).flatten())
             # FID-A's sim_readout stores `out.specs = fftshift(ifft(out.fids))`
             # with a ppm axis `ppm = -freq/larmor + 4.65`.  fida_run.m returns
             # out.fids directly (no conjugation applied), so the FID oscillates
@@ -246,10 +241,12 @@ class FidaBackend(Backend):
             # `+freq/larmor + 4.65`.  fft of a −f0 signal peaks at −f0 →
             # maps to (−f0/larmor + 4.65) ppm — which correctly equals δ ppm
             # when centreFreq = 4.65.  No conjugation needed here.
-            basis[metab] = fid
-            if progress_callback:
-                progress_callback(i + 1, len(metabs))
-        return basis
+            return (np.asarray(fid_re, dtype=float).flatten()
+                    + 1j * np.asarray(fid_im, dtype=float).flatten())
+
+        # metabolites run concurrently over several Octave processes
+        return self.simulate_in_parallel(params.get('Metabolites') or [], work,
+                                         progress_callback, stop_event)
 
 
 # =================================================================== Ideal (ex-LCModel)

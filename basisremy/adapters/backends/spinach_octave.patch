@@ -510,6 +510,19 @@ index c58fe50..212ee4e 100644
  
      properties
          row=int64([]);     % Row indices (int64)
+diff --git a/kernel/pulses/shaped_pulse_xy.m b/kernel/pulses/shaped_pulse_xy.m
+index dd3baa0..dcd62d4 100644
+--- a/kernel/pulses/shaped_pulse_xy.m
++++ b/kernel/pulses/shaped_pulse_xy.m
+@@ -363,7 +363,7 @@ function grumble(drift,controls,amplitudes,slice_durs,rho,method)
+     end
+ end
+ if (~isnumeric(slice_durs))||(~isreal(slice_durs))||...
+-     any(~isfinite(slice_durs),'all')||any(slice_durs<0,'all')
++     any(any(~isfinite(slice_durs)))||any(any(slice_durs<0))
+     error('slice_durs must be a vector of finite non-negative real numbers.');
+ end
+ if (~ischar(method))||(~ismember(method,{'expv-pwc','expv-pwl',...
 diff --git a/kernel/relaxation.m b/kernel/relaxation.m
 index 92d4509..9512e4d 100644
 --- a/kernel/relaxation.m

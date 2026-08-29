@@ -89,7 +89,7 @@ def cleanup_docker_processes():
             container = client.containers.get(f'octave_runner_{digest}')
             # only this test process's Octave (per-pid script name) — other
             # BasisREMY sessions share the container and keep running
-            container.exec_run(f"pkill -9 -f run_{os.getpid()}.m")
+            container.exec_run(f"pkill -9 -f run_{os.getpid()}_")
         except:
             pass
     except:

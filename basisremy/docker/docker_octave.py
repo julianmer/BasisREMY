@@ -16,6 +16,8 @@
 #   imports   #
 #*************#
 import docker
+import glob
+import itertools
 import numpy as np
 import os
 import scipy.io
@@ -62,10 +64,16 @@ class DockerOctave:
         self.shared_dir = os.path.join(self.project_root, '.octave_shared')
         os.makedirs(self.shared_dir, exist_ok=True)
 
-        # One script/result pair per process: two BasisREMY processes in the
-        # same project folder must not overwrite each other's run.
-        self.script_path = os.path.join(self.shared_dir, f'run_{os.getpid()}.m')
-        self.result_path = os.path.join(self.shared_dir, f'result_{os.getpid()}.mat')
+        # One script/result pair per process AND per call: two BasisREMY
+        # processes in the same project folder must not overwrite each other's
+        # run, and neither must the threads of one process simulating several
+        # metabolites at once (see Backend.simulate_in_parallel). The names
+        # share the prefix `run_<pid>_`, which is what the own-process checks
+        # and kills match on.
+        self._scratch_prefix = f'{os.getpid()}_'
+        self._call_counter = itertools.count()
+        self.script_path = os.path.join(self.shared_dir, f'run_{self._scratch_prefix}0.m')
+        self.result_path = os.path.join(self.shared_dir, f'result_{self._scratch_prefix}0.mat')
         import atexit
         atexit.register(self._remove_scratch_files)
         self.commands = []  # Temporary commands cleared after each feval
@@ -321,7 +329,8 @@ class DockerOctave:
             print("✓ Docker Octave verbose mode enabled")
 
     def _own_script(self) -> str:
-        return os.path.basename(self.script_path)
+        # prefix shared by every script this process writes (run_<pid>_<n>.m)
+        return f'run_{self._scratch_prefix}'
 
     def check_running_processes(self, own_only=True):
         """Octave processes in the container — by default only the one(s)
@@ -430,8 +439,12 @@ class DockerOctave:
         store_vars = [store_as] if store_as else result_vars
         store_vars_str = ', '.join(repr(v) for v in store_vars)
 
-        # Save to shared directory (relative to /workspace)
-        result_file_rel = os.path.relpath(self.result_path, self.project_root).replace('\\', '/')
+        # Per-call script / result files (concurrent fevals from several threads
+        # must not share them); relative to /workspace inside the container.
+        call_id = next(self._call_counter)
+        script_path = os.path.join(self.shared_dir, f'run_{self._scratch_prefix}{call_id}.m')
+        result_path = os.path.join(self.shared_dir, f'result_{self._scratch_prefix}{call_id}.mat')
+        result_file_rel = os.path.relpath(result_path, self.project_root).replace('\\', '/')
         save = f"save('-v7', '{result_file_rel}', {store_vars_str});"
 
         # Build the complete script - include persistent commands first
@@ -447,15 +460,15 @@ class DockerOctave:
             print(f"{'-'*80}")
 
         # Write script to shared directory
-        with open(self.script_path, 'w') as f:
+        with open(script_path, 'w') as f:
             f.write(code)
 
         if show_output:
-            print(f"\n✓ Script written to: {self.script_path}")
+            print(f"\n✓ Script written to: {script_path}")
             print("⏳ Executing Octave in Docker container...")
 
         # Execute in container - script path relative to /workspace
-        script_rel = os.path.relpath(self.script_path, self.project_root).replace('\\', '/')
+        script_rel = os.path.relpath(script_path, self.project_root).replace('\\', '/')
 
         if show_output:
             print(f"   Command: octave-cli {script_rel}")
@@ -479,7 +492,7 @@ class DockerOctave:
         # A result left by the previous run must never pass for this run's
         # output if Octave exits without reaching its save().
         try:
-            os.remove(self.result_path)
+            os.remove(result_path)
         except OSError:
             pass
         exit_code, output = self.container.exec_run(f"octave-cli {script_rel}")
@@ -508,13 +521,19 @@ class DockerOctave:
         try:
             # Use squeeze_me=True to remove singleton dimensions from arrays
             # Use struct_as_record=False to get more intuitive struct access
-            mat = scipy.io.loadmat(self.result_path, squeeze_me=True, struct_as_record=False)
+            mat = scipy.io.loadmat(result_path, squeeze_me=True, struct_as_record=False)
             if show_output:
                 print("✓ Results loaded successfully")
                 print(f"{'='*80}\n")
         except Exception as e:
             print(f"✗ Failed to load results: {e}")
             raise RuntimeError(f"Failed to load Octave results: {e}")
+        finally:
+            for f in (script_path, result_path):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
 
         # Clear commands for next execution
         self.commands = []
@@ -529,11 +548,12 @@ class DockerOctave:
             return tuple(mat[v] for v in result_vars)
 
     def _remove_scratch_files(self):
-        for p in (self.script_path, self.result_path):
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+        for pattern in (f'run_{self._scratch_prefix}*.m', f'result_{self._scratch_prefix}*.mat'):
+            for p in glob.glob(os.path.join(self.shared_dir, pattern)):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
     def exit(self):
         """Clear command buffers."""

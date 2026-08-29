@@ -28,11 +28,17 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz] = fida_run(metab, kind, varargin
     % ---------- spin system --------------------------------------------
     S = load('metabolites/spinSystems.mat');
     sysFieldName = ['sys' metab];
-    if ~isfield(S, sysFieldName)
+    if isfield(S, sysFieldName)
+        sys = S.(sysFieldName);
+    elseif exist(fullfile('metabolites', [metab '.mat']), 'file')
+        % e.g. Lip: only shipped as its own file
+        S = load(fullfile('metabolites', [metab '.mat']));
+        f = fieldnames(S);
+        sys = S.(f{1});
+    else
         error('fida_run: unknown metabolite "%s" (no %s in spinSystems.mat)', ...
               metab, sysFieldName);
     end
-    sys = S.(sysFieldName);
 
     % ---------- dispatch -----------------------------------------------
     sw_out = NaN;   % most simulators set this; defaults for safety

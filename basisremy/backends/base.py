@@ -13,6 +13,10 @@
 
 from __future__ import annotations
 
+import os
+import queue
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from basisremy.core.metabolite_identity import metabolite_identity
 
 
@@ -269,3 +273,92 @@ class Backend:
 
     def run_simulation(self, params, progress_callback=None, stop_event=None):
         raise NotImplementedError("This method should be overridden by subclasses.")
+
+    # ------------------------------------------------------------ parallel runs
+    @staticmethod
+    def octave_workers() -> int:
+        """Octave processes to run at once: $BASISREMY_OCTAVE_WORKERS, else
+        half the CPUs, at most 4 (each Octave holds a few hundred MB)."""
+        env = os.environ.get('BASISREMY_OCTAVE_WORKERS')
+        if env:
+            try:
+                return max(1, int(env))
+            except ValueError:
+                pass
+        return max(1, min(4, (os.cpu_count() or 2) // 2))
+
+    def setup_octave_paths(self, octave=None):
+        """Put this backend's adapters on the path of ``octave`` (default:
+        ``self.octave``). Octave backends override it."""
+
+    def _octave_sessions(self, n):
+        """``n`` sessions ready for this backend: the Docker runner is
+        reentrant (one octave-cli process per call), so it is shared; a local
+        Octave is one process, so extra oct2py sessions are spawned with the
+        same paths. Returns (sessions, sessions_to_close)."""
+        try:
+            from oct2py import Oct2Py
+        except ImportError:
+            Oct2Py = None
+        if n <= 1 or Oct2Py is None or not isinstance(self.octave, Oct2Py):
+            # Docker runner (or anything that is not a single local Octave
+            # process): reentrant, shared by every worker
+            return [self.octave] * max(1, n), []
+        extra = []
+        for _ in range(n - 1):
+            session = Oct2Py()
+            self.setup_octave_paths(session)
+            extra.append(session)
+        return [self.octave] + extra, extra
+
+    def simulate_in_parallel(self, items, work, progress_callback=None, stop_event=None):
+        """Run ``work(octave_session, item)`` for every item over several Octave
+        processes and return ``{item: result}`` in the order of ``items``.
+        Progress counts completed items; a set ``stop_event`` stops submitting
+        (running items finish); the first failure is raised after the others
+        are cancelled."""
+        items = list(items)
+        n = min(self.octave_workers(), len(items))
+        sessions, to_close = self._octave_sessions(n)
+        free = queue.Queue()
+        for s in sessions:
+            free.put(s)
+        results = {}
+
+        def task(item):
+            if stop_event and stop_event.is_set():
+                return item, None
+            session = free.get()
+            try:
+                return item, work(session, item)
+            finally:
+                free.put(session)
+
+        try:
+            with ThreadPoolExecutor(max_workers=max(1, n)) as pool:
+                futures = []
+                for item in items:
+                    if stop_event and stop_event.is_set():
+                        print(f"  ⏹  Stopped before simulating {item}.")
+                        break
+                    futures.append(pool.submit(task, item))
+                done = 0
+                try:
+                    for fut in as_completed(futures):
+                        item, result = fut.result()
+                        if result is not None:
+                            results[item] = result
+                        done += 1
+                        if progress_callback:
+                            progress_callback(done, len(items))
+                except BaseException:
+                    for fut in futures:
+                        fut.cancel()
+                    raise
+        finally:
+            for s in to_close:
+                try:
+                    s.exit()
+                except Exception:
+                    pass
+        return {item: results[item] for item in items if item in results}

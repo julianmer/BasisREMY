@@ -496,22 +496,26 @@ class MRSCloudBackend(Backend):
         return 'UnEdited'
 
     # --------------------------------------------------------------- Octave paths
-    def setup_octave_paths(self):
-        if self.octave is None:
+    def setup_octave_paths(self, octave=None):
+        octave = octave or self.octave
+        if octave is None:
             raise RuntimeError("Octave not initialized. Call initialize_octave() first.")
         # Fetch MRSCloud on first use (no-op in a source checkout).
         from basisremy.core.externals import ensure
         from basisremy.core.paths import octave_adapters_base
         ensure('mrscloud')
-        self.octave.eval("warning('off', 'all');")
+        octave.eval("warning('off', 'all');")
         # adapters/backends contains our mrscloud_run_metab.m wrapper
-        self.octave.addpath(octave_adapters_base(self.octave) + '/backends/')
+        octave.addpath(octave_adapters_base(octave) + '/backends/')
         # Pull in MRSCloud (functions + bundled FID-A) recursively
-        self.octave.addpath(self.octave.genpath('./externals/mrscloud/functions/'))
-        self.octave.addpath(self.octave.genpath('./externals/mrscloud/pulses_universal/'))
+        octave.addpath(octave.genpath('./externals/mrscloud/functions/'))
+        octave.addpath(octave.genpath('./externals/mrscloud/pulses_universal/'))
         # vendor-confidential waveforms the user placed next to the bundled ones
         if os.path.isdir('./externals/mrscloud/pulses'):
-            self.octave.addpath('./externals/mrscloud/pulses/')
+            octave.addpath('./externals/mrscloud/pulses/')
+        # the run's pulse shims (extra worker sessions are set up after staging)
+        if getattr(self, '_shim_path', None):
+            octave.addpath(self._shim_path)
 
     # ----------------------------------------------------- pulse-file shimming
     def _stage_user_pulse(self, workdir: str, vendor: str, sequence: str,
@@ -596,6 +600,7 @@ class MRSCloudBackend(Backend):
         try:
             rel = os.path.relpath(workdir, start=os.path.abspath('.'))
             shim_path = './' + rel.replace('\\', '/')
+            self._shim_path = shim_path
             self.octave.addpath(shim_path)
         except Exception as e:
             print(f"  ⚠️  Could not addpath({workdir}): {e}")
@@ -694,20 +699,21 @@ class MRSCloudBackend(Backend):
         if not metabs:
             raise ValueError("MRSCloud: no metabolites selected.")
 
-        basis_set: dict[str, np.ndarray] = {}
+        multi = sequence in ('MEGA', 'HERMES', 'HERCULES')
         total = len(metabs)
-        for i, metab in enumerate(metabs):
-            if stop_event and stop_event.is_set():
-                print(f"  ⏹  Stopped before simulating {metab} (user cancelled).")
-                break
-            print(f"[MRSCloud] {i+1}/{total}  simulating {metab} "
+        counter = {'n': 0}
+
+        def work(octave, metab):
+            """One metabolite -> its basis entries (None when it failed: the
+            reason is recorded in last_failures and surfaced by the GUI)."""
+            counter['n'] += 1
+            print(f"[MRSCloud] {counter['n']}/{total}  simulating {metab} "
                   f"({sequence}/{localization} on {vendor}, TE={te:g} ms, "
                   f"B0={bfield:g} T, {field_str} parameter set)")
             try:
                 # edited schemes: the adapter also hands back the further
                 # sub-spectra (MEGA: edit-OFF; HERMES / HERCULES: B, C, D)
-                multi = sequence in ('MEGA', 'HERMES', 'HERCULES')
-                out = self.octave.feval(
+                out = octave.feval(
                     'mrscloud_run_metab',
                     metab, vendor, sequence, localization,
                     te, field_str, edit_target,
@@ -719,11 +725,12 @@ class MRSCloudBackend(Backend):
                     + 1j * np.asarray(out[1], dtype=np.float64).flatten()
                 if fid.size == 0:
                     raise RuntimeError("empty FID returned")
+                entries = {}
                 if sequence == 'MEGA':
                     off = self._column(out[5], out[6], 0, fid.size)
-                    basis_set[f'{metab} (ON)'] = fid
-                    basis_set[f'{metab} (OFF)'] = off
-                    basis_set[f'{metab} (DIFF)'] = fid - off
+                    entries[f'{metab} (ON)'] = fid
+                    entries[f'{metab} (OFF)'] = off
+                    entries[f'{metab} (DIFF)'] = fid - off
                 elif multi:
                     # Hadamard-encoded schemes: the four sub-experiments A–D
                     # (editing pulses at the scheme's offsets, in the order of
@@ -733,33 +740,37 @@ class MRSCloudBackend(Backend):
                     for i, tag in enumerate('BCD'):
                         subs[tag] = self._column(out[5], out[6], i, fid.size)
                     for tag, arr in subs.items():
-                        basis_set[f'{metab} ({tag})'] = arr
-                    basis_set[f'{metab} (SUM)'] = sum(subs.values())
+                        entries[f'{metab} ({tag})'] = arr
+                    entries[f'{metab} (SUM)'] = sum(subs.values())
                     a, b, c, d = (subs[t] for t in 'ABCD')
                     if sequence == 'HERMES':
                         # A 4.56 (GSH on), B 1.90 (GABA on), C dual (both), D 7.5
                         # (neither) — measured: (B + C) − (A + D) isolates the
                         # 3 ppm GABA signal (0.69 of SUM; upstream's own
                         # B + D − A − C gives 0.02 with this pulse order)
-                        basis_set[f'{metab} (DIFF1)'] = (b + c) - (a + d)
-                        basis_set[f'{metab} (DIFF2)'] = (a + c) - (b + d)
+                        entries[f'{metab} (DIFF1)'] = (b + c) - (a + d)
+                        entries[f'{metab} (DIFF2)'] = (a + c) - (b + d)
                     else:
                         # HERCULES: A 4.58 (GSH on), B 4.18, C dual 4.58 + 1.9,
                         # D dual 4.18 + 1.9 — GABA is edited in C and D, GSH in
                         # A and C (from the pulse assignment; not measured)
-                        basis_set[f'{metab} (DIFF1)'] = (c + d) - (a + b)
-                        basis_set[f'{metab} (DIFF2)'] = (a + c) - (b + d)
+                        entries[f'{metab} (DIFF1)'] = (c + d) - (a + b)
+                        entries[f'{metab} (DIFF2)'] = (a + c) - (b + d)
                 else:
-                    basis_set[metab] = fid
+                    entries[metab] = fid
+                return entries
             except Exception as e:
                 # Don't kill the whole run — record the failure (surfaced by
                 # the GUI) and skip; a zero-filled FID would look like success.
                 print(f"  ✗ {metab}: {e}")
                 self.last_failures[metab] = str(e)
+                return {}
 
-            if progress_callback:
-                progress_callback(i + 1, total)
-
+        # metabolites run concurrently over several Octave processes
+        per_metab = self.simulate_in_parallel(metabs, work, progress_callback, stop_event)
+        basis_set: dict[str, np.ndarray] = {}
+        for entries in per_metab.values():
+            basis_set.update(entries)
         return basis_set
 
 
