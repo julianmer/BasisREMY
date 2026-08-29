@@ -30,8 +30,11 @@ jobs:
         run: git lfs pull
 
       # Local Octave so the Octave-backed tests (FID-A, MRSCloud, CustomSLaser)
-      # run for real instead of being skipped; Docker is not used on CI.
+      # run for real instead of being skipped; Docker is not used on CI. Only
+      # on one Python: the Octave side does not depend on the Python version
+      # and takes most of the wall time, so on 3.11 those tests skip.
       - name: Install Octave
+        if: matrix.python-version == '3.13'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends octave
 
       # R + spant so the spant backend's live tests run for real (the

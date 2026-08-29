@@ -26,6 +26,7 @@ from basisremy.backends.custom_backends import CustomSLaser
 from basisremy.backends.fida_backends import FIDA_BACKENDS
 from basisremy.backends.vespa_backend import VespaBackend
 from basisremy.backends.spant_backend import SpantBackend
+from basisremy.core.metabolite_identity import metabolite_identity
 from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
 
 
@@ -133,11 +134,12 @@ class BasisREMY:
                 if k in self.backend.optional_params
                 and v is not None
             })
-            # Carry over shared metabolite on/off state (e.g. user turned off GABA).
-            self.backend.metabs.update({
-                k: v for k, v in old_backend.metabs.items()
-                if k in self.backend.metabs
-            })
+            # Carry over the metabolite on/off state (e.g. user turned off GABA) —
+            # by identity, so FID-A's 'Ins' lands on MRSCloud's 'mI' and spant's 'ins'.
+            carried = {metabolite_identity(k): v for k, v in old_backend.metabs.items()}
+            for k in self.backend.metabs:
+                if metabolite_identity(k) in carried:
+                    self.backend.metabs[k] = carried[metabolite_identity(k)]
             if hasattr(self.backend, '_refresh_metab_list'):
                 self.backend._refresh_metab_list()
             elif 'Metabolites' in self.backend.mandatory_params:

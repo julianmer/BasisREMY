@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+from basisremy.core.metabolite_identity import metabolite_identity
+
 
 #**************************************************************************************************#
 #                                             Backend                                              #
@@ -214,7 +216,12 @@ class Backend:
         #                   spinSystems.mat library does not recognise.
         _skip = {'Sequence', 'Metabolites'}
 
-        self.metabs.update({k: v for k, v in backend.metabs.items() if k in self.metabs})
+        # Metabolite on/off state moves by identity ('Ins' → 'mI' → 'ins'), see
+        # core/metabolite_identity.py; names without a counterpart are left alone.
+        carried = {metabolite_identity(k): v for k, v in backend.metabs.items()}
+        for k in self.metabs:
+            if metabolite_identity(k) in carried:
+                self.metabs[k] = carried[metabolite_identity(k)]
         self.mandatory_params.update({k: v for k, v in backend.mandatory_params.items()
                                       if k in self.mandatory_params and k not in _skip})
         self.optional_params.update({k: v for k, v in backend.optional_params.items()
