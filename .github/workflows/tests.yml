@@ -47,6 +47,14 @@ jobs:
           packages: any::spant
           cache: true
 
+      # Spinach is fetched on first use (sparse clone of a pinned commit, see
+      # core/externals.py); keep it between runs so the live tests do not
+      # download it every time.
+      - uses: actions/cache@v4
+        with:
+          path: externals/spinach
+          key: spinach-998fbc02777f4f7785757494b43dbb42a0954274
+
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}

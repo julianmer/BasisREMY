@@ -26,6 +26,7 @@ from basisremy.backends.custom_backends import CustomSLaser
 from basisremy.backends.fida_backends import FIDA_BACKENDS
 from basisremy.backends.vespa_backend import VespaBackend
 from basisremy.backends.spant_backend import SpantBackend
+from basisremy.backends.spinach_backend import SpinachBackend
 from basisremy.core.metabolite_identity import metabolite_identity
 from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
 
@@ -40,7 +41,7 @@ from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
 #**************************************************************************************************#
 class BasisREMY:
     # Display order for the top-level Category dropdown.
-    CATEGORY_ORDER = ['MRSCloud', 'FID-A', 'FSL-MRS', 'Vespa', 'Spant', 'Custom']
+    CATEGORY_ORDER = ['MRSCloud', 'FID-A', 'FSL-MRS', 'Vespa', 'Spant', 'Spinach', 'Custom']
 
     def __init__(self, backend='MRSCloud'):
         self.DRead = DataReaders()
@@ -65,6 +66,7 @@ class BasisREMY:
         fm = FSLMRSBackend();   self.backends[fm.name] = fm
         vp = VespaBackend();    self.backends[vp.name] = vp
         sp = SpantBackend();    self.backends[sp.name] = sp
+        sn = SpinachBackend();  self.backends[sn.name] = sn
 
         # Snapshot each backend's pristine defaults so a new file import can
         # start clean instead of inheriting the previous file's values.

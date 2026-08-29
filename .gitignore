@@ -55,3 +55,6 @@ legacy/
 # Per-machine PyGAMMA runtime override (see core/pygamma_manager.py)
 pygamma-prefer-docker
 pygamma-env/
+
+# Spinach is fetched on demand (sparse clone, see core/externals.py), never vendored
+externals/spinach/

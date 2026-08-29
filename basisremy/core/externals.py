@@ -46,6 +46,27 @@ REGISTRY: dict[str, tuple[str, str]] = {
         "https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox.git",
         "53925137e29fbefd6582171595af59665edd3f9f",
     ),
+    # Spinach (Kuprov; MIT) — the spin-dynamics kernel behind the Spinach
+    # backend. Fetched sparsely (see SPARSE) and patched for Octave (PATCHES).
+    "spinach": (
+        "https://github.com/IlyaKuprov/Spinach.git",
+        "998fbc02777f4f7785757494b43dbb42a0954274",
+    ),
+}
+
+# Externals that are too big to clone whole: only these top-level directories
+# are checked out (git sparse checkout, blobs fetched on demand). Spinach's
+# repository is ~520 MB; its kernel is all the backend needs.
+SPARSE: dict[str, list[str]] = {
+    "spinach": ["kernel"],
+}
+
+# Patches applied on top of the pinned commit (idempotent: skipped when the
+# tree already carries them). Spinach is written for MATLAB R2024b; the patch
+# is the small set of source edits Octave 7 needs (see spinach_octave.patch).
+PATCHES: dict[str, str] = {
+    "spinach": os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                            "adapters", "backends", "spinach_octave.patch"),
 }
 
 
@@ -81,6 +102,7 @@ def ensure(name: str) -> str:
         # fsl_mrs nests denmatsim as a submodule, which a plain clone leaves
         # as an empty directory. A no-op (~ms) when already complete.
         _init_nested_submodules(dest, env)
+        _apply_patch(name, dest, env)
         return str(dest)
 
     url, commit = REGISTRY[name]
@@ -91,11 +113,26 @@ def ensure(name: str) -> str:
         file=sys.stderr,
     )
     try:
-        subprocess.run(
-            ["git", "clone", "--quiet", url, str(dest)],
-            check=True,
-            env=env,
-        )
+        if name in SPARSE:
+            # blob-less sparse clone: only the listed directories are
+            # materialised, and only their blobs are downloaded
+            subprocess.run(
+                ["git", "clone", "--quiet", "--filter=blob:none", "--sparse",
+                 url, str(dest)],
+                check=True,
+                env=env,
+            )
+            subprocess.run(
+                ["git", "-C", str(dest), "sparse-checkout", "set", *SPARSE[name]],
+                check=True,
+                env=env,
+            )
+        else:
+            subprocess.run(
+                ["git", "clone", "--quiet", url, str(dest)],
+                check=True,
+                env=env,
+            )
         # Pin to the recorded commit. Upstreams occasionally rewrite history and
         # drop the pinned commit (it may also live on a branch the default clone
         # didn't materialise). Try a direct fetch of the commit, and if it is
@@ -132,6 +169,7 @@ def ensure(name: str) -> str:
     # Some externals nest submodules of their own (fsl_mrs -> denmatsim);
     # without this their directories stay empty after the clone.
     _init_nested_submodules(dest, env)
+    _apply_patch(name, dest, env)
 
     # A sys.path entry that pointed at this (then-missing) directory has been
     # negatively cached by the import system (sys.path_importer_cache), so
@@ -150,4 +188,25 @@ def _init_nested_submodules(dest, env) -> None:
         ['git', '-C', str(dest), 'submodule', 'update', '--init',
          '--recursive', '--quiet'],
         env=env, check=False,
+    )
+
+
+def _apply_patch(name: str, dest, env) -> None:
+    """Apply the Octave patch registered for ``name`` (no-op when absent or
+    already applied). Raises :class:`ExternalFetchError` if the patch fits
+    neither way — the checkout is not the pinned commit."""
+    patch = PATCHES.get(name)
+    if patch is None or not os.path.exists(os.path.join(str(dest), '.git')):
+        return
+    patch = os.path.abspath(patch)
+    git = ['git', '-C', str(dest)]
+    kw = dict(env=env, capture_output=True)
+    if subprocess.run([*git, 'apply', '--check', '--reverse', patch], **kw).returncode == 0:
+        return  # already applied
+    if subprocess.run([*git, 'apply', '--check', patch], **kw).returncode == 0:
+        subprocess.run([*git, 'apply', patch], env=env, check=True)
+        return
+    raise ExternalFetchError(
+        f"The Octave patch for '{name}' does not fit the checkout at {dest} "
+        f"(expected commit {REGISTRY[name][1][:10]})."
     )

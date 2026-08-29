@@ -1,0 +1,586 @@
+diff --git a/kernel/assume.m b/kernel/assume.m
+index 1be25b3..883ca9c 100644
+--- a/kernel/assume.m
++++ b/kernel/assume.m
+@@ -89,7 +89,7 @@
+     case {'nmr'}
+ 
+         % Disallow particles that are not spins
+-        if any(ismember({'C','V','T'},spin_system.comp.types),'all')
++        if any(any(ismember({'C','V','T'},spin_system.comp.types)))
+             error('Cavities, phonons, and transmons are not allowed under this assumption set.');
+         end
+ 
+@@ -138,7 +138,7 @@
+     case {'esr','deer'}
+ 
+         % Disallow particles that are not spins
+-        if any(ismember({'C','V','T'},spin_system.comp.types),'all')
++        if any(any(ismember({'C','V','T'},spin_system.comp.types)))
+             error('Cavities, phonons, and transmons are not allowed under this assumption set.');
+         end
+         
+@@ -205,7 +205,7 @@
+     case {'deer-zz'}
+ 
+         % Disallow particles that are not spins
+-        if any(ismember({'C','V','T'},spin_system.comp.types),'all')
++        if any(any(ismember({'C','V','T'},spin_system.comp.types)))
+             error('Cavities, phonons, and transmons are not allowed under this assumption set.');
+         end
+         
+@@ -287,7 +287,7 @@
+         report(spin_system,'  all terms for all couplings.');
+ 
+         % Do the reporting for bosonic modes
+-        if any(ismember({'C','V','T'},spin_system.comp.types),'all')
++        if any(any(ismember({'C','V','T'},spin_system.comp.types)))
+             report(spin_system,'  laboratory frame simulation for bosonic modes,');
+             report(spin_system,'  exchange terms keep counter-rotating components,');
+             report(spin_system,'  all anharmonicity, Kerr, longitudinal, and dispersive terms retained,');
+@@ -333,7 +333,7 @@
+     case {'se_dnp_h+'}
+ 
+         % Disallow particles that are not spins
+-        if any(ismember({'C','V','T'},spin_system.comp.types),'all')
++        if any(any(ismember({'C','V','T'},spin_system.comp.types)))
+             error('Cavities, phonons, and transmons are not allowed under this assumption set.');
+         end
+         
+@@ -392,7 +392,7 @@
+     case {'se_dnp_h-'}
+ 
+         % Disallow particles that are not spins
+-        if any(ismember({'C','V','T'},spin_system.comp.types),'all')
++        if any(any(ismember({'C','V','T'},spin_system.comp.types)))
+             error('Cavities, phonons, and transmons are not allowed under this assumption set.');
+         end
+         
+@@ -451,7 +451,7 @@
+     case {'se_dnp_h0'}
+ 
+         % Disallow particles that are not spins
+-        if any(ismember({'C','V','T'},spin_system.comp.types),'all')
++        if any(any(ismember({'C','V','T'},spin_system.comp.types)))
+             error('Cavities, phonons, and transmons are not allowed under this assumption set.');
+         end
+         
+@@ -510,7 +510,7 @@
+     case 'qnmr'
+ 
+         % Disallow particles that are not spins
+-        if any(ismember({'C','V','T'},spin_system.comp.types),'all')
++        if any(any(ismember({'C','V','T'},spin_system.comp.types)))
+             error('Cavities, phonons, and transmons are not allowed under this assumption set.');
+         end
+         
+diff --git a/kernel/basis.m b/kernel/basis.m
+index d1f88a7..6d59806 100644
+--- a/kernel/basis.m
++++ b/kernel/basis.m
+@@ -50,7 +50,7 @@
+ if strcmp(spin_system.bas.formalism,'sphten-liouv')
+ 
+     % Disallow spherical tensor basis sets for large multiplicities
+-    if any(spin_system.comp.mults>16,'all')
++    if any(any(spin_system.comp.mults>16))
+         error('multiplicities above 16 are not supported by sphten-liouv formalism.');
+     end
+ 
+@@ -655,7 +655,7 @@ function grumble(spin_system,bas)
+     end
+     if strcmp(bas.approximation,'IK-DNP')
+         if (~isnumeric(bas.level))||(numel(bas.level)~=3)||...
+-           any(mod(bas.level,1)~=0,'all')||any(bas.level<1,'all')
++           any(any(mod(bas.level,1)~=0))||any(any(bas.level<1))
+             error('bas.level must be a vector with three positive integers.');
+         end
+         n_electrons=nnz(cellfun(@iselectron,spin_system.comp.isotopes));
+diff --git a/kernel/create.m b/kernel/create.m
+index 03a7b39..d1ebf1f 100644
+--- a/kernel/create.m
++++ b/kernel/create.m
+@@ -211,7 +211,7 @@
+ end
+ 
+ % Get a unique job identifier by hashing the clock and the process identifier
+-spin_system.sys.job_id=md5_hash([posixtime(datetime('now')) feature('getpid')]);
++spin_system.sys.job_id=md5_hash([time() getpid()]);
+ report(spin_system,['job identifier: ' spin_system.sys.job_id]);
+ 
+ % Create a unique scratch subdirectory for the current job
+diff --git a/kernel/hamiltonian.m b/kernel/hamiltonian.m
+index ac4d08a..449c308 100644
+--- a/kernel/hamiltonian.m
++++ b/kernel/hamiltonian.m
+@@ -254,7 +254,7 @@
+ end
+ 
+ % Pack single-spin descriptor table
+-D1=table(reshape(nL, [8*spin_system.comp.nspins 1]),...
++D1=descr_pack(reshape(nL, [8*spin_system.comp.nspins 1]),...
+          reshape(nS, [8*spin_system.comp.nspins 1]),...
+          reshape(opL,[8*spin_system.comp.nspins 1]),...
+          reshape(opS,[8*spin_system.comp.nspins 1]),...
+@@ -270,7 +270,7 @@
+ mask_a=(abs(D1.isotropic)       <spin_system.tols.liouv_zero);
+ mask_b=(sum(abs(D1.irr_comp),2) <spin_system.tols.liouv_zero);
+ mask_c=(sum(abs(D1.ist_coeff),2)<spin_system.tols.liouv_zero);
+-D1(mask_a&(mask_b|mask_c),:)=[];
++D1=descr_rows(D1,~(mask_a&(mask_b|mask_c)));
+ 
+ % Tightest possible variable clean-up
+ clear('nL','nS','opL','opS','isotropic','ist_coeff','irr_comp',...
+@@ -569,7 +569,7 @@
+ end
+     
+ % Pack two-spin descriptor table
+-D2=table(reshape(nL, [9*size(pair_list,1) 1]),...
++D2=descr_pack(reshape(nL, [9*size(pair_list,1) 1]),...
+          reshape(nS, [9*size(pair_list,1) 1]),...
+          reshape(opL,[9*size(pair_list,1) 1]),...
+          reshape(opS,[9*size(pair_list,1) 1]),...
+@@ -585,10 +585,10 @@
+ mask_a=(abs(D2.isotropic)       <spin_system.tols.liouv_zero);
+ mask_b=(sum(abs(D2.irr_comp),2) <spin_system.tols.liouv_zero);
+ mask_c=(sum(abs(D2.ist_coeff),2)<spin_system.tols.liouv_zero);
+-D2(mask_a&(mask_b|mask_c),:)=[];
++D2=descr_rows(D2,~(mask_a&(mask_b|mask_c)));
+ 
+ % Merge descriptors 
+-descr=[D1; D2]; nterms=size(descr,1);
++descr=descr_cat(D1,D2); nterms=numel(descr.nL);
+ report(spin_system,[num2str(nterms) ' unique operators in the Hamiltonian descriptor.']);
+ 
+ % Tightest possible variable clean-up
+@@ -640,7 +640,7 @@
+ end
+ 
+ % Balance the descriptor
+-descr=descr(randperm(size(descr,1)),:);
++descr=descr_rows(descr,randperm(numel(descr.nL)));
+ 
+ % Set up operator array
+ oper=cell(size(descr,1),1);
+@@ -674,7 +674,7 @@ function parfor_progr()
+ parfor n=1:nterms
+     
+     % Get descriptor line
+-    descr_line=descr(n,:);
++    descr_line=descr_rows(descr,n);
+     
+     % Compute operator from specification
+     if descr_line.nS==0
+@@ -1476,3 +1476,16 @@ function grumble(spin_system,operator_type)
+ % Yours sincerely,
+ % Ilya Kuprov.
+ 
++% Octave port (BasisREMY): struct-of-arrays replacement for the MATLAB table
++function D=descr_pack(varargin)
++names=varargin{end}; vals=varargin(1:(end-2)); D=struct();
++for k=1:numel(names), D.(names{k})=vals{k}; end
++end
++function D=descr_rows(D,idx)
++f=fieldnames(D);
++for k=1:numel(f), D.(f{k})=D.(f{k})(idx,:); end
++end
++function D=descr_cat(D1,D2)
++f=fieldnames(D1); D=struct();
++for k=1:numel(f), D.(f{k})=[D1.(f{k}); D2.(f{k})]; end
++end
+diff --git a/kernel/overloads/@opium/opium.m b/kernel/overloads/@opium/opium.m
+index 26074fa..a67a08d 100644
+--- a/kernel/overloads/@opium/opium.m
++++ b/kernel/overloads/@opium/opium.m
+@@ -16,7 +16,7 @@
+ %
+ % <https://spindynamics.org/wiki/index.php?title=opium/opium.m>
+ 
+-classdef (InferiorClasses={?gpuArray}) opium
++classdef opium
+     
+     % Default properties
+     properties
+diff --git a/kernel/overloads/@polyadic/absorb_prefix.m b/kernel/overloads/@polyadic/absorb_prefix.m
+new file mode 100644
+index 0000000..ce886e2
+--- /dev/null
++++ b/kernel/overloads/@polyadic/absorb_prefix.m
+@@ -0,0 +1,62 @@
++% Adds prefix matrices to a polyadic. Anything the polyadic
++% multiplies will subsequently be multiplied by the prefix
++% matrices. Syntax:
++%
++%                       p=prefix(a,p)
++%
++% Parameters:
++%
++%      a   -   prefix matrix
++%
++%      p   -   polyadic object
++%
++% Outputs:
++%
++%      p   -   polyadic object
++%
++% Note: a prefix can be a polyadic itself.
++%
++% ilya.kuprov@weizmann.ac.il
++%
++% <https://spindynamics.org/wiki/index.php?title=polyadic/prefix.m>
++
++function p=absorb_prefix(a,p)
++
++% Check consistency
++grumble(p);
++
++% Absorb the prefix
++if isscalar(a)
++    
++    % Multiply the first core
++    for n=1:numel(p.cores)
++        p.cores{n}{1}=a*p.cores{n}{1};
++    end
++    
++else
++    
++    % Check the dimensions
++    if size(a,2)~=size(p,1)
++        error('matrix dimension mismatch.');
++    end
++
++    % Update prefix array
++    p.prefix=[{a} p.prefix];
++    
++end
++
++end
++
++% Consistency enforcement
++function grumble(p)
++if ~isa(p,'polyadic')
++    error('p must be polyadic.');
++end
++end
++
++% It is difficult to get a man to understand 
++% something when his salary depends on his not
++% understanding it.
++%
++% Upton Sinclair
++
+diff --git a/kernel/overloads/@polyadic/absorb_suffix.m b/kernel/overloads/@polyadic/absorb_suffix.m
+new file mode 100644
+index 0000000..dfb7f46
+--- /dev/null
++++ b/kernel/overloads/@polyadic/absorb_suffix.m
+@@ -0,0 +1,61 @@
++% Adds suffix matrices to a polyadic. Anything the polyadic
++% multiplies will first be multiplied by the suffix matri-
++% ces. Syntax:
++%
++%                       p=suffix(p,a)
++%
++% Parameters:
++%
++%      p   -   polyadic object
++%
++%      a   -   suffix matrix
++%
++% Outputs:
++%
++%      p   -   polyadic object
++%
++% Note: a suffix can be a polyadic itself.
++%
++% ilya.kuprov@weizmann.ac.il
++%
++% <https://spindynamics.org/wiki/index.php?title=polyadic/suffix.m>
++
++function p=absorb_suffix(p,a)
++
++% Check consistency
++grumble(p);
++
++% Absorb the suffix
++if isscalar(a)
++    
++    % Multiply the last core
++    for n=1:numel(p.cores)
++        p.cores{n}{end}=a*p.cores{n}{end};
++    end
++    
++else
++    
++    % Check the dimensions
++    if size(p,2)~=size(a,1)
++        error('matrix dimension mismatch.');
++    end
++
++    % Update suffix array
++    p.suffix=[p.suffix {a}];
++    
++end
++
++end
++
++% Consistency enforcement
++function grumble(p)
++if ~isa(p,'polyadic')
++    error('p must be polyadic.');
++end
++end
++
++% All organisations that are not actually right-wing
++% will over time become left-wing.
++%
++% O'Sullivan's First Law
++
+diff --git a/kernel/overloads/@polyadic/mtimes.m b/kernel/overloads/@polyadic/mtimes.m
+index 7e3b237..935c08b 100644
+--- a/kernel/overloads/@polyadic/mtimes.m
++++ b/kernel/overloads/@polyadic/mtimes.m
+@@ -152,7 +152,7 @@
+     else
+         
+         % Place B as a suffix of A
+-        C=simplify(suffix(A,B)); return
++        C=simplify(absorb_suffix(A,B)); return
+ 
+     end
+     
+diff --git a/kernel/overloads/@polyadic/polyadic.m b/kernel/overloads/@polyadic/polyadic.m
+index 9fdba69..5e15ab9 100644
+--- a/kernel/overloads/@polyadic/polyadic.m
++++ b/kernel/overloads/@polyadic/polyadic.m
+@@ -30,7 +30,7 @@
+ %
+ % <https://spindynamics.org/wiki/index.php?title=polyadic.m>
+ 
+-classdef (InferiorClasses={?gpuArray,?opium}) polyadic
++classdef (InferiorClasses={?opium}) polyadic
+     
+     % Default properties
+     properties
+diff --git a/kernel/overloads/@polyadic/prefix.m b/kernel/overloads/@polyadic/prefix.m
+deleted file mode 100644
+index e486e3d..0000000
+--- a/kernel/overloads/@polyadic/prefix.m
++++ /dev/null
+@@ -1,62 +0,0 @@
+-% Adds prefix matrices to a polyadic. Anything the polyadic
+-% multiplies will subsequently be multiplied by the prefix
+-% matrices. Syntax:
+-%
+-%                       p=prefix(a,p)
+-%
+-% Parameters:
+-%
+-%      a   -   prefix matrix
+-%
+-%      p   -   polyadic object
+-%
+-% Outputs:
+-%
+-%      p   -   polyadic object
+-%
+-% Note: a prefix can be a polyadic itself.
+-%
+-% ilya.kuprov@weizmann.ac.il
+-%
+-% <https://spindynamics.org/wiki/index.php?title=polyadic/prefix.m>
+-
+-function p=prefix(a,p)
+-
+-% Check consistency
+-grumble(p);
+-
+-% Absorb the prefix
+-if isscalar(a)
+-    
+-    % Multiply the first core
+-    for n=1:numel(p.cores)
+-        p.cores{n}{1}=a*p.cores{n}{1};
+-    end
+-    
+-else
+-    
+-    % Check the dimensions
+-    if size(a,2)~=size(p,1)
+-        error('matrix dimension mismatch.');
+-    end
+-
+-    % Update prefix array
+-    p.prefix=[{a} p.prefix];
+-    
+-end
+-
+-end
+-
+-% Consistency enforcement
+-function grumble(p)
+-if ~isa(p,'polyadic')
+-    error('p must be polyadic.');
+-end
+-end
+-
+-% It is difficult to get a man to understand 
+-% something when his salary depends on his not
+-% understanding it.
+-%
+-% Upton Sinclair
+-
+diff --git a/kernel/overloads/@polyadic/suffix.m b/kernel/overloads/@polyadic/suffix.m
+deleted file mode 100644
+index d878306..0000000
+--- a/kernel/overloads/@polyadic/suffix.m
++++ /dev/null
+@@ -1,61 +0,0 @@
+-% Adds suffix matrices to a polyadic. Anything the polyadic
+-% multiplies will first be multiplied by the suffix matri-
+-% ces. Syntax:
+-%
+-%                       p=suffix(p,a)
+-%
+-% Parameters:
+-%
+-%      p   -   polyadic object
+-%
+-%      a   -   suffix matrix
+-%
+-% Outputs:
+-%
+-%      p   -   polyadic object
+-%
+-% Note: a suffix can be a polyadic itself.
+-%
+-% ilya.kuprov@weizmann.ac.il
+-%
+-% <https://spindynamics.org/wiki/index.php?title=polyadic/suffix.m>
+-
+-function p=suffix(p,a)
+-
+-% Check consistency
+-grumble(p);
+-
+-% Absorb the suffix
+-if isscalar(a)
+-    
+-    % Multiply the last core
+-    for n=1:numel(p.cores)
+-        p.cores{n}{end}=a*p.cores{n}{end};
+-    end
+-    
+-else
+-    
+-    % Check the dimensions
+-    if size(p,2)~=size(a,1)
+-        error('matrix dimension mismatch.');
+-    end
+-
+-    % Update suffix array
+-    p.suffix=[p.suffix {a}];
+-    
+-end
+-
+-end
+-
+-% Consistency enforcement
+-function grumble(p)
+-if ~isa(p,'polyadic')
+-    error('p must be polyadic.');
+-end
+-end
+-
+-% All organisations that are not actually right-wing
+-% will over time become left-wing.
+-%
+-% O'Sullivan's First Law
+-
+diff --git a/kernel/overloads/@rcv/rcv.m b/kernel/overloads/@rcv/rcv.m
+index c58fe50..212ee4e 100644
+--- a/kernel/overloads/@rcv/rcv.m
++++ b/kernel/overloads/@rcv/rcv.m
+@@ -26,7 +26,7 @@
+ %
+ % <https://spindynamics.org/wiki/index.php?title=rcv/rcv.m>
+ 
+-classdef (InferiorClasses={?gpuArray}) rcv
++classdef rcv
+ 
+     properties
+         row=int64([]);     % Row indices (int64)
+diff --git a/kernel/relaxation.m b/kernel/relaxation.m
+index 92d4509..9512e4d 100644
+--- a/kernel/relaxation.m
++++ b/kernel/relaxation.m
+@@ -101,7 +101,7 @@
+ 
+     % Catch zero correlation times
+     for n=1:numel(spin_system.rlx.tau_c)
+-        if ~any(spin_system.rlx.tau_c{n},'all')
++        if ~any(any(spin_system.rlx.tau_c{n}))
+             error('zero rotational correlation times are not supported.');
+         end
+     end
+@@ -147,7 +147,7 @@
+ 
+     % Catch zero correlation times
+     for n=1:numel(spin_system.rlx.tau_c)
+-        if ~any(spin_system.rlx.tau_c{n},'all')
++        if ~any(any(spin_system.rlx.tau_c{n}))
+             error('zero rotational correlation times are not supported.');
+         end
+     end
+diff --git a/kernel/state.m b/kernel/state.m
+index 9ce5abc..ac6a3b4 100644
+--- a/kernel/state.m
++++ b/kernel/state.m
+@@ -275,7 +275,7 @@ function grumble(spin_system,states,spins,method)
+ if isnumeric(states)&&(numel(states)~=spin_system.comp.nspins)
+     error('numel(states) must match number of spins in the system.')
+ end
+-if isnumeric(states)&&any(mod(states,0.5)~=0,'all')
++if isnumeric(states)&&any(any(mod(states,0.5)~=0))
+     error('spin projection numbers must be integer or half-integer.');
+ end
+ if isnumeric(states)
+diff --git a/kernel/steady.m b/kernel/steady.m
+index cc3c8de..da4f046 100644
+--- a/kernel/steady.m
++++ b/kernel/steady.m
+@@ -63,7 +63,7 @@
+             Psq=clean_up(spin_system,P*P,spin_system.tols.prop_chop);
+ 
+             % Compute the difference and close the loop
+-            cheap_diff=max(abs(Psq-P),[],'all'); 
++            cheap_diff=max(max(abs(Psq-P))); 
+             P=Psq; n_iter=n_iter+1;
+ 
+             % Detect algorithm stagnation
+diff --git a/kernel/step.m b/kernel/step.m
+index 6ae0ddf..97a7185 100644
+--- a/kernel/step.m
++++ b/kernel/step.m
+@@ -207,7 +207,7 @@
+     if issparse(rho), rho=full(rho); end
+ 
+     % Get the scaling factor
+-    scaling=max(abs(rho),[],'all');
++    scaling=max(max(abs(rho)));
+ 
+     % Catch zeros
+     if scaling==0
+diff --git a/kernel/utilities/hdot.m b/kernel/utilities/hdot.m
+index 7745523..415e836 100644
+--- a/kernel/utilities/hdot.m
++++ b/kernel/utilities/hdot.m
+@@ -26,7 +26,7 @@
+ grumble(A,B);
+ 
+ % Do the calculation
+-H=sum(conj(A).*B,'all');
++H=sum(sum(conj(A).*B));
+ 
+ end
+ 

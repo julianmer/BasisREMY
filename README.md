@@ -246,6 +246,7 @@ The project builds upon the methodologies used in existing tools. Some reference
 - [MRSCloud](https://github.com/shui5/MRSCloud) and related literature ([mrm.29370](https://doi.org/10.1002/mrm.29370))
 - [Vespa](https://github.com/vespa-mrs/vespa) and related literature ([mrm.29686](https://doi.org/10.1002/mrm.29686))
 - [Spant](https://github.com/martin3141/spant) and related literature ([mrm.28385](https://doi.org/10.1002/mrm.28385))
+- [Spinach](https://github.com/IlyaKuprov/Spinach) and related literature ([jmr.2010.11.008](https://doi.org/10.1016/j.jmr.2010.11.008))
 - [MRS Basis Set Conversion Toolbox](https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox)
 - [Custom Basis Set Simulation](https://github.com/arcj-hub/BasisSetSimulation/tree/main)
 

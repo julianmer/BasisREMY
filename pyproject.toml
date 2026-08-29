@@ -75,6 +75,8 @@ basisremy = [
     "assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_light_gray.png",
     "assets/*.md",
     # First-party Octave adapter scripts (run inside Octave/Docker at runtime).
+    "adapters/backends/spinach_octave.patch",
+    "adapters/backends/spinach_shims/*.m",
     "adapters/backends/*.m",
     "adapters/backends/*.R",
     "adapters/utils/*.m",
