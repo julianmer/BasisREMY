@@ -96,6 +96,45 @@ index d1f88a7..6d59806 100644
              error('bas.level must be a vector with three positive integers.');
          end
          n_electrons=nnz(cellfun(@iselectron,spin_system.comp.isotopes));
+diff --git a/kernel/cache/st_product_table.m b/kernel/cache/st_product_table.m
+index 2c02d6f..f942ce2 100644
+--- a/kernel/cache/st_product_table.m
++++ b/kernel/cache/st_product_table.m
+@@ -38,13 +38,17 @@
+ table_file=[own_path 'st_product_table_' ...
+             num2str(nlevels) '.mat'];
+ 
+-% Check the cache
++% Check the cache (Octave port: tolerate a record another process is still
++% writing, and write records atomically so that never happens)
++cached=false;
+ if exist(table_file,'file')
+-    
+-    % Lift data from the cache if the file is already available
+-    load(table_file,'pt_left','pt_right');
+-    
+-else
++    try
++        load(table_file,'pt_left','pt_right'); cached=true;
++    catch
++        cached=false;
++    end
++end
++if ~cached
+     
+     % Get ST operators
+     B=sin_tran(nlevels);
+@@ -69,7 +73,9 @@
+     end
+ 
+     try % Try to save a cache record, but don't insist
+-        save(table_file,'pt_left','pt_right'); drawnow;
++        tmp_file=[table_file '.' num2str(getpid()) '.tmp'];
++        save(tmp_file,'pt_left','pt_right'); drawnow;
++        movefile(tmp_file,table_file,'f');
+     catch
+         warning('Spinach installation appears to be write-protected');
+     end
 diff --git a/kernel/create.m b/kernel/create.m
 index 03a7b39..d1ebf1f 100644
 --- a/kernel/create.m

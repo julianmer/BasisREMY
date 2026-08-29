@@ -136,4 +136,6 @@ class TestParallelLive:
         par = BasisREMY().backends[backend].run_simulation(dict(params))
         assert list(par) == list(seq) == params['Metabolites']
         for m in seq:
-            np.testing.assert_allclose(par[m], seq[m], rtol=0, atol=1e-12)
+            # same numbers up to BLAS rounding (multithreaded OpenBLAS reductions
+            # are not bitwise reproducible: ~1e-11 relative on CI, 0 on a Mac)
+            np.testing.assert_allclose(par[m], seq[m], rtol=1e-8, atol=1e-10)

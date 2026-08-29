@@ -119,6 +119,12 @@ function fid = simulate_part(part, opt, n, sw, Bfield)
     sys.isotopes = repmat({'1H'}, 1, nsp);
     sys.output   = 'hush';
     sys.disable  = {'hygiene'};
+    % a private scratch directory per call, created here: Spinach's own default is
+    % <root>/scratch, whose exist-then-mkdir races when several metabolites run at once
+    scratch = tempname();
+    [ok, msg] = mkdir(scratch);
+    if ~ok, error('spinach_run: cannot create scratch directory %s: %s', scratch, msg); end
+    sys.scratch  = scratch;
     inter = struct();
     inter.zeeman.scalar   = num2cell(shifts - opt.centre);
     inter.coupling.scalar = num2cell(triu(J, 1));      % FID-A reads J(i,j) for i<j
@@ -204,7 +210,7 @@ function fid = simulate_part(part, opt, n, sw, Bfield)
                 fid = fid + readout(rho, op, n, sw, nsp);
             end
             fid = fid / (numel(opt.x) * numel(opt.y));
-            cleanup_scratch(ss);
+            cleanup_scratch(scratch);
             return
         case 'semilaser_shaped'
             if opt.te / 4 < opt.tp
@@ -237,19 +243,19 @@ function fid = simulate_part(part, opt, n, sw, Bfield)
                 fid = fid + readout(rho, op, n, sw, nsp);
             end
             fid = fid / (numel(opt.x) * numel(opt.y));
-            cleanup_scratch(ss);
+            cleanup_scratch(scratch);
             return
     end
     fid = readout(rho, op, n, sw, nsp);
-    cleanup_scratch(ss);
+    cleanup_scratch(scratch);
 end
 
 
-function cleanup_scratch(ss)
-    % Spinach creates a scratch directory per create() call under its own tree and relies
-    % on its 'hygiene' pass (disabled here) to remove it — do it ourselves.
-    if isfield(ss.sys, 'scratch') && exist(ss.sys.scratch, 'dir')
-        rmdir(ss.sys.scratch, 's');
+function cleanup_scratch(scratch)
+    % the per-call scratch directory (Spinach's job subdirectory sits inside it); Spinach's
+    % own 'hygiene' pass, which would clean up, is disabled here
+    if exist(scratch, 'dir')
+        rmdir(scratch, 's');
     end
 end
 
