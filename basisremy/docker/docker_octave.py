@@ -31,7 +31,7 @@ import scipy.io
 #**************************************************************************************************#
 class DockerOctave:
     # must match the LABEL in docker/dockerfile; bump both to force a rebuild
-    IMAGE_VERSION = 'lean-1'
+    IMAGE_VERSION = 'lean-2'
 
     # Default ``addpath`` prefix for the bundled adapter scripts, relative to
     # ``/workspace`` (the container working dir). ``__init__`` overrides this

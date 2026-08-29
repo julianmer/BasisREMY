@@ -6,13 +6,18 @@ FROM debian:bookworm-slim
 
 # bump when the image contents change: DockerOctave rebuilds an image whose
 # label does not match (that is how the old 16 GB image gets replaced)
-LABEL org.basisremy.octave-image="lean-1"
+LABEL org.basisremy.octave-image="lean-2"
 
+# libopenblas0-pthread replaces Debian's reference BLAS through the
+# alternatives system: dense complex products run 5-8x faster (256x256:
+# 6.4 -> 1.2 ms, 1024x1024: 414 -> 54 ms on Apple silicon), which is where
+# the simulators spend their time.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         octave \
         octave-signal \
         octave-control \
+        libopenblas0-pthread \
         procps \
         ca-certificates && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
