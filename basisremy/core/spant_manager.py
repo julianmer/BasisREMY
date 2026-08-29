@@ -111,7 +111,7 @@ def ensure_spant(rscript: str, log=print, timeout: float = 3600.0) -> str:
     version = spant_version(rscript)
     if version:
         return version
-    log("Installing the spant R package into your user library (one-time; "
+    log("Installing the Spant R package into your user library (one-time; "
         "when R has to build it from source this takes 10-40 min)...")
     code = (
         'lib <- Sys.getenv("R_LIBS_USER"); '
@@ -125,18 +125,18 @@ def ensure_spant(rscript: str, log=print, timeout: float = 3600.0) -> str:
                               text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise SpantUnavailable(
-            f"Installing spant did not finish within {timeout / 60:.0f} min. "
+            f"Installing Spant did not finish within {timeout / 60:.0f} min. "
             f"Install it yourself in R (install.packages('spant')) or use the "
             f"Docker runtime.")
     version = spant_version(rscript)
     if not version:
         raise SpantUnavailable(
-            "Installing the spant R package failed:\n"
+            "Installing the Spant R package failed:\n"
             + (proc.stderr or proc.stdout or '').strip()[-1500:]
-            + "\n\nWhen R builds spant from source it needs CMake (for nloptr): "
+            + "\n\nWhen R builds Spant from source it needs CMake (for nloptr): "
             "macOS `brew install cmake`, Debian/Ubuntu `sudo apt install cmake`, "
             "Windows https://cmake.org/download/ — then simulate again.")
-    log(f"✓ spant {version} installed")
+    log(f"✓ Spant {version} installed")
     return version
 
 
@@ -146,7 +146,7 @@ def ensure_docker_image(log=print, timeout: float = 3600.0) -> str:
                           capture_output=True)
     if have.returncode == 0:
         return _DOCKER_IMAGE
-    log("Building the spant Docker image (one-time; R compiles spant and its "
+    log("Building the Spant Docker image (one-time; R compiles Spant and its "
         "dependencies, 10-30 min)...")
     try:
         proc = subprocess.run(['docker', 'build', '-t', _DOCKER_IMAGE, '-'],
@@ -154,12 +154,12 @@ def ensure_docker_image(log=print, timeout: float = 3600.0) -> str:
                               timeout=timeout)
     except subprocess.TimeoutExpired:
         raise SpantUnavailable(
-            f"Building the spant Docker image did not finish within "
+            f"Building the Spant Docker image did not finish within "
             f"{timeout / 60:.0f} min.")
     if proc.returncode != 0:
         raise SpantUnavailable(
-            f"spant Docker image build failed:\n{proc.stderr[-1500:]}")
-    log("✓ spant Docker image ready")
+            f"Spant Docker image build failed:\n{proc.stderr[-1500:]}")
+    log("✓ Spant Docker image ready")
     return _DOCKER_IMAGE
 
 
@@ -171,16 +171,16 @@ def installation_instructions() -> str:
         'Windows': "  • Windows: https://cran.r-project.org/bin/windows/base/",
     }.get(system, "  • Linux: sudo apt-get install r-base   (Debian/Ubuntu) — or https://cran.r-project.org/")
     return "\n".join([
-        "spant runtime not available. BasisREMY runs spant (R) either",
+        "Spant runtime not available. BasisREMY runs Spant (R) either",
         "",
         "OPTION 1 (preferred): Docker — install and start Docker Desktop / Engine;",
-        "  the spant image is built automatically on first use.",
+        "  the Spant image is built automatically on first use.",
         "",
-        "OPTION 2: your own R — install R, BasisREMY installs the spant package",
+        "OPTION 2: your own R — install R, BasisREMY installs the Spant package",
         "  into your user library on first use:",
         r_hint,
         "  (set BASISREMY_RSCRIPT=/path/to/Rscript if R is not on PATH; when R",
-        "  builds spant from source it needs CMake: brew/apt install cmake)",
+        "  builds Spant from source it needs CMake: brew/apt install cmake)",
         "",
         "BASISREMY_SPANT_RUNTIME=docker|local forces one of the two.",
     ])
@@ -212,7 +212,7 @@ def ensure_runtime(runtime: str, log=print) -> str:
     if not rscript:
         raise SpantUnavailable("No R installation found.\n" + installation_instructions())
     version = ensure_spant(rscript, log)
-    return f"{rscript} (spant {version})"
+    return f"{rscript} (Spant {version})"
 
 
 # ------------------------------------------------------------------ worker
@@ -244,12 +244,12 @@ def run_worker(job: dict, runtime: str | None = None,
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
-            raise RuntimeError(f"spant worker timed out after {timeout:.0f}s.")
+            raise RuntimeError(f"Spant worker timed out after {timeout:.0f}s.")
         if not out_path.exists():
             raise RuntimeError(
-                f"spant worker produced no result (exit {proc.returncode}):\n"
+                f"Spant worker produced no result (exit {proc.returncode}):\n"
                 f"{(proc.stderr or proc.stdout or '').strip()[-1500:]}")
         result = json.loads(out_path.read_text())
     if not result.get('ok'):
-        raise RuntimeError(f"spant simulation error: {result.get('error')}")
+        raise RuntimeError(f"Spant simulation error: {result.get('error')}")
     return result

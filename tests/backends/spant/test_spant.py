@@ -40,9 +40,9 @@ class TestSchema:
     def test_registered(self):
         from basisremy.core.basisremy import BasisREMY
         br = BasisREMY()
-        assert 'spant' in br.backends
-        assert br.backends['spant'].category == 'spant'
-        assert 'spant' in br.categories and br.categories['spant'] == ['spant']
+        assert 'Spant' in br.backends
+        assert br.backends['Spant'].category == 'Spant'
+        assert 'Spant' in br.categories and br.categories['Spant'] == ['Spant']
 
     def test_physics_blank_by_default(self, backend):
         for k in ('Samples', 'Bandwidth', 'Bfield', 'TE', 'Sequence'):

@@ -68,9 +68,9 @@ class SpantBackend(Backend):
 
     def __init__(self):
         super().__init__()
-        self.name = 'spant'
-        self.display_name = 'spant'
-        self.category = 'spant'
+        self.name = 'Spant'
+        self.display_name = 'Spant'
+        self.category = 'Spant'
         self.requires_octave = False
         self.metabs = dict(self._METABS_DEFAULT)
         self.dropdown = {

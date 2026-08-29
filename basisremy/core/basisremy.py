@@ -40,7 +40,7 @@ from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
 #**************************************************************************************************#
 class BasisREMY:
     # Display order for the top-level Category dropdown.
-    CATEGORY_ORDER = ['MRSCloud', 'FID-A', 'FSL-MRS', 'Vespa', 'spant', 'Custom']
+    CATEGORY_ORDER = ['MRSCloud', 'FID-A', 'FSL-MRS', 'Vespa', 'Spant', 'Custom']
 
     def __init__(self, backend='MRSCloud'):
         self.DRead = DataReaders()

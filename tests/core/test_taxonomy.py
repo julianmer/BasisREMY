@@ -28,7 +28,7 @@ def br():
 
 
 def test_categories_match_expected(br):
-    expected = {'FID-A', 'Custom', 'MRSCloud', 'FSL-MRS', 'Vespa', 'spant'}
+    expected = {'FID-A', 'Custom', 'MRSCloud', 'FSL-MRS', 'Vespa', 'Spant'}
     actual = {c for c, names in br.categories.items() if names}
     assert expected.issubset(actual), \
         f"Missing categories: {expected - actual}"
