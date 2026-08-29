@@ -131,6 +131,19 @@ Whether an Octave runtime is needed is **backend-dependent**: data extraction an
 parameter configuration work without it; only the simulation step requires it.
 See the [Octave Setup Guide](basisremy/assets/OCTAVE_SETUP.md) for detailed instructions.
 
+The **Spant** backend needs **R** in the same way: Docker (BasisREMY builds an R
+image with the `spant` package on first use) or an R installation of your own,
+into which the package is installed on first use. The Vespa backend needs
+neither — it runs in a Python side-environment or Docker.
+
+Three environment variables tune the runtimes:
+
+| Variable | Effect |
+| --- | --- |
+| `BASISREMY_OCTAVE_WORKERS` | Octave processes used to simulate metabolites in parallel (default: half the CPUs, at most 4). |
+| `BASISREMY_NO_DOCKER` | Set to `1` to ignore Docker entirely and use only a local Octave. |
+| `BASISREMY_SPANT_RUNTIME` | `docker` or `local` to force the Spant runtime (default: Docker, then your own R). |
+
 ---
 
 ## Troubleshooting

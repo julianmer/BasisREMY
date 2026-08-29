@@ -12,7 +12,8 @@ requires-python = ">=3.11"
 authors = [
     { name = "J. P. Merkofer", email = "j.p.merkofer@tue.nl" },
 ]
-keywords = ["MRS", "spectroscopy", "basis set", "simulation", "FID-A", "FSL-MRS", "MRSCloud"]
+keywords = ["MRS", "spectroscopy", "basis set", "simulation", "FID-A", "FSL-MRS", "MRSCloud",
+            "Vespa", "PyGAMMA", "spant", "Spinach"]
 
 # NOTE: Tkinter is intentionally NOT listed here. It ships with the CPython
 # standard library and cannot be installed from PyPI. See the README
