@@ -946,6 +946,21 @@ class BasisREMYApp:
                     ui.button(icon="folder_open", on_click=browse).props(
                         "flat dense round color=primary"
                     )
+                    if key in ("Path to Pulse", "Edit Pulse Path"):
+                        # generated standard pulses (core.pulse_library) as an
+                        # alternative to a vendor waveform file
+                        from basisremy.core.pulse_library import STANDARD
+
+                        def choose(name, k=key, field=inp) -> None:
+                            field.value = f"standard:{name}"
+                            self._update_param(k, field.value)
+
+                        with ui.button(icon="auto_fix_high").props(
+                                "flat dense round color=primary") as std_btn:
+                            with ui.menu():
+                                for name in STANDARD:
+                                    ui.menu_item(name, on_click=lambda _, n=name: choose(n))
+                        std_btn.tooltip("Use a generated standard pulse instead of a file")
 
     def _param_metabolites(self) -> None:
         backend = self.BasisREMY.backend

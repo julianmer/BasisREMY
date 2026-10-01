@@ -66,7 +66,8 @@ class TestFiles:
 
     def test_txt_goia(self):
         rf = read_waveform(_pulse('GOIA_tthk0.01_R120.txt'))
-        assert rf.shape[1] == 3 and len(rf) > 10
+        assert rf.shape[1] == 4 and len(rf) > 10     # gradient column kept
+        assert rf[:, 3].max() > 0
 
     def test_unknown_extension(self, tmp_path):
         f = tmp_path / 'p.xyz'

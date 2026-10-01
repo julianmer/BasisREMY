@@ -282,14 +282,19 @@ REGISTRY: dict[str, ParamInfo] = {
     ),
     "Path to Pulse": ParamInfo(
         label="Path to pulse waveform",
-        description="File containing the refocusing RF pulse shape (vendor-specific .pta / .RF / .pulse / .json file).",
+        description=(
+            "File containing the refocusing RF pulse shape (.pta / .RF / .txt), or a "
+            "generated standard pulse: 'standard:<name>' (sinc-ref, hs4-ref, goia-wurst, "
+            "goia-hs, foci, ...; see basisremy.core.pulse_library.STANDARD)."
+        ),
         widget_hint="file",
     ),
     "Edit Pulse Path": ParamInfo(
         label="Editing pulse waveform",
         description=(
             "File with the frequency-selective editing RF waveform (.pta / "
-            ".RF / .txt). Loaded as an inversion pulse and frequency-shifted "
+            ".RF / .txt), or 'standard:gauss-edit' (generated 14 ms / 88 Hz "
+            "Gaussian). Loaded as an inversion pulse and frequency-shifted "
             "to 'Edit On' for the ON and 'Edit Off' for the OFF sub-spectrum."
         ),
         widget_hint="file",

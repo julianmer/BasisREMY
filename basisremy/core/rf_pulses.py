@@ -86,7 +86,10 @@ def _read_txt(path):
         raise ValueError(f"{path}: need at least amplitude and phase columns")
     amp, phase = data[:, 0], data[:, 1]
     step = data[:, 2] if data.shape[1] >= 3 else np.ones(len(amp))
-    return np.column_stack([phase, amp, step])
+    cols = [phase, amp, step]
+    if data.shape[1] >= 4:                       # gradient column (GOIA), kept for the engines
+        cols.append(data[:, 3])
+    return np.column_stack(cols)
 
 
 def _bloch_mz_after_pulse(phase_deg, amp_norm, timestep, tp_s, w1_hz):

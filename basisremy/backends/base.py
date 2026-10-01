@@ -112,7 +112,9 @@ class Backend:
         unreachable from the container without this staging step.
         """
         import os, shutil
+        from basisremy.core.pulse_library import resolve_pulse
         workdir = self.ensure_workdir()
+        src_path = resolve_pulse(src_path, workdir)   # 'standard:<name>' -> generated file
         dest = os.path.join(workdir, os.path.basename(src_path))
         if os.path.abspath(src_path) != os.path.abspath(dest):
             shutil.copy2(src_path, dest)

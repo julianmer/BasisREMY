@@ -190,6 +190,8 @@ class VespaBackend(Backend):
                 raise ValueError("Vespa: 'PRESS shaped' needs the pulse "
                                  "duration 'RefTp' (ms).")
             from basisremy.core.rf_pulses import load_pulse
+            from basisremy.core.pulse_library import resolve_pulse
+            path = resolve_pulse(str(path), self.ensure_workdir())
             pulse = load_pulse(str(path), float(params['RefTp']), 'ref')
             print(f"  RF pulse '{pulse['name']}': {len(pulse['amp_hz'])} "
                   f"steps, w1max {max(pulse['amp_hz']) / 42.577:.2f} µT")

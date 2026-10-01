@@ -230,6 +230,9 @@ class SpantBackend(Backend):
             job.update(te1_s=tau1 / 1e3, te2_s=tau2 / 1e3)
         if key == 'press_shaped':
             pulse = params.get('Path to Pulse')
+            if not self._blank(pulse):
+                from basisremy.core.pulse_library import resolve_pulse
+                pulse = resolve_pulse(str(pulse), self.ensure_workdir())
             if self._blank(pulse) or not os.path.isfile(str(pulse)):
                 raise ValueError(
                     "spant: 'Path to Pulse' (refocusing waveform: .pta, Bruker "
