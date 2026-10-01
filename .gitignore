@@ -58,3 +58,6 @@ pygamma-env/
 
 # Spinach is fetched on demand (sparse clone, see core/externals.py), never vendored
 externals/spinach/
+
+# Paper / poster material (local only)
+paper/

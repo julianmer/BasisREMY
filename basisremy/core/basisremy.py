@@ -28,6 +28,7 @@ from basisremy.backends.vespa_backend import VespaBackend
 from basisremy.backends.spant_backend import SpantBackend
 from basisremy.backends.spinach_backend import SPINACH_BACKENDS
 from basisremy.core.metabolite_identity import metabolite_identity
+from basisremy.core.field import reconcile_field
 from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
 
 
@@ -296,6 +297,22 @@ class BasisREMY:
             MRSinMRS = {str(k): str(v[0]) if isinstance(v, list) and len(v) == 1 else v for k, v in
                         dict(MRSinMRS).items()}
 
+            # NIfTI-MRS stores times in seconds; BasisREMY works in
+            # milliseconds like every vendor reader above.
+            for key in ('EchoTime', 'RepetitionTime', 'InversionTime', 'MixingTime'):
+                if key in MRSinMRS:
+                    try:
+                        MRSinMRS[key] = float(MRSinMRS[key]) * 1e3
+                    except (TypeError, ValueError):
+                        pass
+
+            # The point count lives in the image, not in the header extension.
+            try:
+                from nifti_mrs.nifti_mrs import NIFTI_MRS
+                MRSinMRS.setdefault('NumberOfDatapoints', int(NIFTI_MRS(import_fpath).shape[3]))
+            except Exception:
+                pass
+
             vendor_selection = 'NIfTI'
         else:
             raise ValueError(f'Unknown file format {suf}! Valid formats are:'
@@ -324,6 +341,10 @@ class BasisREMY:
 
         # extend with more info
         MRSinMRS_unif.update(self.extract_more(MRSinMRS, vendor_selection, dtype_selection))
+
+        # Frequency and field as one consistent pair (frequency primary; REMY
+        # rounds B0 to two decimals). See core/field.py.
+        MRSinMRS_unif.update(reconcile_field(MRSinMRS_unif))
 
         # Cache for later backend switches
         self._last_mrsinmrs = MRSinMRS_unif

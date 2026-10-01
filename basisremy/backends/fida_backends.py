@@ -278,7 +278,6 @@ class FidaIdeal(FidaBackend):
             'TE2':         0,
             'TM':          10,
             'Metabolites': [],
-            'Center Freq': None,
         }
         # TM is only shown for STEAM — rebuild the panel on Sequence changes.
         self.schema_affecting_keys = {'Sequence'}
@@ -421,8 +420,11 @@ class FidaPressShaped(FidaBackend):
         te   = float(te) if te is not None else None
         tau1 = params.get('Tau 1')
         tau2 = params.get('Tau 2')
-        if tau1 in (None, ''): tau1 = (te / 2.0) if te is not None else 15.0
-        if tau2 in (None, ''): tau2 = (te / 2.0) if te is not None else 15.0
+        if te is None and (tau1 in (None, '') or tau2 in (None, '')):
+            raise ValueError(
+                f"{self.name}: 'TE' (or both 'Tau 1' and 'Tau 2') is required.")
+        if tau1 in (None, ''): tau1 = te / 2.0
+        if tau2 in (None, ''): tau2 = te / 2.0
 
         pulse_src = params.get('Path to Pulse')
         if not pulse_src:
@@ -850,10 +852,12 @@ class FidaMegaPressIdeal(FidaBackend):
 
     _kind = 'megapress_ideal'
 
-    # Siemens MEGA-PRESS timing at TE = 68 ms:
+    # FID-A's Siemens MEGA-PRESS timing (editing pulses at TE/4 and 3TE/4):
     # 90 – t1 – 180 – t2 – edit – t3 – 180 – t4 – edit – t5 – ADC.
-    # Other echo times scale this scheme proportionally (TE/68).
-    _TE68_TAUS = (4.545, 12.7025, 21.7975, 12.7025, 17.2526)
+    # FID-A documents the set for "TE = 68" but it sums to 69.0 ms (FID-A's
+    # own out.te = sum(taus)); the requested TE scales the spacings so that
+    # the simulated echo time is exactly TE.
+    _SIEMENS_TAUS = (4.545, 12.7025, 21.7975, 12.7025, 17.2526)
 
     def __init__(self):
         super().__init__()
@@ -880,8 +884,8 @@ class FidaMegaPressIdeal(FidaBackend):
         self.ensure_workdir()
 
         te = float(params['TE'])
-        scale = te / 68.0
-        taus = [t * scale for t in self._TE68_TAUS]
+        scale = te / sum(self._SIEMENS_TAUS)
+        taus = [t * scale for t in self._SIEMENS_TAUS]
         base_args = [
             float(params['Samples']),
             float(params['Bandwidth']),

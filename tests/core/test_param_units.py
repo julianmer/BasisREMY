@@ -71,24 +71,25 @@ class TestFslmrsSequenceJson:
         base.update(over)
         return base
 
-    def test_mega_press_edit_offset_relative_to_carrier(self, backend):
+    def test_mega_press_edit_pulse_relative_to_carrier(self, backend):
+        """The editing pulse's modulation frequency is (ppm - carrier)*gamma*B0."""
+        import numpy as np
         seq = backend._generate_sequence_json(
-            self._params(Sequence='MEGA-PRESS', **{'Edit Frequency': 1.9}))
-        offsets = [rf['frequencyOffset'] for rf in seq['RF']
-                   if rf['frequencyOffset'] != 0]
+            self._params(Sequence='MEGA-PRESS'), (1.9,))
+        edits = [rf for rf in seq['RF'] if len(rf['amp']) > 1]
+        assert len(edits) == 2, "MEGA-PRESS must contain two editing pulses"
         expected = (1.9 - seq['centralShift']) * 3.0 * 42.577  # ≈ -351.3 Hz
-        assert offsets, "MEGA-PRESS must contain editing pulses"
-        for off in offsets:
-            assert off == pytest.approx(expected)
-            assert off < 0  # 1.9 ppm lies below the 4.65 ppm carrier
+        for rf in edits:
+            assert rf['frequencyOffset'] == 0   # modulation lives in the phase
+            dt = rf['time'] / len(rf['amp'])
+            slope = np.diff(np.unwrap(rf['phase'])).mean() / (2 * np.pi * dt)
+            assert slope == pytest.approx(expected, rel=1e-3)
+            assert slope < 0  # 1.9 ppm lies below the 4.65 ppm carrier
 
-    def test_hermes_edit_offsets(self, backend):
-        seq = backend._generate_sequence_json(self._params(Sequence='HERMES'))
-        offsets = sorted(rf['frequencyOffset'] for rf in seq['RF']
-                         if rf['frequencyOffset'] != 0)
-        cs = seq['centralShift']
-        assert offsets[0] == pytest.approx((1.9 - cs) * 3.0 * 42.577)   # GABA
-        assert offsets[-1] == pytest.approx((4.56 - cs) * 3.0 * 42.577)  # GSH
+    def test_hermes_scheme_targets(self, backend):
+        scheme = backend._SCHEMES['HERMES']
+        assert scheme['A'] == (4.56,) and scheme['B'] == (1.90,)   # GSH, GABA
+        assert scheme['C'] == (4.56, 1.90) and scheme['D'] == (7.50,)
 
     def test_steam_uses_tm(self, backend):
         seq = backend._generate_sequence_json(

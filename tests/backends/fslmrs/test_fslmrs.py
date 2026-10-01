@@ -171,7 +171,11 @@ class TestFSLMRSBackend:
             'Sequence': seq_name, 'TE': 35, 'Bandwidth': 2000,
             'Samples': 2048, 'Bfield': 3.0, 'TM': 10,
         }
-        seq = basisremy.backend._generate_sequence_json(params)
+        edited = seq_name in basisremy.backend._edited_sequences
+        if edited:
+            params['TE'] = 68   # a 14 ms editing pulse does not fit a 35 ms TE
+        seq = basisremy.backend._generate_sequence_json(
+            params, (1.9,) if edited else None)
 
         assert seq['B0'] == 3.0
         assert seq['Rx_SW'] == 2000
@@ -186,31 +190,46 @@ class TestFSLMRSBackend:
         assert len(seq['CoherenceFilter']) == n_rf, \
             f"CoherenceFilter has {len(seq['CoherenceFilter'])} entries but there are {n_rf} RF pulses"
 
-    def test_generate_sequence_json_uses_edit_frequency(self, basisremy):
-        """Edited sequences should honor the GUI's `Edit Frequency` field."""
-        params = {
-            'Sequence': 'MEGA-PRESS', 'TE': 35, 'Bandwidth': 2000,
-            'Samples': 2048, 'Bfield': 3.0, 'Edit Frequency': 2.5,
-        }
-        seq = basisremy.backend._generate_sequence_json(params)
+    def test_editing_pulse_is_a_modulated_gaussian_180(self):
+        """The editing pulse carries its frequency in the waveform phase and
+        integrates to a 180 (0.5 cycles of gamma*B1)."""
+        from basisremy.backends.fslmrs_backend import FSLMRSBackend
+        rf = FSLMRSBackend._editing_pulse((1.9,), 14.0, 3.0, 4.65, n=400)
+        amp, phase = np.array(rf['amp']), np.array(rf['phase'])
+        assert rf['time'] == pytest.approx(0.014)
+        assert rf['frequencyOffset'] == 0
+        assert amp.sum() * rf['time'] / 400 == pytest.approx(0.5, rel=1e-6)
+        assert amp[0] / amp.max() == pytest.approx(0.01, rel=0.05)
+        slope_hz = np.diff(np.unwrap(phase)).mean() / (2 * np.pi * rf['time'] / 400)
+        assert slope_hz == pytest.approx((1.9 - 4.65) * 3.0 * 42.577, rel=1e-3)
 
-        # frequencyOffset is relative to the 4.65 ppm centralShift carrier
-        expected_hz = (2.5 - 4.65) * 3.0 * 42.577
-        assert seq['RF'][2]['frequencyOffset'] == pytest.approx(expected_hz)
-        assert seq['RF'][4]['frequencyOffset'] == pytest.approx(expected_hz)
+    def test_dual_lobe_pulse_has_both_frequencies(self):
+        from basisremy.backends.fslmrs_backend import FSLMRSBackend
+        rf = FSLMRSBackend._editing_pulse((4.56, 1.9), 20.0, 3.0, 4.65, n=400)
+        wave = np.array(rf['amp']) * np.exp(1j * np.array(rf['phase']))
+        n = 4096
+        spec = np.abs(np.fft.fftshift(np.fft.fft(wave, n)))
+        freqs = np.fft.fftshift(np.fft.fftfreq(n, rf['time'] / 400))
+        peaks = freqs[spec > 0.5 * spec.max()]
+        for ppm in (4.56, 1.9):
+            f = (ppm - 4.65) * 3.0 * 42.577
+            assert np.min(np.abs(peaks - f)) < 5.0
 
-    @pytest.mark.parametrize('blank', ['', None, 'missing input'])
-    def test_generate_sequence_json_blank_edit_frequency(self, basisremy, blank):
-        """A cleared `Edit Frequency` must fall back, not raise TypeError."""
-        params = {
-            'Sequence': 'MEGA-PRESS', 'TE': 35, 'Bandwidth': 2000,
-            'Samples': 2048, 'Bfield': 3.0, 'Edit Frequency': blank,
-        }
-        seq = basisremy.backend._generate_sequence_json(params)
+    def test_edited_json_leaves_no_filter_after_editing_pulses(self, basisremy):
+        params = {'Sequence': 'MEGA-PRESS', 'TE': 68, 'Bandwidth': 2000,
+                  'Samples': 2048, 'Bfield': 3.0}
+        seq = basisremy.backend._generate_sequence_json(params, (1.9,))
+        assert seq['CoherenceFilter'] == [-1, 1, None, -1, None]
+        assert len(seq['RF'][2]['amp']) == 400 and len(seq['RF'][4]['amp']) == 400
+        params['Sequence'] = 'MEGA-sLASER'
+        seq = basisremy.backend._generate_sequence_json(params, (1.9,))
+        assert seq['CoherenceFilter'] == [-1, 1, None, -1, 1, None, -1]
 
-        # fallback 1.9 ppm, relative to the 4.65 ppm centralShift carrier
-        expected_hz = (1.9 - 4.65) * 3.0 * 42.577
-        assert seq['RF'][2]['frequencyOffset'] == pytest.approx(expected_hz)
+    def test_edit_pulse_too_long_for_te_is_refused(self, basisremy):
+        params = {'Sequence': 'MEGA-PRESS', 'TE': 20, 'Bandwidth': 2000,
+                  'Samples': 2048, 'Bfield': 3.0, 'Edit Tp': 14.0}
+        with pytest.raises(ValueError, match='Edit Tp'):
+            basisremy.backend._generate_sequence_json(params, (1.9,))
 
     # ------------------------------------------------------------------
     #  Actual simulations (per sequence)
@@ -221,16 +240,20 @@ class TestFSLMRSBackend:
     def test_simulation_produces_signal(self, basisremy, seq_name):
         """Test that simulation produces non-zero FID for each sequence"""
         params = {
-            'Sequence': seq_name, 'TE': 35, 'Bandwidth': 2000, 'Samples': 2048,
+            'Sequence': seq_name, 'TE': 68 if seq_name == 'MEGA-PRESS' else 35,
+            'Bandwidth': 2000, 'Samples': 2048,
             'Bfield': 3.0, 'Nucleus': '1H', 'Center Freq': 127.7, 'TM': 10,
             'Metabolites': ['NAA'],
         }
         result = basisremy.backend.run_simulation(params)
 
         assert isinstance(result, dict)
-        assert 'NAA' in result
-        assert result['NAA'].shape == (2048,)
-        assert np.max(np.abs(result['NAA'])) > 0, "FID should be non-zero"
+        key = 'NAA (ON)' if seq_name == 'MEGA-PRESS' else 'NAA'
+        if seq_name == 'MEGA-PRESS':
+            assert set(result) == {'NAA (ON)', 'NAA (OFF)', 'NAA (DIFF)'}
+        assert key in result
+        assert result[key].shape == (2048,)
+        assert np.max(np.abs(result[key])) > 0, "FID should be non-zero"
 
     def test_simulation_multiple_metabolites(self, basisremy):
         """Test simulation with multiple metabolites"""
@@ -246,6 +269,20 @@ class TestFSLMRSBackend:
             assert metab in result
             assert result[metab].shape == (2048,)
             assert np.max(np.abs(result[metab])) > 0
+
+    def test_inverted_multiplets_keep_their_sign(self, basisremy):
+        """No per-metabolite phasing: lactate at TE 144 is inverted, NAA is
+        upright (both phased by the sequence's receiver phase)."""
+        def peak_real(metab, te):
+            params = {'Sequence': 'PRESS', 'TE': te, 'Bandwidth': 2000, 'Samples': 1024,
+                      'Bfield': 3.0, 'Nucleus': '1H', 'Center Freq': 127.7,
+                      'Metabolites': [metab]}
+            fid = basisremy.backend.run_simulation(params)[metab]
+            spec = np.fft.fftshift(np.fft.fft(fid))
+            k = np.argmax(np.abs(spec))
+            return spec[k].real / abs(spec[k])
+        assert peak_real('NAA', 30) > 0.85
+        assert peak_real('Lac', 144) < -0.85
 
     def test_simulation_writes_intermediate_artefacts(self, basisremy):
         """Backend should allocate an internal workdir; user export is separate."""
@@ -333,7 +370,8 @@ class TestFSLMRSSequenceTiming:
         b = FSLMRSBackend()
         params = {'Sequence': seq, 'TE': te, 'Bandwidth': 4000, 'Samples': 2048,
                   'Bfield': 3.0, 'TM': 10, **extra}
-        return b._generate_sequence_json(params)
+        edit = (1.9,) if seq in b._edited_sequences else None
+        return b._generate_sequence_json(params, edit)
 
     @staticmethod
     def _centre_spacing(seq):
@@ -362,11 +400,25 @@ class TestFSLMRSSequenceTiming:
         sp = self._centre_spacing(self._gen('STEAM', te=20.0, TM=12.0))
         assert sp == pytest.approx([10.0, 12.0, 10.0], abs=1e-6)
 
-    def test_megapress_taus_scale_with_te(self):
-        d68 = self._gen('MEGA-PRESS', te=68.0)['delays']
-        d80 = self._gen('MEGA-PRESS', te=80.0)['delays']
-        assert d68 == pytest.approx([4.545e-3, 12.7025e-3, 21.7975e-3, 12.7025e-3, 17.2526e-3])
-        assert np.allclose(np.array(d80) / np.array(d68), 80.0 / 68.0)
+    def test_megapress_echo_at_te_and_edits_at_quarter_points(self):
+        for te in (68.0, 80.0):
+            sp = self._centre_spacing(self._gen('MEGA-PRESS', te=te))
+            assert sum(sp) == pytest.approx(te, abs=1e-6)          # echo at the ADC
+            assert sp[0] + sp[1] == pytest.approx(te / 4, abs=0.01)  # first editing pulse
+            assert sum(sp[:4]) == pytest.approx(3 * te / 4, abs=0.01)
+            # FID-A's Siemens spacings, as fractions of the set's 69.0 ms sum
+            assert sp[0] / te == pytest.approx(4.545 / 69.0001, rel=1e-4)
+
+    def test_megaslaser_timing(self):
+        sp = self._centre_spacing(self._gen('MEGA-sLASER', te=80.0))
+        assert sp == pytest.approx([10, 10, 10, 20, 10, 10, 10], abs=1e-6)
+        assert sp[0] + sp[1] == pytest.approx(20.0)      # edit 1 at TE/4
+        assert sum(sp[:5]) == pytest.approx(60.0)        # edit 2 at 3TE/4
+
+    def test_hermes_variants_use_scheme(self):
+        from basisremy.backends.fslmrs_backend import FSLMRSBackend
+        assert set(FSLMRSBackend._SCHEMES['HERMES']) == {'A', 'B', 'C', 'D'}
+        assert FSLMRSBackend._SCHEMES['HERMES']['C'] == (4.56, 1.90)
 
 
 class TestFSLMRSModeErrors:
@@ -386,6 +438,24 @@ class TestFSLMRSModeErrors:
         p['Template File'] = 'PRESS at 7T with real pulse shapes'
         with pytest.raises(ValueError, match='7.0 T'):
             b.run_simulation(p)
+
+    def test_template_with_other_te_is_refused(self):
+        pytest.importorskip('denmatsim')
+        b, p = self._backend()
+        b.current_mode = 'Template'
+        p['Template File'] = 'PRESS at 7T with real pulse shapes'
+        p['Bfield'], p['Center Freq'] = 7.0, 298.0
+        import json
+        from basisremy.core.paths import externals_root
+        seq = json.load(open(externals_root() / 'fsl_mrs' / 'fsl_mrs' / 'denmatsim' / 'examplePRESS.json'))
+        p['TE'] = b._template_te_ms(seq) + 10.0
+        with pytest.raises(ValueError, match='fixed TE'):
+            b.run_simulation(p)
+
+    def test_simple_mode_never_substitutes_a_template(self):
+        """PRESS at 7 T in Simple mode is the ideal sequence at the sheet's TE."""
+        b, p = self._backend()
+        assert not hasattr(b, 'sequence_to_predefined')
 
     def test_custom_sequence_must_be_json(self, tmp_path):
         pytest.importorskip('denmatsim')

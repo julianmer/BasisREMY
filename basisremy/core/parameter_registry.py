@@ -98,7 +98,8 @@ REGISTRY: dict[str, ParamInfo] = {
     ),
     "Nucleus": ParamInfo(
         label="Nucleus",
-        description="Observed NMR-active nucleus. Most clinical MRS uses 1H; 31P, 13C, 19F also supported.",
+        description="Observed NMR-active nucleus. The bundled spin systems are 1H; other nuclei "
+                    "(31P first) need their own spin-system tables and are not simulated yet.",
         typical="1H",
     ),
     "Linewidth": ParamInfo(

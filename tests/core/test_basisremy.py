@@ -94,6 +94,32 @@ class TestBasisREMYIntegration:
         assert params is not None
         assert isinstance(params, dict)
 
+    def test_remy_ge_file_has_nucleus(self, ge_p_file):
+        """GE headers carry no nucleus; REMY derives it from the Larmor frequency."""
+        if not ge_p_file or not os.path.exists(ge_p_file):
+            pytest.skip("GE P-file not found")
+        params = BasisREMY().runREMY(import_fpath=ge_p_file)
+        assert params.get('Nucleus') == '1H'
+
+    def test_remy_nifti_times_in_ms_and_points(self, example_data_dir):
+        """NIfTI-MRS stores TE/TR in seconds; the sheet is in ms. Points come from the image."""
+        f = os.path.join(example_data_dir, 'example_data.nii.gz')
+        if not os.path.exists(f):
+            pytest.skip("NIfTI example not found")
+        params = BasisREMY().runREMY(import_fpath=f)
+        assert 1.0 < float(params['TE']) < 1000.0
+        assert 100.0 < float(params['TR']) < 20000.0
+        assert int(params['NumberOfDatapoints']) > 0
+
+    def test_field_follows_the_spectrometer_frequency(self, example_data_dir):
+        """B0 is derived from the header frequency, unrounded (REMY rounds to 2 dp)."""
+        f = os.path.join(example_data_dir, 'BigGABA_S1P_S01', 'S01_PRESS_35.dat')
+        if not os.path.exists(f) or os.path.getsize(f) < 1024:
+            pytest.skip("Siemens twix example not available")
+        params = BasisREMY().runREMY(import_fpath=f)
+        assert params['Center Freq'] == pytest.approx(123.252468, abs=1e-3)
+        assert params['B0'] == pytest.approx(123.252468 / 42.577, rel=1e-6)
+
     def test_remy_with_bruker_file(self, bruker_dat_file):
         """Test REMY parsing with Bruker file"""
         if not bruker_dat_file or not os.path.exists(bruker_dat_file):

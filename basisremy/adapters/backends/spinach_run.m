@@ -255,6 +255,11 @@ function cleanup_scratch(scratch)
     % the per-call scratch directory (Spinach's job subdirectory sits inside it); Spinach's
     % own 'hygiene' pass, which would clean up, is disabled here
     if exist(scratch, 'dir')
+        % An interactive Octave (oct2py's session) asks 'remove entire contents? (yes or no)'
+        % before a recursive rmdir and the caller waits forever; batch octave-cli does not.
+        if exist('confirm_recursive_rmdir', 'builtin') || exist('confirm_recursive_rmdir', 'file')
+            confirm_recursive_rmdir(false, 'local');
+        end
         rmdir(scratch, 's');
     end
 end

@@ -139,18 +139,22 @@ class CustomSLaser(Backend):
             'System': self.parseSystem(MRSinMRS.get('Manufacturer', None)),
             'Sequence': self.parseProtocol(MRSinMRS.get('Protocol', None)),
             'B1max': None,  # TODO: find way to get from REMY? or set literature guided default
-            'Flip Angle': MRSinMRS.get('ExcitationFlipAngle', None),  # TODO: find way to get from REMY? or set literature guided default
+            # 'Flip Angle' is the AFP refocusing angle; the header's
+            # ExcitationFlipAngle (90) is not it.
+            'Flip Angle': None,
             'RefTp': None,   # duration of the refocusing pulse
             'Samples': MRSinMRS.get('NumberOfDatapoints', None),
             'Bandwidth': MRSinMRS.get('SpectralWidth', None),
             'Linewidth': None,   # TODO: find how to handle best...
             'Bfield': MRSinMRS.get('B0', None),
 
-            'thkX': MRSinMRS.get('LeftRightSize', None),  # TODO: check for correctness
-            'thkY': MRSinMRS.get('AnteriorPosteriorSize', None),
+            # header voxel sizes are mm, the simulation takes cm
+            'thkX': self._mm_to_cm(MRSinMRS.get('LeftRightSize', None)),
+            'thkY': self._mm_to_cm(MRSinMRS.get('AnteriorPosteriorSize', None)),
 
-            'fovX': MRSinMRS.get('LeftRightSize', None),  # TODO: maybe get from VOI?
-            'fovY': MRSinMRS.get('AnteriorPosteriorSize', None),
+            # FOV must exceed the slab (see the registry); leave the default
+            'fovX': None,
+            'fovY': None,
 
             'nX': None,
             'nY': None,
@@ -175,6 +179,13 @@ class CustomSLaser(Backend):
             'WaterSuppression': MRSinMRS.get('WaterSuppression', None),
         }
         return mandatory, optional
+
+    @staticmethod
+    def _mm_to_cm(value):
+        try:
+            return float(value) / 10.0
+        except (TypeError, ValueError):
+            return None
 
     def parseProtocol(self, protocol):
         # backend only supports sLASER sequences for now

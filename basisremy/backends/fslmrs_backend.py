@@ -38,7 +38,7 @@ if _denmatsim_parent not in sys.path:
 #   - Pure Python (no Octave/MATLAB required)                                                      #
 #   - Quantum-mechanically accurate simulations                                                    #
 #   - Supports custom pulse sequences via JSON                                                     #
-#   - Parallel processing built-in                                                                 #
+#   - Edited sequences use a Gaussian editing pulse and return ON / OFF / DIFF sub-spectra          #
 #                                                                                                  #
 #**************************************************************************************************#
 class FSLMRSBackend(Backend):
@@ -86,13 +86,6 @@ class FSLMRSBackend(Backend):
                 'Rx_SW': 6000,
                 'notes': 'FMRIB 7T STEAM sequence with real pulse shapes'
             },
-        }
-
-        # Simplified mapping for sequence selection
-        # Maps generic sequence names to specific predefined files
-        self.sequence_to_predefined = {
-            'PRESS': 'PRESS_7T',
-            'STEAM': 'STEAM_7T_11ms',
         }
 
         # Metabolites denmatsim can actually simulate (the 'sys*' systems in
@@ -145,18 +138,17 @@ class FSLMRSBackend(Backend):
         self.optional_params = {
             'TM': 10,
             'Template File': None,
-            'Edit Frequency': 1.9,
+            'Edit On': 1.9,          # ppm (GABA; 4.56 for GSH) — MEGA kinds only
+            'Edit Off': 7.5,
+            'Edit Tp': 14.0,         # editing pulse duration [ms], all edited kinds
             'Linewidth': 2.0,
-            'Add Reference': False,
-            'Parallel': True,
             'Custom Sequence': None,
         }
 
-        # Sequences whose physics needs an explicit editing frequency
-        # (the editing pulse is positioned at the metabolite's J-coupled
-        # resonance, e.g. 1.9 ppm for GABA). All other sequences ignore
-        # `Edit Frequency` so we hide it in the GUI.
+        # Edited sequences: MEGA kinds take the editing frequencies from the
+        # sheet; HERMES / HERCULES use their fixed schemes (see _SCHEMES).
         self._edited_sequences = {'MEGA-PRESS', 'HERMES', 'HERCULES', 'MEGA-sLASER'}
+        self._mega_sequences = {'MEGA-PRESS', 'MEGA-sLASER'}
 
         # Sequences that use a mixing time (STEAM family). For PRESS,
         # LASER, sLASER, MEGA-* etc. TM is meaningless.
@@ -222,8 +214,12 @@ class FSLMRSBackend(Backend):
             # sequence so the parameter sheet stays uncluttered.
             if seq in self._tm_sequences:
                 params['TM'] = self.optional_params['TM']
+            if seq in self._mega_sequences:
+                params['Edit On'] = self.optional_params['Edit On']
+                params['Edit Off'] = self.optional_params['Edit Off']
             if seq in self._edited_sequences:
-                params['Edit Frequency'] = self.optional_params['Edit Frequency']
+                params['Edit Tp'] = self.optional_params['Edit Tp']
+            params['Linewidth'] = self.optional_params['Linewidth']
             params.update(common)
             return params
 
@@ -346,8 +342,6 @@ class FSLMRSBackend(Backend):
 
         # Optional parameters
         opt['Linewidth'] = 2.0
-        opt['Add Reference'] = False
-        opt['Parallel'] = True
         opt['Custom Sequence'] = None
 
         return params, opt
@@ -397,8 +391,8 @@ class FSLMRSBackend(Backend):
         know are numeric — and leave everything else untouched.
         """
         p = dict(params)
-        float_keys = ('TE', 'Bfield', 'Bandwidth', 'TM', 'Edit Frequency',
-                      'Edit_Frequency', 'Linewidth', 'Center Freq')
+        float_keys = ('TE', 'Bfield', 'Bandwidth', 'TM', 'Edit On', 'Edit Off',
+                      'Edit Tp', 'Linewidth', 'Center Freq')
         int_keys   = ('Samples',)
         for k in float_keys:
             if k in p and not self._is_missing(p[k]):
@@ -434,6 +428,20 @@ class FSLMRSBackend(Backend):
         with open(seq_file_path, 'r') as f:
             seq_params = json.load(f)
 
+        # The template's own echo time (pulse centre to ADC) must match the
+        # sheet: its pulse shapes and delays are fixed, so a different TE
+        # would silently simulate the template's TE.
+        te_file = predefined_info['TE']
+        if te_file is None:
+            te_file = self._template_te_ms(seq_params)
+        te_req = params.get('TE')
+        if not self._is_missing(te_req) and abs(float(te_req) - te_file) > 1.0:
+            raise ValueError(
+                f"FSL-MRS: the template '{predefined_info['description']}' has a "
+                f"fixed TE of {te_file:.1f} ms, but TE is {float(te_req):g} ms. "
+                f"Set TE to {te_file:.1f}, or use Simple mode for an ideal-pulse "
+                f"basis at {float(te_req):g} ms.")
+
         # Update ONLY acquisition parameters (not pulse shapes!)
         # User can override Rx_Points and Rx_SW for their specific needs
         if params['Samples'] != predefined_info['Rx_Points']:
@@ -446,9 +454,72 @@ class FSLMRSBackend(Backend):
 
         return seq_params
 
-    def _generate_sequence_json(self, params):
+    @staticmethod
+    def _template_te_ms(seq_params):
+        """Echo time of a spin-echo type template: excitation pulse centre to
+        the ADC (delays run from pulse end to next pulse start)."""
+        times = [float(r['time']) for r in seq_params['RF']]
+        return (sum(float(d) for d in seq_params['delays']) + sum(times)
+                - times[0] / 2.0) * 1e3
+
+    # Editing schemes: sub-experiment -> editing target(s) in ppm, applied to
+    # both editing pulses (two targets = dual-lobe pulse). HERMES / HERCULES
+    # mirror MRSCloud's order A-D; the differences are combined as the
+    # MRSCloud backend does (DIFF1 = GABA, DIFF2 = GSH).
+    _SCHEMES = {
+        'HERMES':   {'A': (4.56,), 'B': (1.90,), 'C': (4.56, 1.90), 'D': (7.50,)},
+        'HERCULES': {'A': (4.58,), 'B': (4.18,), 'C': (4.58, 1.90), 'D': (4.18, 1.90)},
+    }
+    # MEGA-PRESS pulse-centre spacings as fractions of TE (FID-A's Siemens
+    # MEGA-PRESS timing: excite - 180 - edit - 180 - edit - ADC, editing pulses
+    # at TE/4 and 3TE/4). FID-A lists the set for "TE = 68" but it sums to
+    # 69.0 ms, so the fractions - not the ms values - are what is kept.
+    _MEGA_TAU_FRACTIONS = tuple(t / 69.0001 for t in (4.545, 12.7025, 21.7975, 12.7025, 17.2526))
+    _EDIT_PULSE_POINTS = 400
+
+    @staticmethod
+    def _editing_pulse(targets_ppm, tp_ms, bfield, central_shift, n=400):
+        """Gaussian 180-degree editing pulse (single- or dual-lobe) as a
+        denmatsim RF entry. The frequency modulation is written into the
+        waveform's phase, so denmatsim sees an on-carrier pulse: its
+        ``frequencyOffset`` shortcut shifts the rotating frame for the pulse
+        duration without unwinding the phase afterwards, and a 10 us
+        "ideal" pulse at an offset is a hard pulse on every spin."""
+        tp = float(tp_ms) / 1000.0
+        t = (np.arange(n) + 0.5) / n * tp
+        env = np.exp(-4.0 * np.log(100.0) * ((t - tp / 2.0) / tp) ** 2)   # 1 % at the edges
+        env = env * (0.5 / (env.sum() * tp / n))                            # integral 0.5 cycles = 180 deg
+        wave = np.zeros(n, dtype=complex)
+        for ppm in targets_ppm:
+            f_hz = (float(ppm) - central_shift) * bfield * 42.577
+            wave += env * np.exp(2j * np.pi * f_hz * (t - tp / 2.0))
+        return {'time': tp, 'frequencyOffset': 0, 'phaseOffset': 0,
+                'amp': np.abs(wave).tolist(), 'phase': np.angle(wave).tolist(),
+                'grad': [0, 0, 0]}
+
+    @staticmethod
+    def _delays_from_taus(taus_s, rf):
+        """denmatsim delays (pulse end to next pulse start) from pulse-centre
+        spacings; the last spacing runs from the last pulse centre to the ADC."""
+        durations = [float(r['time']) for r in rf]
+        delays = []
+        for i, tau in enumerate(taus_s):
+            after = durations[i + 1] / 2.0 if i + 1 < len(durations) else 0.0
+            d = tau - durations[i] / 2.0 - after
+            if d < 0:
+                raise ValueError(
+                    "FSL-MRS: the editing pulse does not fit the timing - shorten "
+                    "'Edit Tp' or lengthen TE.")
+            delays.append(d)
+        return delays
+
+    def _generate_sequence_json(self, params, edit_ppm=None):
         """
         Generate FSL-MRS sequence JSON with IDEAL PULSES (FID-A style)
+
+        ``edit_ppm`` (edited sequences only) is the tuple of editing targets
+        in ppm for this sub-experiment; both editing pulses are Gaussian
+        180s of ``Edit Tp`` ms at those frequencies.
 
         Uses instantaneous rotation operators (~10 μs) for all pulses.
         These are mathematically rigorous and standard in NMR simulation.
@@ -486,8 +557,13 @@ class FSLMRSBackend(Backend):
             'centralShift': central_shift,  # ppm - typical for 1H MRS
             'Rx_Points': samples,
             'Rx_SW': bandwidth,
-            'Rx_LW': 2.0,
-            'Rx_Phase': 0.0,
+            'Rx_LW': 2.0 if self._is_missing(params.get('Linewidth'))
+                     else float(params['Linewidth']),
+            # denmatsim's FID starts at -90 deg for an on-resonance spin;
+            # this receiver phase puts singlets on the real axis, so no
+            # per-metabolite phasing is needed (which would flip inverted
+            # multiplets such as lactate at TE 144 upright).
+            'Rx_Phase': -1.5708,
             'x': [-15, 15],
             'y': [-15, 15],
             'z': [-15, 15],
@@ -549,7 +625,6 @@ class FSLMRSBackend(Backend):
                            te/2000 - ideal_pulse_duration/2],
                 'rephaseAreas': [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
                 'CoherenceFilter': [1, 0, -1],
-                'Rx_Phase': 1.5708,
             })
 
         elif sequence == 'LASER':
@@ -611,126 +686,41 @@ class FSLMRSBackend(Backend):
                 'CoherenceFilter': [-1, 1, -1, 1, -1],
             })
 
-        elif sequence == 'MEGA-PRESS':
-            # MEGA-PRESS with ideal editing pulses
-            # Default Siemens timing
-            edit_freq = params.get('Edit Frequency')
-            if self._is_missing(edit_freq):
-                edit_freq = self.optional_params['Edit Frequency']  # ppm (for GABA)
-            # frequencyOffset is relative to the centralShift carrier: a pulse
-            # at p ppm needs (p − central_shift)·γ·B0 Hz (negative for 1.9 ppm)
-            edit_freq_hz = (float(edit_freq) - central_shift) * bfield * 42.577
-
-            # Siemens TE 68 ms timing, scaled to the requested TE (FID-A convention)
-            t1, t2, t3, t4, t5 = (t * te / 68.0 for t in (4.545, 12.7025, 21.7975, 12.7025, 17.2526))
-
+        elif sequence in self._edited_sequences:
+            if not edit_ppm:
+                raise ValueError(f"FSL-MRS: {sequence} needs editing targets (edit_ppm).")
+            tp = params.get('Edit Tp')
+            tp = self.optional_params['Edit Tp'] if self._is_missing(tp) else float(tp)
+            edit = self._editing_pulse(edit_ppm, tp, bfield, central_shift,
+                                       self._EDIT_PULSE_POINTS)
+            exc = {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
+                   'amp': [amp_90], 'phase': [0], 'grad': [0, 0, 0]}
+            ref = {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
+                   'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]}
+            te_s = te / 1000.0
+            if sequence == 'MEGA-sLASER':
+                # 90 - TE/8 - AFP - TE/8 - edit - TE/8 - AFP - TE/4 - AFP - TE/8 -
+                # edit - TE/8 - AFP - TE/8 - ADC: sLASER refocusing at odd
+                # eighths of TE, editing pulses at TE/4 and 3TE/4 (a TE/2 apart).
+                rf = [exc, ref, edit, ref, ref, edit, ref]
+                taus = [te_s / 8, te_s / 8, te_s / 8, te_s / 4, te_s / 8, te_s / 8, te_s / 8]
+                cfilter = [-1, 1, None, -1, 1, None, -1]
+            else:
+                # PRESS localisation with the MEGA-PRESS timing (MEGA-PRESS,
+                # HERMES, HERCULES): 90 - 180 - edit - 180 - edit - ADC.
+                rf = [exc, ref, edit, ref, edit]
+                taus = [f * te_s for f in self._MEGA_TAU_FRACTIONS]
+                cfilter = [-1, 1, None, -1, None]
+            # No coherence filter after an editing pulse: it is selective, so
+            # the coherence order of the untouched spins must survive.
             seq_def.update({
-                'RF': [
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_90], 'phase': [0], 'grad': [0, 0, 0]},  # 90° excite
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},  # 180° refocus
-                    {'time': ideal_pulse_duration, 'frequencyOffset': edit_freq_hz, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [0], 'grad': [0, 0, 0]},  # EDIT @ 1.9ppm
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},  # 180° refocus
-                    {'time': ideal_pulse_duration, 'frequencyOffset': edit_freq_hz, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [0], 'grad': [0, 0, 0]},  # EDIT @ 1.9ppm
-                ],
-                'delays': [t1/1000, t2/1000, t3/1000, t4/1000, t5/1000],
-                'rephaseAreas': [[0, 0, 0]] * 5,
-                'CoherenceFilter': [-1, 1, -1, 1, -1],
+                'RF': rf,
+                'delays': self._delays_from_taus(taus, rf),
+                'rephaseAreas': [[0, 0, 0]] * len(rf),
+                'CoherenceFilter': cfilter,
             })
-            print(f"  MEGA-PRESS editing frequency: {edit_freq} ppm "
-                  f"({edit_freq_hz:.1f} Hz offset from the {central_shift} ppm carrier)")
-
-        elif sequence == 'HERMES':
-            # HERMES - will need multiple sub-spectra
-            # This generates one sub-spectrum (edit both GABA and GSH)
-            # offsets relative to the centralShift carrier (see MEGA-PRESS)
-            gaba_freq_hz = (1.9 - central_shift) * bfield * 42.577
-            gsh_freq_hz = (4.56 - central_shift) * bfield * 42.577
-
-            # Use MEGA-PRESS timing
-            t1, t2, t3, t4, t5 = (t * te / 68.0 for t in (4.545, 12.7025, 21.7975, 12.7025, 17.2526))  # Siemens TE 68 ms, scaled
-
-            seq_def.update({
-                'RF': [
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_90], 'phase': [0], 'grad': [0, 0, 0]},
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},
-                    {'time': ideal_pulse_duration, 'frequencyOffset': gaba_freq_hz, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [0], 'grad': [0, 0, 0]},  # Edit GABA
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},
-                    {'time': ideal_pulse_duration, 'frequencyOffset': gsh_freq_hz, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [0], 'grad': [0, 0, 0]},  # Edit GSH
-                ],
-                'delays': [t1/1000, t2/1000, t3/1000, t4/1000, t5/1000],
-                'rephaseAreas': [[0, 0, 0]] * 5,
-                'CoherenceFilter': [-1, 1, -1, 1, -1],
-            })
-            print("  HERMES editing: GABA @ 1.9 ppm, GSH @ 4.56 ppm")
-
-        elif sequence == 'HERCULES':
-            # HERCULES - extension of HERMES
-            print("  HERCULES: Multi-metabolite editing")
-            print("  Using HERMES framework with optimized frequencies")
-            # Similar to HERMES but with additional editing targets
-            # offsets relative to the centralShift carrier (see MEGA-PRESS)
-            gaba_freq_hz = (1.9 - central_shift) * bfield * 42.577
-            glu_freq_hz = (2.3 - central_shift) * bfield * 42.577
-
-            t1, t2, t3, t4, t5 = (t * te / 68.0 for t in (4.545, 12.7025, 21.7975, 12.7025, 17.2526))  # Siemens TE 68 ms, scaled
-
-            seq_def.update({
-                'RF': [
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_90], 'phase': [0], 'grad': [0, 0, 0]},
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},
-                    {'time': ideal_pulse_duration, 'frequencyOffset': gaba_freq_hz, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [0], 'grad': [0, 0, 0]},
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},
-                    {'time': ideal_pulse_duration, 'frequencyOffset': glu_freq_hz, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [0], 'grad': [0, 0, 0]},
-                ],
-                'delays': [t1/1000, t2/1000, t3/1000, t4/1000, t5/1000],
-                'rephaseAreas': [[0, 0, 0]] * 5,
-                'CoherenceFilter': [-1, 1, -1, 1, -1],
-            })
-
-        elif sequence == 'MEGA-sLASER':
-            # MEGA-sLASER: Combination of MEGA editing with sLASER localization
-            edit_freq = params.get('Edit Frequency')
-            if self._is_missing(edit_freq):
-                edit_freq = self.optional_params['Edit Frequency']
-            edit_freq_hz = (float(edit_freq) - central_shift) * bfield * 42.577
-
-            seq_def.update({
-                'RF': [
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_90], 'phase': [0], 'grad': [0, 0, 0]},  # 90° excite
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},  # AFP pair 1a
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},  # AFP pair 1b
-                    {'time': ideal_pulse_duration, 'frequencyOffset': edit_freq_hz, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [0], 'grad': [0, 0, 0]},  # EDIT
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},  # AFP pair 2a
-                    {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},  # AFP pair 2b
-                    {'time': ideal_pulse_duration, 'frequencyOffset': edit_freq_hz, 'phaseOffset': 0,
-                     'amp': [amp_180], 'phase': [0], 'grad': [0, 0, 0]},  # EDIT
-                ],
-                'delays': [te/7000] * 7,
-                'rephaseAreas': [[0, 0, 0]] * 7,
-                'CoherenceFilter': [-1, 1, -1, 1, -1, 1, -1],
-            })
-            print(f"  MEGA-sLASER: sLASER localization + MEGA editing @ {edit_freq} ppm")
+            print(f"  {sequence}: Gaussian editing pulse {tp:g} ms at "
+                  f"{', '.join(f'{p:g}' for p in edit_ppm)} ppm")
 
         else:
             # Generic single pulse excitation for unknown sequences
@@ -880,59 +870,36 @@ class FSLMRSBackend(Backend):
                     print(f"⚠️  Ignoring non-numeric Linewidth {lw!r}; keeping the "
                           f"template's {seq_params.get('Rx_LW')} Hz.")
 
-        elif params['Sequence'] in self.sequence_to_predefined:
-            # Try to use predefined sequence file
-            predefined_key = self.sequence_to_predefined[params['Sequence']]
-            predefined_info = self.predefined_sequences[predefined_key]
-
-            # Check if user's parameters match the predefined file
-            param_match = True
-            warnings = []
-
-            # Check B0
-            if abs(params['Bfield'] - predefined_info['B0']) > 0.5:
-                param_match = False
-                warnings.append(f"Field strength mismatch: requested {params['Bfield']}T, predefined is {predefined_info['B0']}T")
-
-            # Check TE (if specified in predefined)
-            if predefined_info['TE'] is not None:
-                if abs(params['TE'] - predefined_info['TE']) > 5:  # Allow 5ms tolerance
-                    param_match = False
-                    warnings.append(f"TE mismatch: requested {params['TE']}ms, predefined is {predefined_info['TE']}ms")
-
-            # If parameters match well enough, use predefined file
-            if param_match:
-                print(f"✓ Using predefined {params['Sequence']} sequence: {predefined_info['description']}")
-                seq_params = self._load_predefined(predefined_info, params)
-            else:
-                # Parameters don't match - warn and use idealized sequence
-                print(f"\n{'='*80}")
-                print(f"⚠️  WARNING: Parameter mismatch with predefined {params['Sequence']} sequence!")
-                print(f"{'='*80}")
-                print(f"Predefined file: {predefined_info['description']}")
-                print(f"  Fixed parameters: B0={predefined_info['B0']}T, TE={predefined_info['TE']}ms")
-                print("\nYour parameters:")
-                for warning in warnings:
-                    print(f"  ⚠️  {warning}")
-                print("\n⚠️  Using predefined file with different parameters would be INACCURATE!")
-                print("     (Real pulse shapes are field-strength and TE dependent)")
-                print("\nGenerating IDEALIZED sequence instead (perfect pulses, no realistic effects)")
-                print("For accurate simulations at your parameters, provide a custom sequence file.")
-                print(f"{'='*80}\n")
-
-                seq_params = self._generate_sequence_json(params)
-
         else:
-            # Generate idealized sequence for 'Custom' or unknown sequences
-            print(f"⚠️  No predefined file for '{params['Sequence']}' - generating idealized sequence")
-            print("   For accurate simulations, use 'Custom Sequence' parameter with your own JSON file")
-            seq_params = self._generate_sequence_json(params)
+            # Simple mode: ideal pulses at the requested TE. (Earlier versions
+            # silently swapped in the 7 T real-pulse templates for PRESS /
+            # STEAM near 7 T, ignoring the requested TE.)
+            seq_params = None
 
-        # Save sequence file for reference
-        seq_file = os.path.join(output_path, f'{params["Sequence"]}_sequence.json')
-        with open(seq_file, 'w') as f:
-            json.dump(seq_params, f, indent=2)
-        print(f"Saved sequence file: {seq_file}")
+        # Sub-experiments: one sequence per editing condition, or a single
+        # unlabelled run for everything else.
+        sequence = params['Sequence']
+        if seq_params is not None:
+            variants = {None: seq_params}
+        elif sequence in self._mega_sequences:
+            on, off = params.get('Edit On'), params.get('Edit Off')
+            on = self.optional_params['Edit On'] if self._is_missing(on) else float(on)
+            off = self.optional_params['Edit Off'] if self._is_missing(off) else float(off)
+            variants = {'ON': self._generate_sequence_json(params, (on,)),
+                        'OFF': self._generate_sequence_json(params, (off,))}
+        elif sequence in self._SCHEMES:
+            variants = {label: self._generate_sequence_json(params, targets)
+                        for label, targets in self._SCHEMES[sequence].items()}
+        else:
+            variants = {None: self._generate_sequence_json(params)}
+
+        # Save the sequence file(s) for reference
+        for label, seq_params in variants.items():
+            suffix = f'_{label}' if label else ''
+            seq_file = os.path.join(output_path, f'{sequence}{suffix}_sequence.json')
+            with open(seq_file, 'w') as f:
+                json.dump(seq_params, f, indent=2)
+            print(f"Saved sequence file: {seq_file}")
 
         # Load spin systems for metabolites
         try:
@@ -943,69 +910,60 @@ class FSLMRSBackend(Backend):
             # of flat traces — fail loudly instead.
             raise RuntimeError(f"Could not load FSL-MRS spin systems: {e}")
 
-        # Run simulation for each metabolite
+        # Run simulation for each metabolite (and editing condition)
         basis_set = {}
         self.last_failures = {}   # metab -> reason, surfaced by the GUI
         total_metabs = len(params['Metabolites'])
 
+        def simulate(spin_system, seq_params):
+            # denmatsim spin systems are lists of sub-spin-systems
+            # (e.g. NAA has acetyl + aspartate groups): sum their FIDs
+            subs = spin_system if isinstance(spin_system, list) else [spin_system]
+            fid = None
+            for sub_sys in subs:
+                sub_fid, _ax, _pmat = simseq.simseq(sub_sys, seq_params, verbose=False)
+                sub_fid = sub_fid * sub_sys.get('scaleFactor', 1.0)
+                fid = sub_fid if fid is None else fid + sub_fid
+            return fid
+
         for idx, metab in enumerate(params['Metabolites'], 1):
             if stop_event and stop_event.is_set():
-                print(f"  ⏹  Stopped before simulating {metab} (user cancelled).")
+                print(f"  Stopped before simulating {metab} (user cancelled).")
                 break
             if progress_callback:
                 progress_callback(idx, total_metabs)
 
             print(f"\n[{idx}/{total_metabs}] Simulating {metab}...")
 
-            # Get spin system
             sys_name = f'sys{metab}'
             if sys_name not in spinSystems:
-                print(f"  ⚠️  Spin system '{sys_name}' not found, skipping")
+                print(f"  Spin system '{sys_name}' not found, skipping")
                 self.last_failures[metab] = f"no spin system '{sys_name}'"
                 continue
 
-            spin_system = spinSystems[sys_name]
-
             try:
-                # denmatsim spin systems are lists of sub-spin-systems
-                # (e.g. NAA has acetyl + aspartate groups)
-                # simulate each sub-system and sum the FIDs
-                if isinstance(spin_system, list):
-                    FID = None
-                    for sub_idx, sub_sys in enumerate(spin_system):
-                        scale = sub_sys.get('scaleFactor', 1.0)
-                        sub_fid, ax, pmat = simseq.simseq(sub_sys, seq_params, verbose=False)
-                        if FID is None:
-                            FID = sub_fid * scale
-                        else:
-                            FID += sub_fid * scale
-                    print(f"  ✓ Simulated {len(spin_system)} sub-systems")
-                else:
-                    FID, ax, pmat = simseq.simseq(spin_system, seq_params, verbose=False)
-
-                # denmatsim already returns the FID in the standard NMR
-                # convention that BasisREMY's plotter assumes
-                # (`fft + fftshift` against `linspace(-bw/2, +bw/2)`). An
-                # earlier version of this backend conjugated the FID to
-                # "flip the ppm axis" — that was correct for an older
-                # plotting convention, but with the current GUI it produces
-                # mirrored spectra (NAA appearing where Cho should be, etc).
-                # The conjugate has been removed; we keep only the zero-order
-                # phase correction so the absorptive signal lands in real().
-                phi0 = np.angle(FID[0])
-                FID = FID * np.exp(-1j * phi0)
-
-                # Store FID
-                basis_set[metab] = FID
-                print(f"  ✓ Generated FID with {len(FID)} points")
-
-
+                fids = {label: simulate(spinSystems[sys_name], seq)
+                        for label, seq in variants.items()}
             except Exception as e:
-                print(f"  ✗ Simulation failed: {e}")
+                print(f"  Simulation failed: {e}")
                 import traceback
                 traceback.print_exc()
                 self.last_failures[metab] = str(e)
                 continue
+
+            if None in fids:
+                basis_set[metab] = fids[None]
+            else:
+                for label, fid in fids.items():
+                    basis_set[f'{metab} ({label})'] = fid
+                if sequence in self._mega_sequences:
+                    basis_set[f'{metab} (DIFF)'] = fids['ON'] - fids['OFF']
+                else:
+                    a, b, c, d = (fids[k] for k in 'ABCD')
+                    basis_set[f'{metab} (SUM)'] = a + b + c + d
+                    basis_set[f'{metab} (DIFF1)'] = (b + c) - (a + d)
+                    basis_set[f'{metab} (DIFF2)'] = (a + c) - (b + d)
+            print(f"  Generated {len(fids)} FID(s) with {len(next(iter(fids.values())))} points")
 
         print(f"\n{'='*80}")
         print("Simulation complete!")

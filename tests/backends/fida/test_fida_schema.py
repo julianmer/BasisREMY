@@ -101,6 +101,16 @@ class TestPressShaped:
         with pytest.raises(ValueError, match='Path to Pulse'):
             b._build_args(b.mandatory_params, 'NAA')
 
+    def test_build_args_requires_te_or_taus(self, tmp_path):
+        b = FidaPressShaped()
+        pulse = tmp_path / 'sample.pta'; pulse.write_text('# fake')
+        b.mandatory_params.update({
+            'Samples': 2048, 'Bandwidth': 4000, 'Bfield': 3.0,
+            'TE': None, 'Tau 1': '', 'Tau 2': '', 'Path to Pulse': str(pulse),
+        })
+        with pytest.raises(ValueError, match='TE'):
+            b._build_args(b.mandatory_params, 'NAA')
+
     def test_build_args_returns_positional_list(self, tmp_path):
         b = FidaPressShaped()
         pulse = tmp_path / 'sample.pta'; pulse.write_text('# fake')
