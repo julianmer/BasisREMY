@@ -235,11 +235,19 @@ class CustomSLaser(Backend):
         ensure('fidA')
         ensure('jbss')
         self.octave.eval("warning('off', 'all');")
+        # jbss resamples the pulse (signal package); the Docker image has it on
+        # its savepath, a local Octave needs the explicit load (no-op if absent)
+        self.octave.eval("try, pkg load signal; catch, end")
         self.octave.addpath('./externals/fidA/inputOutput/')
         self.octave.addpath('./externals/fidA/processingTools/')
         self.octave.addpath('./externals/fidA/simulationTools/')
         self.octave.addpath('./externals/jbss/')
         self.octave.addpath(self.octave.genpath(octave_adapters_base(self.octave)))
+
+    def _octave_verbose(self) -> bool:
+        """Debug flag of the Docker wrapper; False for oct2py (whose attribute lookup
+        asks the Octave workspace and raises Oct2PyError instead of AttributeError)."""
+        return bool(vars(self.octave).get('verbose', False)) if self.octave is not None else False
 
     def run_simulation(self, params, progress_callback=None, stop_event=None):
         # Work on a copy: the caller passes backend.mandatory_params itself, and
@@ -305,15 +313,17 @@ class CustomSLaser(Backend):
                                          centreFreq, metab_list, tau1, tau2, path_to_pulse,
                                          path_to_save, path_to_spin_system, display,
                                          make_basis, make_raw):
-            # Enable verbose output for Docker Octave to help debug issues
-            verbose = hasattr(self.octave, 'verbose') and self.octave.verbose
+            # Enable verbose output for Docker Octave to help debug issues. Only the
+            # Docker wrapper takes the keyword; oct2py would forward it to Octave as
+            # a named argument ("Value 'verbose' does not exist in Octave workspace").
+            kwargs = {'verbose': True} if self._octave_verbose() else {}
 
             results = self.octave.feval('sLASER_makebasisset_function', curfolder, pathtofida,
                                         system, seq_name, basis_name, B1max, flip_angle, refTp,
                                         Npts, sw, lw, Bfield, thkX, thkY, fovX, fovY, nX, nY, te,
                                         centreFreq, metab_list, tau1, tau2, path_to_pulse,
                                         path_to_save, path_to_spin_system, display,
-                                        make_basis, make_raw, verbose=verbose)
+                                        make_basis, make_raw, **kwargs)
             return metab_list, results
 
         # prepare tasks for each metabolite - use converted output_path
@@ -337,7 +347,7 @@ class CustomSLaser(Backend):
             metab_list, outputs = sLASER_makebasisset_function(*task)
 
             # Debug: Show what we got from Octave
-            if hasattr(self.octave, 'verbose') and self.octave.verbose:
+            if self._octave_verbose():
                 print("\nDebug: Received from Octave:")
                 print(f"  metab_list type: {type(metab_list)}, value: {metab_list}")
                 print(f"  outputs type: {type(outputs)}")
@@ -357,7 +367,7 @@ class CustomSLaser(Backend):
             # It might be 2D array, object array, or mat_struct depending on squeeze_me setting
             for met_idx, metab_name in enumerate(metab_list):
                 try:
-                    if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                    if self._octave_verbose():
                         print(f"\n  Processing metabolite {met_idx}: {metab_name}")
 
                     # Access the output struct for this metabolite
@@ -366,23 +376,23 @@ class CustomSLaser(Backend):
                         # It's a numpy array
                         if outputs.ndim == 2:
                             output_struct = outputs[0, met_idx]
-                            if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                            if self._octave_verbose():
                                 print(f"    Accessed as outputs[0, {met_idx}] (2D array)")
                         elif outputs.ndim == 1:
                             output_struct = outputs[met_idx]
-                            if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                            if self._octave_verbose():
                                 print(f"    Accessed as outputs[{met_idx}] (1D array)")
                         else:
                             output_struct = outputs
-                            if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                            if self._octave_verbose():
                                 print("    Accessed as outputs (scalar)")
                     else:
                         # It's a mat_struct or similar object - treat as scalar
                         output_struct = outputs
-                        if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                        if self._octave_verbose():
                             print("    Accessed as outputs (mat_struct/scalar, single metabolite)")
 
-                    if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                    if self._octave_verbose():
                         print(f"    output_struct type: {type(output_struct)}")
                         print(f"    output_struct dtype: {output_struct.dtype if hasattr(output_struct, 'dtype') else 'N/A'}")
                         if hasattr(output_struct, '_fieldnames'):
@@ -391,20 +401,20 @@ class CustomSLaser(Backend):
                     # Extract fids - it's a struct field
                     if hasattr(output_struct, 'fids'):
                         fids_data = output_struct.fids
-                        if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                        if self._octave_verbose():
                             print("    ✓ Accessed via attribute: output_struct.fids")
                     elif isinstance(output_struct, dict):
                         fids_data = output_struct['fids']
-                        if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                        if self._octave_verbose():
                             print("    ✓ Accessed via dict: output_struct['fids']")
                     else:
                         # Try as item access
                         fids_data = output_struct['fids']
-                        if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                        if self._octave_verbose():
                             print("    ✓ Accessed via item: output_struct['fids']")
 
                     # Debug output
-                    if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                    if self._octave_verbose():
                         print(f"    fids_data type: {type(fids_data)}")
                         if hasattr(fids_data, 'shape'):
                             print(f"    fids_data shape: {fids_data.shape}")
@@ -424,23 +434,23 @@ class CustomSLaser(Backend):
                     if fids_data.dtype not in (complex, np.complex64, np.complex128):
                         # If it's a structured array or object array, extract the actual data
                         if fids_data.dtype == object:
-                            if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                            if self._octave_verbose():
                                 print("    ⚠️  fids_data is object dtype, unwrapping...")
                             # Try to extract first element if it's an object array wrapping the real data
                             if fids_data.size == 1:
                                 fids_data = np.asarray(fids_data.item(), dtype=complex)
-                                if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                                if self._octave_verbose():
                                     print(f"    ✓ Unwrapped single object to shape: {fids_data.shape}")
                             else:
                                 fids_data = np.array([complex(x) for x in fids_data.flat])
-                                if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                                if self._octave_verbose():
                                     print("    ✓ Converted object array to complex")
                         else:
                             fids_data = fids_data.astype(complex)
 
                     # Flatten if multidimensional
                     if fids_data.ndim > 1:
-                        if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                        if self._octave_verbose():
                             print(f"    Flattening from {fids_data.shape} to 1D")
                         fids_data = fids_data.flatten()
 
@@ -448,7 +458,7 @@ class CustomSLaser(Backend):
                     if fids_data.size == 0:
                         raise ValueError(f"Empty fids data for {metab_name}")
 
-                    if hasattr(self.octave, 'verbose') and self.octave.verbose:
+                    if self._octave_verbose():
                         print(f"    ✓ Final fids_data: shape={fids_data.shape}, dtype={fids_data.dtype}")
 
                     basis_set[metab_name] = fids_data
