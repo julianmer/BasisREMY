@@ -354,14 +354,15 @@ class BasisREMY:
 
     def load_sequence(self, seq_path):
         # Fill the sheet from a Pulseq (.seq) file of the acquisition: switch to the
-        # FID-A shaped backend for its sequence (PRESS / semi-LASER) and take TE, the
-        # PRESS echo split, the refocusing waveform, its duration, flip angle, slabs and
-        # the readout from the file. B0 and the rest stay as read from the data header.
+        # FID-A shaped backend for its sequence (PRESS / semi-LASER / STEAM / MEGA-PRESS)
+        # and take TE, the PRESS echo split, STEAM's TM, the shaped waveforms, their
+        # durations, flip angle, slabs, MEGA's editing frequencies and the readout from the
+        # file. B0 and the rest stay as read from the data header.
         from basisremy.core import pulseq
         info = pulseq.read_seq(seq_path)
-        kind = pulseq.sequence_type(info)
-        self.set_backend('FidaPressShaped' if kind == 'PRESS' else 'FidaSemiLaserShaped')
-        _, params = pulseq.sheet_params(seq_path, self.backend.ensure_workdir())
+        self.set_backend(pulseq.BACKENDS[pulseq.sequence_type(info)])
+        _, params = pulseq.sheet_params(seq_path, self.backend.ensure_workdir(),
+                                        bfield=self.backend.mandatory_params.get('Bfield'))
         self.backend.mandatory_params.update(params)
         return params
 
