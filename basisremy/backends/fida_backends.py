@@ -406,6 +406,7 @@ class FidaPressShaped(FidaBackend):
         self.mandatory_params = _shaped_params({
             'Tau 1': None,   # ms; defaults to TE/2 if blank
             'Tau 2': None,
+            'Path to Pulse': 'standard:sinc-ref',   # open pulse until a vendor file is picked
         })
         # Move Tau 1/Tau 2 right after TE for a nicer GUI ordering.
         self._refresh_metab_list()
@@ -477,7 +478,8 @@ class FidaSemiLaserShaped(FidaBackend):
         self.modes = ['Standard', 'Phase cycled']
         self.current_mode = 'Standard'
         self.file_selection = ['Path to Pulse']
-        self.mandatory_params = _shaped_params()
+        # open GOIA-WURST (4.5 ms, 10 kHz) until a vendor file is picked
+        self.mandatory_params = _shaped_params({'Path to Pulse': 'standard:goia-wurst', 'RefTp': 4.5})
         self._refresh_metab_list()
 
     def parseProtocol(self, protocol):
@@ -529,7 +531,9 @@ class FidaSteamShaped(FidaBackend):
         super().__init__()
         self.name, self.display_name = 'FidaSteamShaped', 'STEAM shaped'
         self.file_selection = ['Path to Pulse']
-        self.mandatory_params = _shaped_params({'TM': 10.0})
+        # open sinc excitation (2 ms) until a vendor file is picked
+        self.mandatory_params = _shaped_params({'TM': 10.0, 'Path to Pulse': 'standard:sinc-exc',
+                                                'RefTp': 2.0})
         # STEAM pulses are 90° excitations, not 180° refocusers
         self.mandatory_params['Flip Angle'] = 90.0
         self._refresh_metab_list()
@@ -575,7 +579,7 @@ class FidaSpinEchoShaped(FidaBackend):
         super().__init__()
         self.name, self.display_name = 'FidaSpinEchoShaped', 'Spin Echo shaped'
         self.file_selection = ['Path to Pulse']
-        self.mandatory_params = _shaped_params()
+        self.mandatory_params = _shaped_params({'Path to Pulse': 'standard:sinc-ref'})
         for k in ('thkY', 'fovY', 'nY', 'Flip Angle'):
             self.mandatory_params.pop(k, None)
         self._refresh_metab_list()
@@ -625,15 +629,15 @@ class FidaMegaPressShaped(FidaBackend):
         self.mandatory_params = {
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
             'Linewidth': 1.0,  'TE':        None,   # 68 ms is the standard
-            'Edit Pulse Path': None,
-            'Edit Tp':         20.0,
+            'Edit Pulse Path': 'standard:gauss-edit-20ms',   # open pulses until vendor
+            'Edit Tp':         20.0,                         # files are picked
             'Edit On':         1.9,                 # ppm (GABA); 4.56 for GSH
             'Edit Off':        7.5,
             'Edit Bandwidth (ppm)': 1.0,            # ideal-edit modes only
             'Sim Centre (ppm)': 4.65,
             # shaped-refocusing modes only (spatial grid kept small: the
             # fully shaped mode runs 32 simulations per grid point)
-            'Path to Pulse': None,
+            'Path to Pulse': 'standard:sinc-ref',
             'RefTp':         5.0,
             'thkX': 2.0, 'thkY': 2.0, 'fovX': 3.0, 'fovY': 3.0,
             'nX': 4, 'nY': 4,
@@ -754,9 +758,9 @@ class FidaMegaSpecialShaped(FidaBackend):
         self.mandatory_params = {
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
             'Linewidth': 1.0,  'TE':        None,   # 68 ms is the standard
-            'Path to Pulse':   None,                # refocusing waveform
-            'RefTp':           5.0,
-            'Edit Pulse Path': None,
+            'Path to Pulse':   'standard:sinc-ref',   # refocusing; open pulses until
+            'RefTp':           5.0,                   # vendor files are picked
+            'Edit Pulse Path': 'standard:gauss-edit',
             'Edit Tp':         14.0,
             'Edit On':         1.9,                 # ppm (GABA); 4.56 for GSH
             'Edit Off':        7.5,
@@ -943,8 +947,8 @@ class FidaOnePulse(FidaBackend):
             'Samples':   None, 'Bandwidth': None, 'Bfield': None,
             'Linewidth': 1.0,
             'Flip Angle': 90.0,       # Shaped only
-            'Path to Pulse': None,    # Shaped only
-            'RefTp': 5.0,             # Shaped only: pulse duration [ms]
+            'Path to Pulse': 'standard:sinc-exc',  # Shaped only; open pulse
+            'RefTp': 2.0,             # Shaped only: pulse duration [ms]
             'Delay': 0.5,             # Delay only: ADC onset delay [ms]
             'Pulse Phase': 0.0,       # Arbitrary phase only [deg]
             'Metabolites': [],

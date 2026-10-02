@@ -53,7 +53,7 @@ class VespaBackend(Backend):
             'Bfield':      None,
             'TE':          None,
             'TM':          10,          # STEAM only — hidden otherwise
-            'Path to Pulse': None,      # PRESS shaped only — hidden otherwise
+            'Path to Pulse': 'standard:sinc-ref',  # PRESS shaped only (open pulse)
             'RefTp':       5.0,         # PRESS shaped only — pulse duration [ms]
             'Nucleus':     '1H',
             'Center Freq': None,        # MHz

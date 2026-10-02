@@ -122,7 +122,7 @@ class CustomSLaser(Backend):
             "Tau 1": 15.,   # fake timing
             "Tau 2": 13.,
 
-            "Path to Pulse": None,
+            "Path to Pulse": "standard:goia-wurst",   # open pulse until a vendor file is picked
         }
 
 

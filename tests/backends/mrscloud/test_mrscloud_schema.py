@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import sys
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
@@ -167,6 +168,32 @@ class TestPulseFiles:
         params = backend.get_params_for_mode()
         assert 'Vendor Pulse File' in backend.file_selection
         assert 'Vendor Pulse File' in params
+
+    def test_slaser_picker_starts_with_open_goia(self):
+        """Only the GOIA waveform missing: the picker starts with the generated
+        GOIA-WURST; a combination needing other vendor files starts blank."""
+        backend = MRSCloudBackend()
+        backend.mandatory_params.update(
+            {'Sequence': 'UnEdited', 'Localization': 'sLASER', 'System': 'Philips'})
+        backend.current_mode = 'Universal'
+        assert backend.get_params_for_mode()['Vendor Pulse File'] == 'standard:goia-wurst'
+        backend.mandatory_params.update({'Sequence': 'HERCULES', 'Localization': 'PRESS'})
+        params = backend.get_params_for_mode()
+        assert 'Vendor Pulse File' in params and params['Vendor Pulse File'] is None
+
+    def test_standard_pulse_stands_in_for_goia(self, tmp_path):
+        """The generated GOIA (100 points, gradient column) goes to the adapter that
+        writes MRSCloud's RF struct under the vendor file name."""
+        backend = MRSCloudBackend()
+        calls = []
+        backend.octave = type('O', (), {'feval': lambda self, *a, **k: calls.append(a)})()
+        backend._stage_user_pulse(str(tmp_path), 'Universal_Philips', 'UnEdited', 'sLASER',
+                                  'standard:goia-wurst')
+        (name, src, dst, var), = calls
+        assert name == 'basisremy_goia_mat' and var == 'Sweep2'
+        assert dst.endswith('Philips_GOIA_WURST_100pts.mat')
+        rf = np.loadtxt(tmp_path / 'std_goia-wurst_mrscloud.txt', comments='#')
+        assert rf.shape == (100, 4)
 
     def test_unknown_combo_returns_empty(self):
         assert MRSCloudBackend.required_pulse_files('Bruker', 'MEGA', 'sLASER') == []

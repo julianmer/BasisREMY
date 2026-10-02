@@ -78,3 +78,29 @@ def test_resolver(tmp_path):
     assert pl.resolve_pulse('/some/file.pta', str(tmp_path)) == '/some/file.pta'
     with pytest.raises(ValueError, match='Unknown standard pulse'):
         pl.resolve_pulse('standard:nope', str(tmp_path))
+
+
+@pytest.mark.parametrize('cls_path', [
+    'basisremy.backends.fida_backends.FidaPressShaped',
+    'basisremy.backends.fida_backends.FidaSemiLaserShaped',
+    'basisremy.backends.fida_backends.FidaSteamShaped',
+    'basisremy.backends.fida_backends.FidaSpinEchoShaped',
+    'basisremy.backends.fida_backends.FidaMegaPressShaped',
+    'basisremy.backends.fida_backends.FidaMegaSpecialShaped',
+    'basisremy.backends.fida_backends.FidaOnePulse',
+    'basisremy.backends.spinach_backend.SpinachPressShaped',
+    'basisremy.backends.spinach_backend.SpinachSemiLaserShaped',
+    'basisremy.backends.vespa_backend.VespaBackend',
+    'basisremy.backends.spant_backend.SpantBackend',
+    'basisremy.backends.custom_backends.CustomSLaser',
+])
+def test_real_pulse_backends_start_with_open_pulse(cls_path):
+    """Every pulse field starts with a catalogue pulse (replaced by a vendor file)."""
+    import importlib
+    mod, cls = cls_path.rsplit('.', 1)
+    b = getattr(importlib.import_module(mod), cls)()
+    keys = [k for k in b.file_selection if k in ('Path to Pulse', 'Edit Pulse Path')]
+    assert keys
+    for k in keys:
+        v = b.mandatory_params[k]
+        assert pl.is_standard(v) and pl.standard_name(v) in pl.STANDARD, (cls, k, v)

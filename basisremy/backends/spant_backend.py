@@ -93,7 +93,7 @@ class SpantBackend(Backend):
             'Edit On':       1.9,         # MEGA-PRESS only (ppm)
             'Edit Off':      7.5,
             'Edit Bandwidth (Hz)': 110.0,
-            'Path to Pulse': None,        # PRESS shaped only
+            'Path to Pulse': 'standard:sinc-ref',  # PRESS shaped only (open pulse)
             'RefTp':         5.0,         # PRESS shaped only [ms]
             'Flip Angle':    180.0,       # PRESS shaped only
             'Linewidth':     1.0,

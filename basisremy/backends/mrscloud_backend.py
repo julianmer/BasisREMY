@@ -36,6 +36,8 @@ import numpy as np
 
 # own
 from basisremy.backends.base import Backend
+from basisremy.core.pulse_library import (goia, is_standard, make_standard, resolve_pulse,
+                                          standard_name)
 
 
 #**************************************************************************************************#
@@ -125,6 +127,12 @@ class MRSCloudBackend(Backend):
                          'dl_Siemens_4_18_1_90.pta'],
         },
     }
+    # sLASER refocusing: MRSCloud loads these .mat files as FID-A RF structs (variable
+    # name per file). Not public; when missing, a generated GOIA-WURST stands in
+    # (see _stage_standard_pulse) and the pulse field starts with it.
+    _GOIA_VARS = {'Philips_GOIA_WURST_100pts.mat': 'Sweep2',
+                  'GE_GOIA_WURST_100pts.mat':      'Sweep_GE_100'}
+
     # Shipped in externals/mrscloud/pulses_universal/.
     _BUNDLED_PULSES = {
         'sl_univ_pulse.pta', 'univ_eddenrefo.pta', 'univ_spreddenrex.pta',
@@ -355,8 +363,15 @@ class MRSCloudBackend(Backend):
         if missing:
             label = self._pulse_param_label
             self.file_selection.append(label)
-            params[label] = self.mandatory_params.get(label)
-            self.mandatory_params.setdefault(label, None)
+            # only the GOIA waveform missing: start with the open GOIA-WURST
+            goia_only = all(os.path.basename(m) in self._GOIA_VARS for m in missing)
+            cur = self.mandatory_params.get(label)
+            if goia_only and cur is None:
+                cur = 'standard:goia-wurst'
+            elif not goia_only and cur == 'standard:goia-wurst':
+                cur = None
+            self.mandatory_params[label] = cur
+            params[label] = cur
         else:
             # everything MRSCloud will load is bundled or on disk — no picker
             params.pop(self._pulse_param_label, None)
@@ -535,6 +550,9 @@ class MRSCloudBackend(Backend):
         if not missing:
             return
         wanted = [os.path.basename(m) for m in missing]
+        if is_standard(user_path):
+            self._stage_standard_pulse(user_path, os.path.join(workdir, wanted[0]))
+            return
         picked = os.path.basename(user_path)
         # a file named like one of the missing waveforms keeps its name;
         # anything else is taken as the first missing one
@@ -547,6 +565,33 @@ class MRSCloudBackend(Backend):
                   f"as '{target_name}' in workdir")
         except Exception as e:
             print(f"  ⚠️  Could not stage user pulse {user_path}: {e}")
+
+    def _stage_standard_pulse(self, spec: str, dst: str) -> None:
+        """Stand a generated standard pulse in for a missing vendor waveform.
+
+        A GOIA .mat is the FID-A RF struct MRSCloud loads, so the waveform goes
+        through BasisREMY's headless io_loadRFwaveform (basisremy_goia_mat.m); a
+        file of the same format (.pta) is copied under the requested name.
+        """
+        import shutil
+        name, workdir = os.path.basename(dst), os.path.dirname(dst)
+        std = standard_name(spec)
+        if name in self._GOIA_VARS:
+            # 100 points like MRSCloud's own GOIA files (same 4.5 ms / 10 kHz design)
+            pulse = (goia(4.5, 45.0, 2.0, 'wurst', kind='ref', n=100) if std == 'goia-wurst'
+                     else make_standard(std))
+            src = os.path.join(workdir, f'std_{std}_mrscloud.txt')
+            pulse.write(src)
+            rel = lambda q: './' + os.path.relpath(q, os.path.abspath('.')).replace('\\', '/')  # noqa: E731
+            self.octave.feval('basisremy_goia_mat', rel(src), rel(dst), self._GOIA_VARS[name])
+        else:
+            src = resolve_pulse(spec, workdir)
+            if os.path.splitext(src)[1] != os.path.splitext(name)[1]:
+                raise ValueError(f"MRSCloud: '{spec}' cannot stand in for {name} "
+                                 f"(different waveform format).")
+            shutil.copyfile(src, dst)
+        print(f"  ⚠️  MRSCloud: vendor waveform '{name}' is not available — using the "
+              f"generated '{spec}' instead (not the vendor's pulse).")
 
     def _stage_pulse_shims(self, workdir: str) -> None:
         """Stage the bundled universal waveforms under the names MRSCloud asks for.

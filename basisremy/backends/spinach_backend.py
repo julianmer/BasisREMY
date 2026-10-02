@@ -196,7 +196,8 @@ class SpinachPressShaped(_SpinachRuntime):
         self.name = 'SpinachPressShaped'
         self.display_name = 'PRESS shaped'
         self.file_selection = ['Path to Pulse']
-        self.mandatory_params = _shaped_params({'Tau 1': None, 'Tau 2': None})
+        self.mandatory_params = _shaped_params({'Tau 1': None, 'Tau 2': None,
+                                                'Path to Pulse': 'standard:sinc-ref'})   # open pulse
         self._refresh_metab_list()
 
     def parseProtocol(self, protocol):
@@ -232,7 +233,8 @@ class SpinachSemiLaserShaped(_SpinachRuntime):
         self.name = 'SpinachSemiLaserShaped'
         self.display_name = 'semi-LASER shaped'
         self.file_selection = ['Path to Pulse']
-        self.mandatory_params = _shaped_params()
+        # open GOIA-WURST (4.5 ms, 10 kHz) until a vendor file is picked
+        self.mandatory_params = _shaped_params({'Path to Pulse': 'standard:goia-wurst', 'RefTp': 4.5})
         self._refresh_metab_list()
 
     def parseProtocol(self, protocol):
