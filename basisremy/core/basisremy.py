@@ -419,6 +419,8 @@ class BasisREMY:
                 add_info['Center Freq'] = self._freq_mhz(MRSinMRS['SpectrometerFrequency'])
             elif 'MRFrequency' in MRSinMRS:
                 add_info['Center Freq'] = self._freq_mhz(MRSinMRS['MRFrequency'])
+            if MRSinMRS.get('RFPulseNames'):  # twix only
+                add_info['RFPulseNames'] = MRSinMRS['RFPulseNames']
 
         elif vendor == 'GE':
             if dtype == '7': # GE Pfile specific

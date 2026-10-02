@@ -779,6 +779,9 @@ class DataReaders():
 		for ii in range(len(config_header)):	 											# Twix Object Config Header
 			MRSinMRS[config_header[ii]] = twixHd['Config' ][config_header[ii]]				# Twix Object Config Header
 
+		MRSinMRS['RFPulseNames']        = [str(v).strip('"') for k, v in twixPhx.items()	# RF Pulse Slot Names
+		                                   if k[:2] == ('sTXSPEC', 'aRFPULSE') and k[-1] == 'tName']
+
 		if 'TE_Time' not in list(MRSinMRS.keys()) and 'TE' not in list(MRSinMRS.keys()):
 			try:
 				MRSinMRS['TE'] = twixPhx(('alTE', '0'))

@@ -104,3 +104,22 @@ def test_real_pulse_backends_start_with_open_pulse(cls_path):
     for k in keys:
         v = b.mandatory_params[k]
         assert pl.is_standard(v) and pl.standard_name(v) in pl.STANDARD, (cls, k, v)
+
+
+def test_siemens_pulse_names_pick_the_refocusing_family():
+    assert pl.siemens_refocusing(['rf_exc', 'hsn_sl', 'hsn_ph']) == ('standard:hs4-ref', 3.5)
+    assert pl.siemens_refocusing(['ss_rf_exc', 'ss_rf_pi_sl', 'ss_rf_pi_ph']) is None
+    assert pl.siemens_refocusing(None) is None
+
+
+@pytest.mark.parametrize('backend', ['FidaSemiLaserShaped', 'SpinachSemiLaserShaped'])
+def test_cmrr_semilaser_twix_fills_a_hyperbolic_secant_pulse(backend, example_data_dir):
+    """The CMRR sLASER twix names 'hsn_sl'/'hsn_ph' slots: the sheet takes HS4 instead of GOIA."""
+    import glob
+    from basisremy.core.basisremy import BasisREMY
+    f = glob.glob(os.path.join(example_data_dir, 'REMY_tests', 'Dataset_27_Siemens_sLASER', '*.dat'))
+    if not f or os.path.getsize(f[0]) < 4096:
+        pytest.skip("Siemens sLASER twix not available")
+    br = BasisREMY(backend)
+    params, _ = br.backend.parseREMY(br.runREMY(import_fpath=f[0]))
+    assert (params['Path to Pulse'], params['RefTp']) == ('standard:hs4-ref', 3.5)

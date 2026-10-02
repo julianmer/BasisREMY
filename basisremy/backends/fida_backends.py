@@ -28,6 +28,7 @@ import os
 import numpy as np
 
 from basisremy.backends.base import Backend
+from basisremy.core.pulse_library import siemens_refocusing
 
 
 # --------------------------------------------------------------------------- defaults
@@ -487,6 +488,13 @@ class FidaSemiLaserShaped(FidaBackend):
             return None
         p = str(protocol).lower()
         return 'sLASER' if ('slaser' in p or 'semi' in p) else None
+
+    def parseREMY(self, MRSinMRS):
+        mandatory, optional = super().parseREMY(MRSinMRS)
+        pulse = siemens_refocusing(MRSinMRS.get('RFPulseNames'))
+        if pulse:                             # header names a hyperbolic-secant AFP
+            mandatory['Path to Pulse'], mandatory['RefTp'] = pulse
+        return mandatory, optional
 
     def _stage_pulse(self, params):
         pulse_src = params.get('Path to Pulse')

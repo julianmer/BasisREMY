@@ -349,3 +349,13 @@ def resolve_pulse(spec, workdir: str) -> str:
     if not os.path.exists(path):
         factory().write(path)
     return path
+
+
+def siemens_refocusing(pulse_names):
+    """Standard refocusing pulse and duration for the pulse slots a Siemens twix header names
+    (sTXSPEC.aRFPULSE[].tName; no waveforms or durations there). Only the hyperbolic-secant
+    family (CMRR semi-LASER 'hsn_sl' / 'hsn_ph') differs from the backends' defaults; None
+    otherwise."""
+    if any(str(n).lower().startswith('hsn') for n in pulse_names or ()):
+        return 'standard:hs4-ref', 3.5
+    return None

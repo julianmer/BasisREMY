@@ -20,6 +20,7 @@ import numpy as np
 
 from basisremy.backends.base import Backend
 from basisremy.backends.fida_backends import _DEFAULT_FIDA_METABS, _shaped_params
+from basisremy.core.pulse_library import siemens_refocusing
 
 
 class _SpinachRuntime(Backend):
@@ -239,6 +240,13 @@ class SpinachSemiLaserShaped(_SpinachRuntime):
 
     def parseProtocol(self, protocol):
         return 'sLASER' if 'laser' in str(protocol or '').lower() else None
+
+    def parseREMY(self, MRSinMRS):
+        mandatory, optional = super().parseREMY(MRSinMRS)
+        pulse = siemens_refocusing(MRSinMRS.get('RFPulseNames'))
+        if pulse:                             # header names a hyperbolic-secant AFP
+            mandatory['Path to Pulse'], mandatory['RefTp'] = pulse
+        return mandatory, optional
 
     def _build_args(self, params):
         return ['semilaser_shaped',
