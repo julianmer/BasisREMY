@@ -11,14 +11,18 @@
 #          per-field panel are rendered from.                                                      #
 #                                                                                                  #
 #          python -m tests.validation.capability [--no-sim] [--engines FID-A,spant] [--out x.csv]  #
-#          --all-data adds every other scan under example_data (BigGABA, spec2nii tests, ...);     #
-#          --shard i/N runs every N-th dataset so N processes can share the work.                  #
+#          --all-data adds every other scan under example_data (BigGABA, spec2nii tests, ...),     #
+#          one per source (Big GABA site, spec2nii test set, REMY test set), vendor, format,       #
+#          sequence, scanner software and field; --shard i/N runs every N-th dataset so N          #
+#          processes can share the work.                                                           #
 #                                                                                                  #
 ####################################################################################################
 
 import argparse
+import contextlib
 import csv
 import glob
+import io
 import os
 import re
 import sys
@@ -75,6 +79,8 @@ def _kind(path):
     if n.endswith('.spar'):
         return 'Philips SPAR', 'Philips'
     if n.endswith('.dat'):
+        if os.path.exists(os.path.join(os.path.dirname(path), 'acqp')):
+            return None                                      # a Bruker scan's own .dat files
         return 'Siemens twix', 'Siemens'
     if n.endswith('.ima'):
         return 'Siemens DICOM', 'Siemens'
@@ -91,9 +97,61 @@ def _kind(path):
     return None
 
 
+_SPECTRUM_SOP = {'1.2.840.10008.5.1.4.1.1.4.2',     # MR Spectroscopy Storage
+                 '1.3.12.2.1107.5.9.1',             # Siemens CSA non-image (spectroscopy before XA)
+                 '1.3.46.670589.11.0.0.12.1'}       # Philips private MR spectrum
+
+
+def _is_spectrum(path, fmt):
+    """Bruker method files and DICOMs that hold an image, not a spectrum, are not datasets."""
+    if fmt == 'Bruker method':
+        with open(path, errors='ignore') as f:
+            return '$PVM_SpecSWH' in f.read()
+    if fmt.endswith('(.dcm)'):
+        import pydicom
+        return str(pydicom.dcmread(path, stop_before_pixels=True).get('SOPClassUID', '')) in _SPECTRUM_SOP
+    return True
+
+
+def _source(dataset):
+    """Where a scan outside REMY_tests comes from: its Big GABA site, its spec2nii test set, or
+    its top folder."""
+    parts = dataset.split('/')
+    site = re.search(r'(?<![A-Za-z0-9])([GPS]\d)_?P(?![A-Za-z0-9])', dataset)
+    if parts[0].startswith('BigGABA') and site:
+        return f'Big GABA {site.group(1)}'
+    if parts[0] == 'spec2nii_tests':
+        return '/'.join(parts[:3])
+    return parts[0]
+
+
+def _scan_type(br, row):
+    """(source, vendor, format, SVS / MRSI, scanner software, field, sequence) of a scan, from
+    its header (SVS / MRSI from its path); the protocol name stands in for a sequence the
+    recogniser does not know. Files that do not read group per source, format and SVS / MRSI;
+    a header that tells none of these keeps its folder."""
+    mrsi = 'MRSI' if re.search(r'mrsi|csi', row['file'], re.I) else 'SVS'
+    base = (row['source'], row['vendor'], row['format'], mrsi)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            m = br.runREMY(import_fpath=row['file'])
+    except Exception:                               # noqa: BLE001
+        return base + ('read-fail',)
+    seq = recognise(m.get('Protocol'), m.get('Sequence'))
+    try:
+        field = round(float(m.get('B0')), 1)
+    except (TypeError, ValueError):
+        field = ''
+    kind = (str(m.get('SoftwareVersion') or '').strip(), field,
+            seq if seq != 'unknown' else str(m.get('Protocol') or ''))
+    return base + (kind if any(kind) else (os.path.dirname(row['file']),))
+
+
 def discover_all():
-    """REMY_tests plus every other scan under example_data (one file per scan)."""
-    rows, series = discover(), set()
+    """REMY_tests plus every other scan under example_data, one per source, vendor, format,
+    scanner software, field and sequence (the first in path order: subject S01 of a Big GABA
+    site). Repeats of the same acquisition add nothing."""
+    rows, series = [dict(r, source='REMY_tests') for r in discover()], set()
     files = list(EXTRA_FILES)
     for root in EXTRA_ROOTS:
         for dirpath, _dirs, names in sorted(os.walk(root)):
@@ -102,13 +160,22 @@ def discover_all():
         kind = _kind(path)
         if not kind or not os.path.exists(path) or _WATER.search(os.path.basename(path)):
             continue
+        if not _is_spectrum(path, kind[0]):
+            continue
         if kind[0].endswith('DICOM') or kind[0].endswith('(.dcm)'):
             if os.path.dirname(path) in series:
                 continue
             series.add(os.path.dirname(path))
-        rows.append({'dataset': os.path.relpath(path, 'example_data'), 'format': kind[0], 'vendor': kind[1],
-                     'file': path})
-    return rows
+        dataset = os.path.relpath(path, 'example_data')
+        rows.append({'dataset': dataset, 'format': kind[0], 'vendor': kind[1], 'file': path,
+                     'source': _source(dataset)})
+    br, seen, keep = BasisREMY('FidaIdeal'), set(), []
+    for r in rows:
+        key = _scan_type(br, r)
+        if key not in seen:
+            seen.add(key)
+            keep.append(r)
+    return keep
 
 
 # ---- sequence recogniser (harness only; the product one lives in Gusteau) --------------------------
