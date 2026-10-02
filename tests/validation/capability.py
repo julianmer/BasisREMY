@@ -6,10 +6,13 @@
 #          entry (engine x pulse model) measure three levels: the file reads, the fields that      #
 #          entry marks mandatory are all filled from the header ("complete"), and one metabolite   #
 #          simulates - with no typing ("auto") or after the blanks were filled with the            #
-#          completion rules below ("completed"). Rows go to a CSV that the poster table and the    #
+#          completion rules below ("completed"); a blank no rule fills (a vendor pulse file) is    #
+#          "needs-input" and is not simulated. Rows go to a CSV that the poster table and the      #
 #          per-field panel are rendered from.                                                      #
 #                                                                                                  #
 #          python -m tests.validation.capability [--no-sim] [--engines FID-A,spant] [--out x.csv]  #
+#          --all-data adds every other scan under example_data (BigGABA, spec2nii tests, ...);     #
+#          --shard i/N runs every N-th dataset so N processes can share the work.                  #
 #                                                                                                  #
 ####################################################################################################
 
@@ -53,6 +56,58 @@ def discover():
         if '_ecc' in f or '_quant' in f:            # companions of the same dataset
             continue
         rows.append({'dataset': os.path.basename(f), 'format': 'NIfTI-MRS', 'vendor': 'NIfTI-MRS', 'file': f})
+    return rows
+
+
+# every scan under example_data outside REMY_tests (--all-data); water references are not datasets
+EXTRA_ROOTS = ['example_data/BigGABA', 'example_data/BigGABA_G1P_S01', 'example_data/BigGABA_P1P_S01',
+               'example_data/BigGABA_S1P_S01', 'example_data/spec2nii_tests', 'example_data/pulseq_tutorial']
+EXTRA_FILES = ['example_data/example_data.nii.gz']
+_WATER = re.compile(r'_ref\b|_ref\.|h2o|wref|ws_off|unsup', re.I)
+
+
+def _kind(path):
+    """(format, vendor) of a data file from its name, None for anything else. spec2nii's
+    NIfTI outputs are not separate scans; DICOM is one file per series directory."""
+    n, parts = path.lower(), path.lower().split(os.sep)
+    if n.endswith('.7'):
+        return 'GE P-file', 'GE'
+    if n.endswith('.spar'):
+        return 'Philips SPAR', 'Philips'
+    if n.endswith('.dat'):
+        return 'Siemens twix', 'Siemens'
+    if n.endswith('.ima'):
+        return 'Siemens DICOM', 'Siemens'
+    if n.endswith('.rda'):
+        return 'Siemens RDA', 'Siemens'
+    if os.path.basename(n) == 'method':
+        return 'Bruker method', 'Bruker'
+    if n.endswith(('.nii.gz', '.nii')) and 'spec2nii_tests' not in parts:
+        return 'NIfTI-MRS', 'NIfTI-MRS'
+    if n.endswith('.dcm') and 'pdata' not in parts:          # Bruker pdata DICOMs are images
+        vendor = next((v for k, v in (('philips', 'Philips'), ('ge', 'GE'), ('siemens', 'Siemens')) if k in parts),
+                      'unknown')
+        return f'{vendor} DICOM (.dcm)', vendor
+    return None
+
+
+def discover_all():
+    """REMY_tests plus every other scan under example_data (one file per scan)."""
+    rows, series = discover(), set()
+    files = list(EXTRA_FILES)
+    for root in EXTRA_ROOTS:
+        for dirpath, _dirs, names in sorted(os.walk(root)):
+            files += [os.path.join(dirpath, n) for n in sorted(names)]
+    for path in files:
+        kind = _kind(path)
+        if not kind or not os.path.exists(path) or _WATER.search(os.path.basename(path)):
+            continue
+        if kind[0].endswith('DICOM') or kind[0].endswith('(.dcm)'):
+            if os.path.dirname(path) in series:
+                continue
+            series.add(os.path.dirname(path))
+        rows.append({'dataset': os.path.relpath(path, 'example_data'), 'format': kind[0], 'vendor': kind[1],
+                     'file': path})
     return rows
 
 
@@ -189,6 +244,10 @@ def evaluate(ds, entry, simulate=True):
         return row
     params, filled = complete(params, blanks, row['sequence'], ds['vendor'])
     row['filled'] = ';'.join(filled)
+    left = [k for k in blanks if k not in filled]
+    if left:                                        # the GUI blocks Simulate here too
+        row.update(level='needs-input', error=f"no fill for {';'.join(left)}", seconds=time.time() - t0)
+        return row
     params.update({k: v for k, v in SPEED.items() if k in params})
     keys = translate_metabolites(['NAA'], b.metabs.keys())
     params['Metabolites'] = keys or list(b.metabs.keys())[:1]
@@ -217,6 +276,8 @@ def main(argv=None):
     ap.add_argument('--engines', default='', help='comma list of engine labels to run')
     ap.add_argument('--datasets', default='', help='substring filter on the dataset name')
     ap.add_argument('--fresh', action='store_true', help='ignore rows already in the CSV')
+    ap.add_argument('--all-data', action='store_true', help='every scan under example_data')
+    ap.add_argument('--shard', default='', help='i/N: run every N-th dataset, starting at i')
     a = ap.parse_args(argv)
     engines = [e for e in a.engines.split(',') if e]
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
@@ -231,7 +292,11 @@ def main(argv=None):
         w = csv.DictWriter(f, fieldnames=fields)
         if new:
             w.writeheader()
-        for ds in discover():
+        datasets = discover_all() if a.all_data else discover()
+        if a.shard:
+            i, n = (int(x) for x in a.shard.split('/'))
+            datasets = datasets[i::n]
+        for ds in datasets:
             if a.datasets and a.datasets not in ds['dataset']:
                 continue
             for entry in ENTRIES:
