@@ -27,6 +27,7 @@ dependencies = [
     "pandas==2.3.3",
     "pillow>=10.0.0",
     "pyMapVBVD==0.6.1",
+    "pypulseq>=1.4.2",
     "scipy>=1.10.0",
     "spec2nii==0.8.7",
     "nicegui>=2.0.0",

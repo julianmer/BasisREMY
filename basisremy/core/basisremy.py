@@ -352,6 +352,19 @@ class BasisREMY:
 
         return MRSinMRS_unif
 
+    def load_sequence(self, seq_path):
+        # Fill the sheet from a Pulseq (.seq) file of the acquisition: switch to the
+        # FID-A shaped backend for its sequence (PRESS / semi-LASER) and take TE, the
+        # PRESS echo split, the refocusing waveform, its duration, flip angle, slabs and
+        # the readout from the file. B0 and the rest stay as read from the data header.
+        from basisremy.core import pulseq
+        info = pulseq.read_seq(seq_path)
+        kind = pulseq.sequence_type(info)
+        self.set_backend('FidaPressShaped' if kind == 'PRESS' else 'FidaSemiLaserShaped')
+        _, params = pulseq.sheet_params(seq_path, self.backend.ensure_workdir())
+        self.backend.mandatory_params.update(params)
+        return params
+
     @staticmethod
     def _freq_mhz(value):
         # Normalize a spectrometer frequency to MHz ('Center Freq' is MHz
