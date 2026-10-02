@@ -84,6 +84,66 @@ def test_basisremy_load_sequence(tmp_path):
     assert os.path.exists(br.backend.mandatory_params['Path to Pulse'])
 
 
+def _slaser(path, te_ms=40.0, shift_ms=0.0, samples=1024, dwell=250e-6):
+    """semi-LASER: sinc 90 (x) + four HS1 adiabatic 180s (y, y, z, z) at TE/8, 3TE/8, 5TE/8,
+    7TE/8, played as arbitrary waveforms without a 'use' tag; shift_ms moves the 2nd pulse."""
+    from basisremy.core.pulse_library import hsn
+    sys = pp.Opts(max_grad=30, grad_unit='mT/m', max_slew=120, slew_unit='T/m/s',
+                  rf_ringdown_time=20e-6, rf_dead_time=100e-6, adc_dead_time=10e-6)
+    seq = pp.Sequence(sys)
+    exc, gx, _ = pp.make_sinc_pulse(flip_angle=math.pi / 2, duration=2.6e-3, slice_thickness=0.02,
+                                    time_bw_product=8, system=sys, return_gz=True, use='excitation')
+    gx.channel = 'x'
+    afp = hsn(4.5, 15.0, order=1, n=450)
+    signal = 700.0 * afp.waveform[:, 1] * np.exp(1j * np.deg2rad(afp.waveform[:, 0]))   # Hz
+    raster = sys.block_duration_raster
+    blocks = [(exc, gx)]
+    for thk, ch in ((0.03, 'y'), (0.03, 'y'), (0.04, 'z'), (0.04, 'z')):
+        g = pp.make_trapezoid(channel=ch, amplitude=15.0 / 4.5e-3 / thk,
+                              flat_time=math.ceil(4.5e-3 / raster) * raster, system=sys)
+        rf = pp.make_arbitrary_rf(signal, flip_angle=math.pi, dwell=1e-5, no_signal_scaling=True,
+                                  delay=g.rise_time, system=sys)
+        blocks.append((rf, g))
+    centre = lambda rf: rf.delay + pp.calc_rf_center(rf)[0]           # noqa: E731
+    t0 = centre(exc)
+    targets = [t0 + k * te_ms / 8e3 for k in (1, 3, 5, 7)]
+    targets[1] += shift_ms / 1e3
+    seq.add_block(*blocks[0])
+    t = pp.calc_duration(*blocks[0])
+    for (rf, g), target in zip(blocks[1:], targets):
+        wait = round((target - centre(rf) - t) / raster) * raster
+        seq.add_block(pp.make_delay(wait))
+        seq.add_block(rf, g)
+        t += wait + pp.calc_duration(rf, g)
+    seq.add_block(pp.make_delay(round((t0 + te_ms / 1e3 - t) / raster) * raster))
+    seq.add_block(pp.make_adc(num_samples=samples, dwell=dwell, system=sys))
+    seq.write(str(path))
+    return path
+
+
+def test_semilaser_from_seq(tmp_path):
+    info = pulseq.read_seq(str(_slaser(tmp_path / 'slaser.seq')))
+    assert pulseq.sequence_type(info) == 'sLASER'
+    assert [r.role for r in info.rf] == ['exc', 'ref', 'ref', 'ref', 'ref']
+    assert [r.adiabatic for r in info.rf] == [False, True, True, True, True]
+    assert [r.slab_axis for r in info.rf] == ['x', 'y', 'y', 'z', 'z']
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', UserWarning)                     # FID-A spacing: no warning
+        backend, p = pulseq.sheet_params(str(tmp_path / 'slaser.seq'), str(tmp_path / 'work'))
+    assert backend == 'FidaSemiLaserShaped'
+    assert p['TE'] == pytest.approx(40.0, abs=0.02)
+    assert (p['RefTp'], p['Flip Angle'], p['Samples'], p['Bandwidth']) == (4.5, 180.0, 1024, 4000.0)
+    assert p['thkY'] / p['thkX'] == pytest.approx(4 / 3, rel=0.01)
+    assert 'Tau 1' not in p
+
+
+def test_semilaser_off_spacing_warns(tmp_path):
+    path = str(_slaser(tmp_path / 'shifted.seq', shift_ms=1.0))
+    with pytest.warns(UserWarning, match='spacing'):
+        pulseq.sheet_params(path, str(tmp_path / 'work'))
+
+
 def test_unsupported_sequence_raises(tmp_path):
     sys = pp.Opts()
     seq = pp.Sequence(sys)
