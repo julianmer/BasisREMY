@@ -144,6 +144,36 @@ def test_semilaser_off_spacing_warns(tmp_path):
         pulseq.sheet_params(path, str(tmp_path / 'work'))
 
 
+def _tutorial(example_data_dir, name):
+    """Pulseq tutorial file (Git LFS); skip when absent or still an LFS pointer."""
+    path = os.path.join(example_data_dir, 'pulseq_tutorial', name)
+    if not os.path.exists(path):
+        pytest.skip(f'{name} not found')
+    with open(path, 'rb') as f:
+        if f.read(40).startswith(b'version https://git-lfs'):
+            pytest.skip(f'{name} is a Git LFS pointer (run git lfs pull)')
+    return path
+
+
+def test_tutorial_press_echo_matches_the_measurement(example_data_dir):
+    """Pulseq tutorial PRESS (CC0): TE and the echo split from the .seq file, and the echo
+    position they predict in the readout against the echo in the TWIX of the same scan."""
+    info = pulseq.read_seq(_tutorial(example_data_dir, '06_PRESS_center.seq'))
+    assert pulseq.sequence_type(info) == 'PRESS'
+    assert pulseq.echo_ms(info) == pytest.approx(119.98, abs=0.01)
+    exc = info.rf[0]
+    predicted = (exc.centre_ms + pulseq.echo_ms(info) - info.adc_start_ms) / (info.dwell_s * 1e3)
+    mapvbvd = pytest.importorskip('mapvbvd')
+    tw = mapvbvd.mapVBVD(_tutorial(example_data_dir, '06_PRESS_center.dat'), quiet=True)
+    tw = tw[-1] if isinstance(tw, list) else tw
+    tw.image.squeeze = True
+    tw.image.flagRemoveOS = False                                 # keep the 4096 ADC samples
+    data = np.asarray(tw.image[''])
+    assert data.shape[0] == info.samples
+    measured = int(np.argmax(np.abs(data.reshape(info.samples, -1)).sum(axis=1)))
+    assert abs(measured - predicted) < 4                          # 800.8 vs 803 (fat/water phantom)
+
+
 def test_unsupported_sequence_raises(tmp_path):
     sys = pp.Opts()
     seq = pp.Sequence(sys)
