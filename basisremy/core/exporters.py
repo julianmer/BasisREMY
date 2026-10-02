@@ -37,7 +37,7 @@ import numpy as np
 
 SUPPORTED_FORMATS = (
     "lcmodel_basis",   # single .basis file
-    "lcmodel_raw",     # folder of <metab>.raw files (kbsct naming)
+    "lcmodel_raw",     # folder of <metab>.raw files (basic naming)
     "jmrui_txt",       # folder of <metab>.txt files
     "fsl_json",        # folder of <metab>.json files (FSL-MRS basis dir)
     "osprey_mat",      # single .mat with Osprey-style BASIS struct
@@ -372,14 +372,14 @@ def _ensure_dir(p: str) -> None:
         os.makedirs(p, exist_ok=True)
 
 
-# ---- kbsct conversion toolbox bridge ---------------------------------------
+# ---- basic conversion toolbox bridge ---------------------------------------
 # All on-disk format writing is delegated to the MRS Basis Set Conversion
-# Toolbox (vendored as the ``kbsct`` git submodule under ``externals/``).
+# Toolbox (vendored as the ``basic`` git submodule under ``externals/``).
 # BasisREMY only adapts its ``{name: complex FID}`` representation into the
 # toolbox's per-metabolite "core" struct and calls the toolbox's tested writers,
 # so the exported files match that community-validated implementation.
 
-_KBSCT_WRITER_FILES = {
+_BASIC_WRITER_FILES = {
     "lcmodel":   "write_lcmodel.py",
     "jmrui":     "write_jmrui.py",
     "fslmrs":    "write_fsLmrs.py",
@@ -392,13 +392,13 @@ _KBSCT_WRITER_FILES = {
     "spinwizard": "write_spinwizard.py",
 }
 
-_KBSCT_MODULE_CACHE: dict[str, Any] = {}
+_BASIC_MODULE_CACHE: dict[str, Any] = {}
 
 
-def _kbsct_writers_dir() -> str:
+def _basic_writers_dir() -> str:
     """Locate the toolbox ``writers/`` directory, fetching it if needed."""
     from basisremy.core.externals import ensure
-    root = ensure("kbsct")
+    root = ensure("basic")
     preferred = os.path.join(root, "basis_converter", "writers")
     if os.path.isfile(os.path.join(preferred, "write_lcmodel.py")):
         return preferred
@@ -407,27 +407,27 @@ def _kbsct_writers_dir() -> str:
     for dirpath, _dirs, files in os.walk(root):
         if os.path.basename(dirpath) == "writers" and "write_lcmodel.py" in files:
             return dirpath
-    raise RuntimeError(f"Could not find the kbsct 'writers' directory under {root}.")
+    raise RuntimeError(f"Could not find the basic 'writers' directory under {root}.")
 
 
-def _kbsct(module_key: str):
-    """Import a kbsct writer module by file path (cached)."""
-    mod = _KBSCT_MODULE_CACHE.get(module_key)
+def _basic(module_key: str):
+    """Import a basic writer module by file path (cached)."""
+    mod = _BASIC_MODULE_CACHE.get(module_key)
     if mod is not None:
         return mod
     import importlib.util
-    fpath = os.path.join(_kbsct_writers_dir(), _KBSCT_WRITER_FILES[module_key])
-    spec = importlib.util.spec_from_file_location(f"kbsct_{module_key}", fpath)
+    fpath = os.path.join(_basic_writers_dir(), _BASIC_WRITER_FILES[module_key])
+    spec = importlib.util.spec_from_file_location(f"basic_{module_key}", fpath)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load kbsct writer module at {fpath}.")
+        raise RuntimeError(f"Could not load basic writer module at {fpath}.")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    _KBSCT_MODULE_CACHE[module_key] = mod
+    _BASIC_MODULE_CACHE[module_key] = mod
     return mod
 
 
 def _to_core_list(basis: dict[str, np.ndarray], hdr: dict[str, Any]) -> list[dict]:
-    """Adapt a BasisREMY basis dict into kbsct 'core' structs.
+    """Adapt a BasisREMY basis dict into basic 'core' structs.
 
     Each core carries the keys the toolbox writers expect:
     ``fid`` (complex FID), ``sw`` (spectral width, Hz), ``sf`` (Larmor
@@ -445,7 +445,7 @@ def _to_core_list(basis: dict[str, np.ndarray], hdr: dict[str, Any]) -> list[dic
 # ---- LCModel .RAW per metabolite -------------------------------------------
 
 def _write_lcmodel_raw_folder(basis, out_dir, hdr, params):
-    _kbsct("lcmodel").write_lcmodel_raw_folder(_to_core_list(basis, hdr), out_dir)
+    _basic("lcmodel").write_lcmodel_raw_folder(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- LCModel .basis (single file) ------------------------------------------
@@ -454,7 +454,7 @@ def _write_lcmodel_basis(basis, out_file, hdr, params):
     if not out_file.lower().endswith(".basis"):
         out_file = out_file + ".basis"
     seq = sequence_label(params) or "PRESS"
-    _kbsct("lcmodel").write_lcmodel_basis(
+    _basic("lcmodel").write_lcmodel_basis(
         _to_core_list(basis, hdr), out_file,
         te=hdr["echotime"], seq=seq,
         description=f"BasisREMY {seq} basis",
@@ -464,13 +464,13 @@ def _write_lcmodel_basis(basis, out_file, hdr, params):
 # ---- jMRUI text format -----------------------------------------------------
 
 def _write_jmrui_folder(basis, out_dir, hdr, params):
-    _kbsct("jmrui").write_jmrui_folder(_to_core_list(basis, hdr), out_dir)
+    _basic("jmrui").write_jmrui_folder(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- FSL-MRS JSON basis directory ------------------------------------------
 
 def _write_fsl_json_folder(basis, out_dir, hdr, params):
-    _kbsct("fslmrs").write_fsLmrs_folder(_to_core_list(basis, hdr), out_dir)
+    _basic("fslmrs").write_fsLmrs_folder(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- Osprey .mat ------------------------------------------------------------
@@ -483,7 +483,7 @@ def _write_osprey_mat(basis, out_file, hdr, params):
     if not out_file.lower().endswith(".mat"):
         out_file = out_file + ".mat"
     _ensure_dir(os.path.dirname(out_file))
-    _kbsct("osprey").write_osprey(
+    _basic("osprey").write_osprey(
         _to_core_list(basis, hdr), out_file,
         target_n=0, add_mm=False,
         te=float(hdr["echotime"] or 0.0),
@@ -494,7 +494,7 @@ def _write_osprey_mat(basis, out_file, hdr, params):
 # ---- FID-A .mat (one file per metabolite) ----------------------------------
 
 def _write_fida_folder(basis, out_dir, hdr, params):
-    _kbsct("fida").write_fida_folder(_to_core_list(basis, hdr), out_dir)
+    _basic("fida").write_fida_folder(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- INSPECTOR .mat (single file) ------------------------------------------
@@ -502,7 +502,7 @@ def _write_fida_folder(basis, out_dir, hdr, params):
 def _write_inspector_mat(basis, out_file, hdr, params):
     if not out_file.lower().endswith(".mat"):
         out_file = out_file + ".mat"
-    _kbsct("inspector").write_inspector(_to_core_list(basis, hdr), out_file)
+    _basic("inspector").write_inspector(_to_core_list(basis, hdr), out_file)
 
 
 # ---- ProFit .mat (single file) ---------------------------------------------
@@ -510,25 +510,25 @@ def _write_inspector_mat(basis, out_file, hdr, params):
 def _write_profit_mat(basis, out_file, hdr, params):
     if not out_file.lower().endswith(".mat"):
         out_file = out_file + ".mat"
-    _kbsct("profit").write_profit(_to_core_list(basis, hdr), out_file)
+    _basic("profit").write_profit(_to_core_list(basis, hdr), out_file)
 
 
 # ---- MARSS .mat (one file per metabolite) ----------------------------------
 
 def _write_marss_folder(basis, out_dir, hdr, params):
-    _kbsct("marss").write_marss_folder(_to_core_list(basis, hdr), out_dir)
+    _basic("marss").write_marss_folder(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- MRSCloud .mat (one file per metabolite) -------------------------------
 
 def _write_mrscloud_folder(basis, out_dir, hdr, params):
-    _kbsct("mrscloud").write_mrscloud_folder(_to_core_list(basis, hdr), out_dir)
+    _basic("mrscloud").write_mrscloud_folder(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- SpinWizard / JET (folder of two-column ASCII files) -------------------
 
 def _write_spinwizard_folder(basis, out_dir, hdr, params):
-    _kbsct("spinwizard").write_spinwizard(_to_core_list(basis, hdr), out_dir)
+    _basic("spinwizard").write_spinwizard(_to_core_list(basis, hdr), out_dir)
 
 
 # ---- Reproducibility sidecar -----------------------------------------------

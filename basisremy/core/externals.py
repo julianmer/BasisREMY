@@ -42,7 +42,7 @@ REGISTRY: dict[str, tuple[str, str]] = {
     ),
     # MRS Basis Set Conversion Toolbox — used by core.exporters to write the
     # various basis-set formats (LCModel / jMRUI / FSL-MRS / Osprey).
-    "kbsct": (
+    "basic": (
         "https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox.git",
         "53925137e29fbefd6582171595af59665edd3f9f",
     ),

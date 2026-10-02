@@ -158,7 +158,7 @@ class TestExportFormats:
             text = f.read()
         assert ' $SEQPAR' in text
         assert ' $BASIS1' in text
-        # kbsct writes a $NMUSED fitting-defaults block + a $BASIS block per metab
+        # basic writes a $NMUSED fitting-defaults block + a $BASIS block per metab
         assert ' $NMUSED' in text
         assert text.count(' $BASIS\n') == 2
         assert "ID='NAA'" in text
@@ -175,7 +175,7 @@ class TestExportFormats:
         out = export(_synthetic_basis(), str(out_dir), 'lcmodel_raw', params)
         assert os.path.isdir(out)
         for name in ('NAA', 'Cr'):
-            fp = out_dir / f'{name}.raw'   # kbsct writes lowercase .raw
+            fp = out_dir / f'{name}.raw'   # basic writes lowercase .raw
             assert fp.exists(), f'{name}.raw missing'
             assert ' $NMID' in fp.read_text()
         assert (out_dir / 'basis_sidecar.json').exists()
@@ -198,7 +198,7 @@ class TestExportFormats:
     def test_fsl_json_folder(self, tmp_path, params):
         out_dir = tmp_path / 'fsl'
         export(_synthetic_basis(), str(out_dir), 'fsl_json', params)
-        # kbsct FSL-MRS writer produces one <metab>.json per metabolite, each
+        # basic FSL-MRS writer produces one <metab>.json per metabolite, each
         # holding a 'basis' block (real/imag FID) and a 'meta' block.
         json_files = [f for f in out_dir.glob('*.json')
                       if f.name != 'basis_sidecar.json']
@@ -222,7 +222,7 @@ class TestExportFormats:
         # struct keys
         for required in ('fids', 'specs', 'name', 'ppm', 'Bo', 'centerFreq', 'n'):
             assert required in b, f"Osprey BASIS struct missing key {required!r}"
-        # fids shape: (npts, nmetabs). The kbsct Osprey writer appends a
+        # fids shape: (npts, nmetabs). The basic Osprey writer appends a
         # synthetic H2O peak, so there is at least one column per input metab.
         assert b['fids'].shape[0] == 64
         assert b['fids'].shape[1] >= 2
