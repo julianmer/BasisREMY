@@ -111,6 +111,17 @@ class TestBasisREMYIntegration:
         assert 100.0 < float(params['TR']) < 20000.0
         assert int(params['NumberOfDatapoints']) > 0
 
+    def test_remy_nifti_voxel_and_averages_from_the_image(self, example_data_dir):
+        """Voxel sizes (pixdim, by axis code) and averages (DIM_DYN length) come from the image."""
+        f = os.path.join(example_data_dir, 'REMY_tests', 'Datasets_nifti',
+                         'Dataset_12_Philips_SPAR_3T_PRESS_Ref.nii.gz')
+        if not os.path.exists(f):
+            pytest.skip("NIfTI example not found")
+        params = BasisREMY().runREMY(import_fpath=f)
+        assert (params['LeftRightSize'], params['AnteriorPosteriorSize'],
+                params['CranioCaudalSize']) == (15.0, 30.0, 10.0)
+        assert params['NumberOfAverages'] == 2
+
     def test_field_follows_the_spectrometer_frequency(self, example_data_dir):
         """B0 is derived from the header frequency, unrounded (REMY rounds to 2 dp)."""
         f = os.path.join(example_data_dir, 'BigGABA_S1P_S01', 'S01_PRESS_35.dat')

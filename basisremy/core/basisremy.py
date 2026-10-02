@@ -312,6 +312,7 @@ class BasisREMY:
                 MRSinMRS.setdefault('NumberOfDatapoints', int(NIFTI_MRS(import_fpath).shape[3]))
             except Exception:
                 pass
+            MRSinMRS.update(self._nifti_voxel_and_averages(import_fpath))
 
             vendor_selection = 'NIfTI'
         else:
@@ -363,6 +364,28 @@ class BasisREMY:
         except (TypeError, ValueError):
             return value
         return v / 1e6 if v > 1e6 else v
+
+    @staticmethod
+    def _nifti_voxel_and_averages(fpath):
+        # Voxel size and averages are not in the NIfTI-MRS header extension
+        # but in the image: the spatial pixdims (mm), assigned to LR / AP / CC
+        # by the affine's axis codes, and the length of the DIM_DYN dimension
+        # (the transients stored). No DIM_DYN: averages stay blank.
+        out = {}
+        try:
+            import nibabel as nib
+            from nifti_mrs.nifti_mrs import NIFTI_MRS
+            img = nib.load(fpath)
+            axis = {'L': 'lr_size', 'R': 'lr_size', 'A': 'ap_size', 'P': 'ap_size',
+                    'S': 'cc_size', 'I': 'cc_size'}
+            for code, size in zip(nib.aff2axcodes(img.affine), img.header.get_zooms()[:3]):
+                out[axis[code]] = round(float(size), 6)
+            mrs = NIFTI_MRS(fpath)
+            if 'DIM_DYN' in mrs.dim_tags:
+                out['averages'] = int(mrs.shape[4 + mrs.dim_tags.index('DIM_DYN')])
+        except Exception:
+            pass
+        return out
 
     def extract_more(self, MRSinMRS, vendor, dtype):
         # extract additional information from the raw MRSinMRS dict if possible
