@@ -220,13 +220,15 @@ def main(argv=None):
     a = ap.parse_args(argv)
     engines = [e for e in a.engines.split(',') if e]
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
-    done = set()
+    done, fields = set(), FIELDS
     if os.path.exists(a.out) and not a.fresh:
         with open(a.out) as f:
-            done = {(r['dataset'], r['backend'], r['pulse_model']) for r in csv.DictReader(f)}
+            rd = csv.DictReader(f)
+            done = {(r['dataset'], r['backend'], r['pulse_model']) for r in rd}
+            fields = rd.fieldnames or FIELDS          # append in the file's own column order
     new = not done
     with open(a.out, 'w' if new else 'a', newline='') as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS)
+        w = csv.DictWriter(f, fieldnames=fields)
         if new:
             w.writeheader()
         for ds in discover():
