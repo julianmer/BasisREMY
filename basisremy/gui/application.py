@@ -55,6 +55,16 @@ _UNSET = (None, "", "missing input", "Select option")
 _MRS_SUFFIXES = {".dat", ".ima", ".rda", ".spar", ".7", ".nii"}
 
 
+def _display_value(value) -> str:
+    # A sheet value as text: floats without float noise (a field derived from the
+    # frequency is 2.894812480916927 T). The stored value is untouched until edited.
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:.6f}".rstrip("0").rstrip(".")
+    return str(value)
+
+
 def _is_mrs_file(p: Path) -> bool:
     name = p.name.lower()
     if name.endswith(".nii.gz"):
@@ -159,9 +169,9 @@ body, .body--dark {{ background: var(--br-bg); color: var(--br-fg); }}
 .br-legend {{ border-left: 1px solid var(--br-line); }}
 .br-muted {{ color: var(--br-muted); }}
 
-/* keep fixed Quasar grey text readable in dark mode */
-.body--dark .text-grey-9, .body--dark .text-grey-8 {{ color: var(--br-fg) !important; }}
-.body--dark .text-grey-7, .body--dark .text-grey-6 {{ color: var(--br-muted) !important; }}
+/* theme text colours (Quasar's text-grey-* utilities are !important in a cascade
+   layer and cannot be overridden for dark mode, so labels use these instead) */
+.br-fg {{ color: var(--br-fg); }}
 
 /* ---- sleek numbered stepper ----------------------------------------- */
 .br-stepper {{ user-select: none; }}
@@ -959,7 +969,7 @@ class BasisREMYApp:
             with ui.element("div").classes("br-prow"):
                 label_with_help(key).classes("br-prow-label")
                 inp = ui.input(
-                    value="" if value is None else str(value),
+                    value=_display_value(value),
                 ).props("filled dense").classes("br-pfield")
                 inp.on_value_change(lambda e, k=key: self._update_param(k, e.value))
 
@@ -1129,7 +1139,7 @@ class BasisREMYApp:
             with ui.row().classes("items-center gap-2 no-wrap"):
                 ui.icon("info").classes("text-2xl").style("color:var(--br-primary)")
                 ui.label("Octave runtime required").classes(
-                    "text-lg font-bold text-grey-9"
+                    "text-lg font-bold br-fg"
                 )
             with ui.scroll_area().classes("w-full h-96").style(
                 "border:1px solid var(--br-line);border-radius:12px;"
@@ -1152,13 +1162,13 @@ class BasisREMYApp:
                 ) as self._progress_box:
                     ui.spinner("dots", size="lg").style("color:var(--br-primary)")
                     self.sim_status = ui.label("Simulating basis set…").classes(
-                        "text-base font-semibold text-grey-9"
+                        "text-base font-semibold br-fg"
                     )
                     self.progress = ui.linear_progress(
                         value=0, show_value=False
                     ).classes("w-full").props("instant-feedback rounded size=8px")
                     self.progress_label = ui.label("0%").classes(
-                        "text-sm text-grey-6"
+                        "text-sm br-muted"
                     )
                 self.results_container = ui.column().classes("w-full gap-4")
             ui.element("div").classes("br-hairline")
@@ -1286,7 +1296,7 @@ class BasisREMYApp:
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("error").classes("text-2xl").style("color:#c2453c")
                     ui.label("Simulation failed — see the console for details.").classes(
-                        "text-sm font-semibold text-grey-9"
+                        "text-sm font-semibold br-fg"
                     )
             print(f"Simulation error: {self._sim_error}")
             return
@@ -1307,7 +1317,7 @@ class BasisREMYApp:
             with ui.row().classes("items-center gap-2 self-start"):
                 ui.icon("check_circle").classes("text-xl").style("color:#3f8f5b")
                 ui.label("Basis set ready").classes(
-                    "text-base font-bold text-grey-9"
+                    "text-base font-bold br-fg"
                 )
 
             # Edited sequences return '<metab> (TAG)' entries (ON / OFF /
@@ -1320,7 +1330,7 @@ class BasisREMYApp:
             if subs:
                 with ui.row().classes("items-center gap-4 self-start"):
                     ui.label("Sub-spectrum:").classes(
-                        "text-sm font-semibold text-grey-8")
+                        "text-sm font-semibold br-fg")
                     self._subspec_toggle = ui.toggle(
                         subs, value=subs[0]).props("dense")
                     self._subspec_toggle.on_value_change(
@@ -1334,7 +1344,7 @@ class BasisREMYApp:
                 with ui.row().classes("items-center gap-2 self-start"):
                     ui.icon("warning").classes("text-lg").style("color:#c2892e")
                     ui.label(f"Not simulated (see console): {names}").classes(
-                        "text-sm text-grey-8"
+                        "text-sm br-fg"
                     )
 
             with ui.row().classes("w-full no-wrap gap-6 items-start"):

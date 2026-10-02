@@ -156,7 +156,7 @@ def open_export_dialog(basis: dict, params: dict) -> None:
                     f"TE = {params.get('TE', '?')} ms · "
                     f"Sequence = {sequence_label(params) or '?'}")
 
-        info_label = ui.label(_summary()).classes("text-xs italic text-grey-7")
+        info_label = ui.label(_summary()).classes("text-xs italic br-muted")
         if subspec_select is not None:
             subspec_select.on_value_change(
                 lambda e: info_label.set_text(_summary(e.value)))

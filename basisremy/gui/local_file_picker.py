@@ -81,7 +81,7 @@ class LocalFilePicker(ui.dialog):
                 ui.button(icon="home", on_click=self._go_home) \
                     .props("flat dense round").tooltip("Home")
                 self._path_label = ui.label().classes(
-                    "text-xs text-grey-7 truncate grow"
+                    "text-xs br-muted truncate grow"
                 )
 
             # scrollable directory listing
