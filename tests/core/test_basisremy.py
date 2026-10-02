@@ -122,6 +122,17 @@ class TestBasisREMYIntegration:
                 params['CranioCaudalSize']) == (15.0, 30.0, 10.0)
         assert params['NumberOfAverages'] == 2
 
+    def test_remy_rda_vendor_and_ima_averages(self, example_data_dir):
+        """RDA (a Siemens-only format) reports the vendor; IMA averages come from the CSA header."""
+        import glob
+        tests = os.path.join(example_data_dir, 'REMY_tests')
+        rda = sorted(glob.glob(os.path.join(tests, 'Dataset_32_Siemens_RDA_PreOn', '*.rda')))
+        ima = sorted(glob.glob(os.path.join(tests, 'Dataset_22_Siemens_Dicom_7T', '*.IMA')))
+        if not rda or not ima:
+            pytest.skip("RDA / IMA examples not found")
+        assert BasisREMY().runREMY(import_fpath=rda[0])['Manufacturer'] == 'Siemens'
+        assert float(BasisREMY().runREMY(import_fpath=ima[0])['NumberOfAverages']) == 2.0
+
     def test_field_follows_the_spectrometer_frequency(self, example_data_dir):
         """B0 is derived from the header frequency, unrounded (REMY rounds to 2 dp)."""
         f = os.path.join(example_data_dir, 'BigGABA_S1P_S01', 'S01_PRESS_35.dat')

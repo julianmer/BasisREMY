@@ -858,6 +858,14 @@ class DataReaders():
 		except:
 			write_log(log, 'Data Read: Siemens Dicom - Could not get Spectral Width') 		# Log - Note Success
 
+		try: 																				# Averages: Siemens CSA image header
+			import pydicom 																	# (no standard DICOM tag in spectroscopy)
+			from nibabel.nicom import csareader
+			csa = csareader.get_csa_header(pydicom.dcmread(fname), 'image')
+			MRSinMRS['NumberOfAverages'] = float(csa['tags']['NumberOfAverages']['items'][0])
+		except Exception:
+			write_log(log, 'Data Read: Siemens Dicom - Number of Averages Not Found') 		# Log - averages not included
+
 
 		write_log(log, 'Data Read: Siemens Dicom - Returning MRSinMRS Dictionary') 			# Log - Note Success
 		return MRSinMRS, log 																# Return MRSinMRS Dictionary and Log
@@ -903,6 +911,7 @@ class DataReaders():
 		except:
 			write_log(log, 'Data Read: Siemens RDA - Could not get Spectral Width') 		# Log - Note Success
 
+		MRSinMRS['Manufacturer'] = 'Siemens' 												# RDA is a Siemens-only format
 		return MRSinMRS, log 																# Return MRSinMRS Dictionary and Log
 
 	def philips_spar(self, fname, log):
