@@ -941,6 +941,13 @@ class DataReaders():
 			except Exception as e:
 				print('{:3d}| {:<25} =  *** warning ***'.format(ii, spar_params_[ii], ))
 
+		try: 																				# One transient per row (averages 1,
+			if (int(float(MRSinMRS.get('dim2_pnts', 1))) == 1 and float(MRSinMRS['averages']) == 1 	# e.g. HERCULES exports):
+					and int(float(MRSinMRS.get('rows', 1))) > 1): 							# the rows are the averages
+				MRSinMRS['averages'] = int(float(MRSinMRS['rows']))
+		except (KeyError, TypeError, ValueError):
+			write_log(log, 'Data Read: Philips SPAR - Could not read averages from rows')
+
 		write_log(log, 'Data Read: Philips SPAR - Returning MRSinMRS Dictionary') 			# Log - Note Success
 		return MRSinMRS, log 																# Return MRSinMRS Dictionary
 

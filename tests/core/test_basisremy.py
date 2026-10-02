@@ -133,6 +133,18 @@ class TestBasisREMYIntegration:
         assert BasisREMY().runREMY(import_fpath=rda[0])['Manufacturer'] == 'Siemens'
         assert float(BasisREMY().runREMY(import_fpath=ima[0])['NumberOfAverages']) == 2.0
 
+    def test_remy_philips_averages_stored_per_row(self, example_data_dir):
+        """A SPAR with one transient per row (averages 1, rows 320: HERCULES export) reports the
+        rows as averages; a scanner-averaged one (averages 64, rows 2) keeps its 64."""
+        herc = os.path.join(example_data_dir, 'spec2nii_tests', 'philips', 'HERCULES_spar_sdat',
+                            'HERCULES_Example_noID.spar')
+        press = os.path.join(example_data_dir, 'REMY_tests', 'Dataset_13_Philips_SPAR_3T_PRESS_45_Act',
+                             'Dataset_13_Philips_SPAR_3T_PRESS_45_Act.SPAR')
+        if not (os.path.exists(herc) and os.path.exists(press)):
+            pytest.skip("Philips SPAR examples not found")
+        assert float(BasisREMY().runREMY(import_fpath=herc)['NumberOfAverages']) == 320
+        assert float(BasisREMY().runREMY(import_fpath=press)['NumberOfAverages']) == 64
+
     def test_field_follows_the_spectrometer_frequency(self, example_data_dir):
         """B0 is derived from the header frequency, unrounded (REMY rounds to 2 dp)."""
         f = os.path.join(example_data_dir, 'BigGABA_S1P_S01', 'S01_PRESS_35.dat')
