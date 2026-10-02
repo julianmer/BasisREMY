@@ -314,6 +314,7 @@ class BasisREMYApp:
 
         # selection / simulation state
         self.selected_file: str | None = None
+        self.seq_file: str | None = None      # optional Pulseq (.seq) file of the acquisition
         self.basis_set: dict | None = None
         self._basis_set_valid = False
 
@@ -541,6 +542,7 @@ class BasisREMYApp:
                 self._file_card()
             else:
                 self._dropzone()
+            self._seq_row()
 
     def _dropzone(self) -> None:
         drop = ui.column().classes(
@@ -578,10 +580,15 @@ class BasisREMYApp:
             return
         if self._current_step != "data":
             return
-        mrs = [p for p in paths if _is_mrs_file(Path(p))]
-        path = (mrs or paths)[0]
-        self.selected_file = path
-        set_state("last_import_dir", os.path.dirname(path))
+        seqs = [p for p in paths if p.lower().endswith(".seq")]
+        if seqs:
+            self.seq_file = seqs[0]
+        rest = [p for p in paths if p not in seqs]
+        if rest:
+            mrs = [p for p in rest if _is_mrs_file(Path(p))]
+            path = (mrs or rest)[0]
+            self.selected_file = path
+            set_state("last_import_dir", os.path.dirname(path))
         self.process_button.enable()
         self._render_data_body()
 
@@ -600,8 +607,63 @@ class BasisREMYApp:
 
     def _clear_file(self) -> None:
         self.selected_file = None
-        self.process_button.disable()
+        if not self.seq_file:
+            self.process_button.disable()
         self._render_data_body()
+
+    def _seq_row(self) -> None:
+        # Optional Pulseq sequence file: the timing, the refocusing pulse and the
+        # slabs then come from the sequence itself (core/pulseq.py).
+        if not self.seq_file:
+            ui.button("Add Pulseq sequence (.seq)", icon="add",
+                      on_click=self._pick_seq_file).props("flat dense color=primary").classes("self-center")
+            return
+        with ui.row().classes("br-filecard w-full items-center gap-3 no-wrap"):
+            with ui.element("div").classes("br-file-ic"):
+                ui.icon("timeline").classes("text-xl").style("color:var(--br-primary)")
+            with ui.column().classes("min-w-0 grow gap-0"):
+                ui.label(Path(self.seq_file).name).classes("text-sm font-semibold truncate w-full")
+                ui.label("Pulseq sequence: timing, pulses and slabs").classes(
+                    "text-xs br-muted truncate w-full")
+            ui.button(icon="close", on_click=self._clear_seq).props(
+                "flat round dense").classes("br-muted shrink-0")
+
+    def _clear_seq(self) -> None:
+        self.seq_file = None
+        if not self.selected_file:
+            self.process_button.disable()
+        self._render_data_body()
+
+    async def _pick_seq_file(self) -> None:
+        if LocalFilePicker.active() is not None:
+            return
+        start = get_state("last_import_dir") or "~"
+        if not isinstance(start, str) or (start != "~" and not os.path.isdir(start)):
+            start = "~"
+        path = await LocalFilePicker(start, title="Select Pulseq sequence file",
+                                     show_file=lambda p: p.suffix.lower() == ".seq")
+        if path:
+            self.seq_file = path
+            self.process_button.enable()
+            self._render_data_body()
+
+    def _apply_sequence_file(self) -> bool:
+        # Fill the sheet from the .seq file (switches to the FID-A shaped kind it
+        # describes); the reader's own warnings are shown, a failure keeps the step.
+        import warnings
+        try:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                params = self.BasisREMY.load_sequence(self.seq_file)
+        except Exception as exc:  # noqa: BLE001
+            ui.notify(f"Could not read the sequence file: {exc}", type="negative")
+            return False
+        for w in caught:
+            if "basisremy" in str(w.filename):
+                ui.notify(str(w.message), type="warning")
+        ui.notify(f"Sequence file: {self.BasisREMY.backend.display_name}, TE {params['TE']:g} ms — "
+                  "timing, pulse and slabs from the file.", type="positive")
+        return True
 
     async def _pick_data_file(self) -> None:
         if LocalFilePicker.active() is not None:
@@ -619,7 +681,7 @@ class BasisREMYApp:
             self._render_data_body()
 
     async def _process_file(self) -> None:
-        if not self.selected_file:
+        if not self.selected_file and not self.seq_file:
             ui.notify("No file selected.", type="warning")
             return
         if self._sim_thread is not None and self._sim_thread.is_alive():
@@ -634,20 +696,23 @@ class BasisREMYApp:
         print(f"Processing file: {picked}")
         self.process_button.props("loading")
         try:
-            # Parsing can take seconds for large files — keep the UI alive.
-            MRSinMRS = await run.io_bound(self.BasisREMY.runREMY, picked)
-            if self.selected_file != picked:
-                return  # file cleared or replaced while parsing — discard
-            # A new file starts from clean defaults — values from the
-            # previous file must not masquerade as this file's metadata.
-            self.BasisREMY.reset_backend_params()
-            params, opt = self.BasisREMY.backend.parseREMY(MRSinMRS)
-            # drop None so REMY gaps don't clobber backend defaults
-            self.BasisREMY.backend.mandatory_params.update(
-                {k: v for k, v in params.items() if v is not None})
-            self.BasisREMY.backend.optional_params.update(
-                {k: v for k, v in opt.items() if v is not None})
-            self.BasisREMY._last_mrsinmrs = MRSinMRS
+            if picked:
+                # Parsing can take seconds for large files — keep the UI alive.
+                MRSinMRS = await run.io_bound(self.BasisREMY.runREMY, picked)
+                if self.selected_file != picked:
+                    return  # file cleared or replaced while parsing — discard
+                # A new file starts from clean defaults — values from the
+                # previous file must not masquerade as this file's metadata.
+                self.BasisREMY.reset_backend_params()
+                params, opt = self.BasisREMY.backend.parseREMY(MRSinMRS)
+                # drop None so REMY gaps don't clobber backend defaults
+                self.BasisREMY.backend.mandatory_params.update(
+                    {k: v for k, v in params.items() if v is not None})
+                self.BasisREMY.backend.optional_params.update(
+                    {k: v for k, v in opt.items() if v is not None})
+                self.BasisREMY._last_mrsinmrs = MRSinMRS
+            if self.seq_file and not self._apply_sequence_file():
+                return
         except Exception as exc:  # noqa: BLE001
             ui.notify(f"Could not read file: {exc}", type="negative")
             print(f"REMY error: {exc}")
