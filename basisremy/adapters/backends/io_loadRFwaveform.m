@@ -18,7 +18,9 @@
 %   * 'exc'  / 90°  →  smallest w1 where Mz first crosses 0   (excitation)
 %   * 'ref'  / 'inv' / 180°  →  smallest w1 where Mz first reaches the
 %                               adiabatic plateau near -1 (or its argmin
-%                               if the plateau is never reached)
+%                               if the plateau is never reached), raised to
+%                               the smallest w1 that inverts the central 80 %
+%                               of the slab as well as the pulse can
 %   * numeric flip α [deg]   →  smallest w1 where Mz first crosses cos(α)
 %
 % Everything else is byte-for-byte identical to the upstream file so we
@@ -169,6 +171,29 @@ else
         [~, idx] = min(abs(mz - target));
     end
     w1max = sc(idx) * 1000;   % sc is in kHz → convert to Hz
+    % Slab-wide check (same rule as core/rf_pulses.py): the on-resonance value is
+    % only the adiabatic threshold of the slab centre, and a GOIA pulse driven
+    % there leaves the slab interior under-inverted (Mz ~ -0.85). Measure the
+    % Mz < 0 extent at that w1max (position for a gradient-modulated waveform,
+    % else frequency), sweep B1 at nine points across its central 80 % and take
+    % the lowest w1max whose mean Mz is within 0.01 of the best achievable,
+    % never below the threshold.
+    if target == -1 && w1max > 0
+        [mvp, scp] = bes(rf, Tp*1000, 'f', w1max/1000, -5, 5, 2001);
+        neg = scp(mvp(3,:) < 0);
+        if numel(neg) >= 2
+            half   = (max(neg) - min(neg)) / 2;
+            probes = linspace(-0.8, 0.8, 9) * half;
+            meanMz = zeros(1, 200);
+            for p = 1:numel(probes)
+                [mvb, scb] = bes(rf, Tp*1000, 'b', probes(p), 5, 0.025, 200);
+                [scb, order] = sort(scb);
+                meanMz = meanMz + mvb(3, order) / numel(probes);
+            end
+            best  = scb(find(meanMz <= min(meanMz) + 0.01, 1, 'first')) * 1000;
+            w1max = max(w1max, best);
+        end
+    end
     tw1   = Tp * w1max;
     fprintf('io_loadRFwaveform (BasisREMY headless): phase-modulated pulse → auto w1max = %.4f kHz (target Mz = %.3f)\n', ...
             w1max/1000, target);

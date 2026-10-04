@@ -121,7 +121,7 @@ class Pulse:
         the slice gradient amplitude for the wanted thickness is grad_mt_per_m.
         """
         tp = float(tp_ms if tp_ms is not None else self.tp_ms) / 1000.0
-        phase, amp_hz, dt = scale_waveform(self.waveform[:, :3], tp, flip or self.kind)
+        phase, amp_hz, dt = scale_waveform(self.waveform, tp, flip or self.kind)
         if self.is_gradient_modulated:
             g = self.waveform[:, 3] / np.max(np.abs(self.waveform[:, 3])) * float(grad_mt_per_m)
             grad = [g.tolist(), [0.0] * self.n, [0.0] * self.n]
@@ -133,7 +133,7 @@ class Pulse:
     def to_array(self, tp_ms: float | None = None, flip=None):
         """(complex B1 in Hz, dwell times in s[, gradient G/cm]) for spant / Spinach workers."""
         tp = float(tp_ms if tp_ms is not None else self.tp_ms) / 1000.0
-        phase, amp_hz, dt = scale_waveform(self.waveform[:, :3], tp, flip or self.kind)
+        phase, amp_hz, dt = scale_waveform(self.waveform, tp, flip or self.kind)
         b1 = amp_hz * np.exp(1j * np.deg2rad(phase))
         if self.is_gradient_modulated:
             return b1, dt, self.waveform[:, 3].copy()
@@ -271,7 +271,7 @@ def bloch_profile(pulse: Pulse, offsets_hz, tp_ms: float | None = None, w1max_hz
     w1max defaults to the engines' own scaling for the pulse kind (scale_waveform).
     """
     tp = float(tp_ms if tp_ms is not None else pulse.tp_ms) / 1000.0
-    phase, amp_hz, dt = scale_waveform(pulse.waveform[:, :3], tp, pulse.kind)
+    phase, amp_hz, dt = scale_waveform(pulse.waveform, tp, pulse.kind)
     if w1max_hz is not None:
         amp_hz = amp_hz / np.max(amp_hz) * w1max_hz
     off = np.asarray(offsets_hz, dtype=float)

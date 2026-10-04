@@ -92,27 +92,74 @@ def _read_txt(path):
     return np.column_stack(cols)
 
 
-def _bloch_mz_after_pulse(phase_deg, amp_norm, timestep, tp_s, w1_hz):
-    """Mz after the pulse for each w1 (Hz), on resonance, M0 = +z, no relaxation.
+def _bloch_mz_after_pulse(phase_deg, amp_norm, timestep, tp_s, w1_hz, bz_hz=None):
+    """Mz after the pulse for each w1 (Hz), M0 = +z, no relaxation.
 
-    Vectorised over w1: each step is a rotation about the in-plane axis at the
-    step's phase by 2*pi*w1*amp*dt.
+    Vectorised over w1. bz_hz is the longitudinal field per step (N,) or per
+    step and w1 column (N, M) in Hz: frequency offset plus gradient x position;
+    None means on resonance.
     """
     dt = tp_s * timestep / timestep.sum()
     w1 = np.asarray(w1_hz, dtype=float)
     mx = np.zeros_like(w1); my = np.zeros_like(w1); mz = np.ones_like(w1)
-    for phi_d, a, d in zip(phase_deg, amp_norm, dt):
-        theta = 2.0 * math.pi * w1 * a * d
+    bz_all = None if bz_hz is None else np.asarray(bz_hz, dtype=float)
+    for i, (phi_d, a, d) in enumerate(zip(phase_deg, amp_norm, dt)):
         phi = math.radians(phi_d)
-        ux, uy = math.cos(phi), math.sin(phi)
+        bx, by = w1 * a * math.cos(phi), w1 * a * math.sin(phi)
+        bz = np.zeros_like(w1) if bz_all is None else np.broadcast_to(bz_all[i], w1.shape)
+        bmag = np.sqrt(bx ** 2 + by ** 2 + bz ** 2)
+        theta = 2.0 * math.pi * bmag * d
+        safe = np.where(bmag > 0, bmag, 1.0)
+        ux, uy, uz = bx / safe, by / safe, bz / safe
         c, s = np.cos(theta), np.sin(theta)
-        # Rodrigues rotation about unit axis (ux, uy, 0)
-        dot = ux * mx + uy * my
-        nmx = mx * c + (uy * mz) * s + ux * dot * (1 - c)
-        nmy = my * c + (-ux * mz) * s + uy * dot * (1 - c)
-        nmz = mz * c + (ux * my - uy * mx) * s
+        # Rodrigues rotation about the unit axis (ux, uy, uz)
+        dot = ux * mx + uy * my + uz * mz
+        nmx = mx * c + (uy * mz - uz * my) * s + ux * dot * (1 - c)
+        nmy = my * c + (uz * mx - ux * mz) * s + uy * dot * (1 - c)
+        nmz = mz * c + (ux * my - uy * mx) * s + uz * dot * (1 - c)
         mx, my, mz = nmx, nmy, nmz
     return mz
+
+
+GYRO_HZ_PER_G = 4257.7          # 1H, as in FID-A's bes / rf_goia
+
+
+def _adiabatic_w1max(phase, amp, step, tp_s, target, grad=None):
+    """w1max (Hz) of a phase-modulated pulse, as the headless io_loadRFwaveform.m.
+
+    First the lowest w1max whose on-resonance Mz reaches the target (FID-A's
+    plot-and-type step made deterministic). For an inversion (target -1) that
+    is only the adiabatic threshold of the centre of the slab, so the search
+    then looks at the whole slab: the Mz < 0 extent at that w1max (position
+    with the pulse's gradient column, else frequency) gives the slab, and the
+    lowest w1max whose mean Mz over nine points across its central 80 % is
+    within 0.01 of the best achievable is taken, never below the threshold.
+    """
+    sweep = np.linspace(0.0, 5000.0, 40000)
+    mz = _bloch_mz_after_pulse(phase, amp, step, tp_s, sweep)
+    hit = np.where(mz <= target + 0.02)[0]
+    idx = hit[0] if len(hit) else int(np.argmin(np.abs(mz - target)))
+    w1_0 = float(sweep[idx])
+    if target != -1.0 or w1_0 == 0.0:
+        return w1_0
+    gm = grad is not None and np.any(grad)
+    axis = np.linspace(-5.0, 5.0, 2001) if gm else np.linspace(-5000.0, 5000.0, 2001)   # cm | Hz, bes window
+    bz = (GYRO_HZ_PER_G * np.asarray(grad, dtype=float)[:, None] * axis[None, :] if gm
+          else np.repeat(axis[None, :], len(amp), axis=0))
+    prof = _bloch_mz_after_pulse(phase, amp, step, tp_s, np.full(axis.size, w1_0), bz)
+    neg = axis[prof < 0]
+    if neg.size < 2:
+        return w1_0
+    half = (neg.max() - neg.min()) / 2.0
+    probes = np.linspace(-0.8, 0.8, 9) * half
+    sweep = np.arange(25.0, 5000.0 + 25.0, 25.0)
+    w1 = np.repeat(sweep, probes.size)
+    pos = np.tile(probes, sweep.size)
+    bz = (GYRO_HZ_PER_G * np.asarray(grad, dtype=float)[:, None] * pos[None, :] if gm
+          else np.repeat(pos[None, :], len(amp), axis=0))
+    mean = _bloch_mz_after_pulse(phase, amp, step, tp_s, w1, bz).reshape(sweep.size, probes.size).mean(axis=1)
+    best = float(sweep[np.where(mean <= mean.min() + 0.01)[0][0]])
+    return max(w1_0, best)
 
 
 def scale_waveform(rf: np.ndarray, tp_s: float, flip='ref'):
@@ -120,8 +167,9 @@ def scale_waveform(rf: np.ndarray, tp_s: float, flip='ref'):
 
     flip: 'exc' (90), 'ref'/'inv' (180) or a numeric flip angle in degrees.
     Amplitude-modulated pulses are scaled by their integral; phase-modulated
-    (adiabatic / GOIA) pulses by a Bloch sweep of w1max from 0 to 5 kHz that
-    takes the lowest w1max reaching the target Mz (FID-A's headless search).
+    (adiabatic / GOIA) pulses by a Bloch sweep of w1max (_adiabatic_w1max): the
+    on-resonance threshold, and for an inversion the slab-wide search over the
+    pulse's gradient column (rf[:, 3]) or its frequency band.
     """
     rf = np.array(rf, dtype=float)
     phase = rf[:, 0].copy()
@@ -148,11 +196,8 @@ def scale_waveform(rf: np.ndarray, tp_s: float, flip='ref'):
         int_rf = float(np.sum(amp * sign) / len(amp))
         w1max = flip_cyc / (int_rf * tp_s) if int_rf else 0.0
     else:
-        sweep = np.linspace(0.0, 5000.0, 40000)
-        mz = _bloch_mz_after_pulse(phase, amp, step, tp_s, sweep)
-        hit = np.where(mz <= target + 0.02)[0]
-        idx = hit[0] if len(hit) else int(np.argmin(np.abs(mz - target)))
-        w1max = float(sweep[idx])
+        grad = rf[:, 3] if rf.shape[1] >= 4 else None
+        w1max = _adiabatic_w1max(phase, amp, step, tp_s, target, grad)
 
     dt = tp_s * step / step.sum()
     return phase, amp * w1max, dt

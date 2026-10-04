@@ -74,3 +74,29 @@ class TestFiles:
         f.write_text('1 2\n')
         with pytest.raises(ValueError, match='Unrecognised'):
             read_waveform(str(f))
+
+
+class TestAdiabaticSlab:
+    """The inversion B1 covers the slab, not only its centre (HS4 vs GOIA gap, 4 Oct 2026)."""
+
+    def test_goia_is_driven_for_the_whole_slab(self):
+        from basisremy.core import pulse_library as pl
+        from basisremy.core.rf_pulses import GYRO_HZ_PER_G
+        g = pl.make_standard('goia-wurst')                      # 4.5 ms, design slab 2 cm
+        wf = g.waveform
+        phase, amp, step = wf[:, 0], wf[:, 1], wf[:, 2]
+        _, amp_hz, _ = scale_waveform(wf, 0.0045, 'ref')
+        sweep = np.linspace(0.0, 5000.0, 40000)                 # the old rule: centre only
+        centre_only = sweep[np.where(_bloch_mz_after_pulse(phase, amp, step, 0.0045, sweep) <= -0.98)[0][0]]
+        assert amp_hz.max() >= 1.5 * centre_only               # 725 vs 399 Hz
+        x = np.linspace(-0.8, 0.8, 9)                           # central 80 % of the 2 cm slab
+        bz = GYRO_HZ_PER_G * wf[:, 3][:, None] * x[None, :]
+        mz = _bloch_mz_after_pulse(phase, amp, step, 0.0045, np.full(x.size, amp_hz.max()), bz)
+        assert mz.mean() < -0.97
+        mz0 = _bloch_mz_after_pulse(phase, amp, step, 0.0045, np.full(x.size, centre_only), bz)
+        assert mz0.mean() > -0.93                               # the old value left the slab under-inverted
+
+    def test_hs4_keeps_its_threshold(self):
+        from basisremy.core import pulse_library as pl
+        _, amp_hz, _ = scale_waveform(pl.make_standard('hs4-ref').waveform, 0.0035, 'ref')
+        assert amp_hz.max() == pytest.approx(1222, rel=0.01)
