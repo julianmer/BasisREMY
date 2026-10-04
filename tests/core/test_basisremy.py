@@ -101,6 +101,17 @@ class TestBasisREMYIntegration:
         params = BasisREMY().runREMY(import_fpath=ge_p_file)
         assert params.get('Nucleus') == '1H'
 
+    def test_remy_ge_file_without_spec2nii_mapper_reads_the_header(self, example_data_dir):
+        """spec2nii has no data mapper for some GE sequences (press hbcd, research/oslaser);
+        the P-file header still fills the sheet."""
+        import glob
+        files = glob.glob(os.path.join(example_data_dir, 'REMY_tests', 'Dataset_11_GE_P32256', '*.7'))
+        if not files:
+            pytest.skip("REMY GE test file not found")
+        params = BasisREMY().runREMY(import_fpath=files[0])
+        assert float(params['TE']) == 35.0 and float(params['TR']) == 2000.0
+        assert int(params['NumberOfDatapoints']) == 2048 and params.get('Nucleus') == '1H'
+
     def test_remy_nifti_times_in_ms_and_points(self, example_data_dir):
         """NIfTI-MRS stores TE/TR in seconds; the sheet is in ms. Points come from the image."""
         f = os.path.join(example_data_dir, 'example_data.nii.gz')

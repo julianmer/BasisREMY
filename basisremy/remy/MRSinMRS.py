@@ -960,7 +960,20 @@ class DataReaders():
 
 		try:
 			from spec2nii.GE import ge_read_pfile 											# Read GE with spec2nii
-			pfile    = ge_read_pfile.Pfile(fname) 											# Read Pfile
+			try:
+				pfile = ge_read_pfile.Pfile(fname) 											# Read Pfile
+			except ge_read_pfile.UnknownPfile as e: 										# No data mapper for this sequence
+				if 'No Pfile mapper' not in str(e): 										# (e.g. research/oslaser, press hbcd):
+					raise 																	# the header still reads
+				write_log(log, 'Data Read: GE Pfile - {}; header only'.format(e))			# Log - 
+				pfile            = ge_read_pfile.Pfile.__new__(ge_read_pfile.Pfile) 		# Pfile without map_data()
+				pfile.file_name  = fname
+				pfile.version    = 0
+				pfile.hdr        = None
+				pfile.map        = None
+				pfile.endian     = 'little'
+				pfile.encoding   = None
+				pfile.read_header() 														# Header Structure Only
 			dumped   = pfile._dump_struct(pfile.hdr) 										# Pfile Header
 
 		except Exception as e:
