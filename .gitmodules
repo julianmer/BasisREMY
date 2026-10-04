@@ -13,6 +13,3 @@
 [submodule "externals/basic"]
 	path = externals/basic
 	url = https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox.git
-[submodule "externals/win_mrs_basis"]
-	path = externals/win_mrs_basis
-	url = https://git.fmrib.ox.ac.uk/wclarke/win-mrs-basis-sets.git
