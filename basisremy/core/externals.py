@@ -52,6 +52,15 @@ REGISTRY: dict[str, tuple[str, str]] = {
         "https://github.com/IlyaKuprov/Spinach.git",
         "998fbc02777f4f7785757494b43dbb42a0954274",
     ),
+    # WIN MRS basis sets (Will Clarke, Oxford): FSL-MRS sequence descriptions
+    # with the Siemens / Bruker pulse waveforms under sequences/<seq>/pulses.
+    # Public repository without a licence file; its README asks users to link
+    # to it and cite FSL-MRS (Clarke et al., MRM 2021). Fetched sparsely, the
+    # files are read in place and never copied into BasisREMY.
+    "win_mrs_basis": (
+        "https://git.fmrib.ox.ac.uk/wclarke/win-mrs-basis-sets.git",
+        "c4201dd403d5a49eb11c3246b7d1b95bfd162855",
+    ),
 }
 
 # Externals that are too big to clone whole: only these top-level directories
@@ -59,6 +68,7 @@ REGISTRY: dict[str, tuple[str, str]] = {
 # repository is ~520 MB; its kernel is all the backend needs.
 SPARSE: dict[str, list[str]] = {
     "spinach": ["kernel"],
+    "win_mrs_basis": ["sequences"],
 }
 
 # Patches applied on top of the pinned commit (idempotent: skipped when the
