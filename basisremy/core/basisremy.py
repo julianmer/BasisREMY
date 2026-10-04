@@ -257,6 +257,16 @@ class BasisREMY:
             write_log(log, 'Data Read: Siemens Dicom uses pydicom ')  # log - pyDicom
             MRSinMRS, log = self.DRead.siemens_ima(import_fpath, log)
             vendor_selection = 'Siemens'
+        elif suf == '.dcm':  # DICOM: Siemens (CSA or XA enhanced) reads like .IMA
+            import pydicom
+            maker = str(pydicom.dcmread(import_fpath, stop_before_pixels=True).get('Manufacturer', ''))
+            if 'siemens' not in maker.lower():
+                raise ValueError(f'DICOM MRS from {maker or "an unknown vendor"} is not supported '
+                                 f'(spec2nii reads Siemens DICOM only).')
+            write_log(log, 'Data Read: Siemens Dicom uses pydicom ')  # log - pyDicom
+            MRSinMRS, log = self.DRead.siemens_ima(import_fpath, log)
+            vendor_selection = 'Siemens'
+            suf = '.ima'                                   # same header labels as .IMA
         elif suf == '.rda':  # Siemens RDA file
             write_log(log, 'Data Read: Siemens RDA directly read with RMY ')  # log - pyDicom
             MRSinMRS, log = self.DRead.siemens_rda(import_fpath,    log)
@@ -317,7 +327,7 @@ class BasisREMY:
             vendor_selection = 'NIfTI'
         else:
             raise ValueError(f'Unknown file format {suf}! Valid formats are:'
-                             f' .dat, .ima, .rda, .spar, .7, bruker_method, bruker_2dseq, .nii, .nii.gz')
+                             f' .dat, .ima, .dcm, .rda, .spar, .7, bruker_method, bruker_2dseq, .nii, .nii.gz')
 
         dtype_selection = suf.replace('.', '')  # remove dot if present
         # NIfTI (either suffix) uses the sidecar-JSON labels; a plain '.nii'
@@ -347,10 +357,54 @@ class BasisREMY:
         # rounds B0 to two decimals). See core/field.py.
         MRSinMRS_unif.update(reconcile_field(MRSinMRS_unif))
 
+        # Protocol names that name no sequence: add what the header or the REMY
+        # table knows, so the backends' sequence parsers see it.
+        MRSinMRS_unif.update(self.resolve_protocol(MRSinMRS_unif, MRSinMRS, vendor_selection))
+
         # Cache for later backend switches
         self._last_mrsinmrs = MRSinMRS_unif
 
         return MRSinMRS_unif
+
+    # protocol names whose sequence is known from the REMY paper's table (Protocol
+    # Description column) but not from the name itself; matched on the whole name
+    _PROTOCOL_ALIASES = {
+        'herc': 'HERCULES', 'herc_acc': 'HERCULES',          # GE / Siemens / Philips HERCULES
+        'mrs_dacc': 'sLASER', 'mrs_hippo': 'sLASER',          # Philips 7 T customised sLASER
+    }
+    _GE_PSD_ALIASES = {'gaba': 'MEGA-PRESS'}                  # GE MEGA-PRESS psd (Big GABA)
+    _SEQUENCE_WORDS = ('press', 'steam', 'laser', 'mega', 'hermes', 'hercules', 'special',
+                       'isis', 'csi', 'svs_se', 'svs_edit', 'spin', 'unedited')
+
+    @classmethod
+    def resolve_protocol(cls, unif, raw, vendor):
+        """'Protocol' with the sequence appended when the name alone names none.
+
+        GE P-files: the psd name (rhi_psdname) is often generic ('hbcd') while the
+        series description (rhs_se_desc) says 'PRESS HBCD' or 'HERCULES HBCD'.
+        Otherwise the alias tables. The header's own name is kept in
+        'Protocol (header)'. PROBE-P is left alone: GE runs MEGA under it too.
+        """
+        proto = unif.get('Protocol')
+        if proto in (None, '') or str(proto).lower() == 'nan':
+            return {}
+        p = str(proto).strip()
+        low = p.lower()
+        if any(w in low for w in cls._SEQUENCE_WORDS):
+            return {}
+        hint = None
+        if vendor == 'GE':
+            desc = raw.get('rhs_se_desc', '')
+            desc = desc.decode(errors='ignore') if isinstance(desc, bytes) else str(desc or '')
+            if any(w in desc.lower() for w in cls._SEQUENCE_WORDS):
+                hint = desc.strip()
+            elif low in cls._GE_PSD_ALIASES:
+                hint = cls._GE_PSD_ALIASES[low]
+        if hint is None:
+            hint = cls._PROTOCOL_ALIASES.get(low)
+        if hint is None:
+            return {}
+        return {'Protocol': f'{p} ({hint})', 'Protocol (header)': p}
 
     def load_sequence(self, seq_path):
         # Fill the sheet from a Pulseq (.seq) file of the acquisition: switch to the

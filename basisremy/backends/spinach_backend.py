@@ -160,12 +160,14 @@ class SpinachBackend(_SpinachRuntime):
         p = str(protocol or '').lower()
         if not p:
             return None
-        if 'press' in p or 'unedited' in p:
+        if 'press' in p or 'unedited' in p or 'svs_se' in p:   # svs_se: Siemens product PRESS
             return 'PRESS'
         if 'steam' in p:
             return 'STEAM'
         if 'laser' in p:
             return 'LASER'
+        if 'special' in p:                  # SPECIAL: a spin echo at TE after the add/subtract
+            return 'Spin Echo'
         if 'spin' in p or 'se' in p:
             return 'Spin Echo'
         return None

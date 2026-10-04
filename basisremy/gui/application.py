@@ -52,7 +52,7 @@ _UNSET = (None, "", "missing input", "Select option")
 
 # File suffixes / names that BasisREMY's REMY reader can actually parse. Used to
 # filter the data-file picker so users can only pick processable files.
-_MRS_SUFFIXES = {".dat", ".ima", ".rda", ".spar", ".7", ".nii"}
+_MRS_SUFFIXES = {".dat", ".ima", ".dcm", ".rda", ".spar", ".7", ".nii"}
 
 
 def _display_value(value) -> str:

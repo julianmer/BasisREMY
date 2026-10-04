@@ -183,7 +183,7 @@ _SEQ = [
     ('MEGA-sLASER', r'mega.?s?laser|mslaser'),
     ('MEGA-PRESS',  r'mega|mpress|meshcher'),
     ('HERMES',      r'hermes'),
-    ('HERCULES',    r'hercules'),
+    ('HERCULES',    r'hercules|herc(_acc)?\b'),
     ('sLASER',      r'slaser|oslaser|semi.?laser'),
     ('LASER',       r'(?<!s)laser'),
     ('SPECIAL',     r'special'),
@@ -208,7 +208,7 @@ def recognise(*texts):
 # ---- engine entries ----------------------------------------------------------------------------------
 # label, pulse model, backend, {canonical sequence: params to set on the sheet}
 ENTRIES = [
-    ('FID-A',    'ideal', 'FidaIdeal',           {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'LASER': {'Sequence': 'LASER'}}),
+    ('FID-A',    'ideal', 'FidaIdeal',           {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'LASER': {'Sequence': 'LASER'}, 'SPECIAL': {'Sequence': 'Spin Echo'}}),
     ('FID-A',    'ideal', 'FidaMegaPressIdeal',  {'MEGA-PRESS': {}}),
     ('FID-A',    'real',  'FidaPressShaped',     {'PRESS': {}}),
     ('FID-A',    'real',  'FidaSteamShaped',     {'STEAM': {}}),
@@ -224,7 +224,7 @@ ENTRIES = [
     ('Vespa',    'real',  'Vespa',               {'PRESS': {'Sequence': 'PRESS shaped'}}),
     ('spant',    'ideal', 'Spant',               {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'sLASER': {'Sequence': 'sLASER'}, 'MEGA-PRESS': {'Sequence': 'MEGA-PRESS'}}),
     ('spant',    'real',  'Spant',               {'PRESS': {'Sequence': 'PRESS shaped'}}),
-    ('Spinach',  'ideal', 'Spinach',             {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'LASER': {'Sequence': 'LASER'}}),
+    ('Spinach',  'ideal', 'Spinach',             {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'LASER': {'Sequence': 'LASER'}, 'SPECIAL': {'Sequence': 'Spin Echo'}}),
     ('Spinach',  'real',  'SpinachPressShaped',  {'PRESS': {}}),
     ('Spinach',  'real',  'SpinachSemiLaserShaped', {'sLASER': {}}),
     ('jbss',     'real',  'CustomSLaser',        {'sLASER': {}}),

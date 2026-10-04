@@ -332,11 +332,13 @@ class FidaIdeal(FidaBackend):
         if 'slaser' in p:
             print("Warning: FidaIdeal does not support sLASER. Switch backend.")
             return None
-        if 'press' in p:      return 'PRESS'
+        if 'press' in p or 'svs_se' in p: return 'PRESS'     # svs_se: Siemens product PRESS
         if 'steam' in p:      return 'STEAM'
         # 'laser' must be tested before the bare 'se' substring — "laser"
         # contains "se", which used to shadow this branch entirely.
         if 'laser' in p:      return 'LASER'
+        # SPECIAL: the add/subtract of the adiabatic inversion leaves a spin echo at TE
+        if 'special' in p:    return 'Spin Echo'
         if 'spin' in p or 'se' in p: return 'Spin Echo'
         # 'UnEdited' is MRSCloud / BigGABA convention for a plain (non-edited)
         # acquisition — default to PRESS, which is by far the most common.

@@ -112,6 +112,27 @@ class TestBasisREMYIntegration:
         assert float(params['TE']) == 35.0 and float(params['TR']) == 2000.0
         assert int(params['NumberOfDatapoints']) == 2048 and params.get('Nucleus') == '1H'
 
+    def test_resolve_protocol_adds_the_sequence_the_name_lacks(self):
+        """GE psd names are generic; the series description or the REMY table says the sequence."""
+        r = BasisREMY.resolve_protocol
+        assert r({'Protocol': 'hbcd'}, {'rhs_se_desc': b'HERCULES HBCD'}, 'GE') == {
+            'Protocol': 'hbcd (HERCULES HBCD)', 'Protocol (header)': 'hbcd'}
+        assert r({'Protocol': 'hbcd'}, {'rhs_se_desc': b'PRESS HBCD'}, 'GE')['Protocol'] == 'hbcd (PRESS HBCD)'
+        assert r({'Protocol': 'gaba'}, {'rhs_se_desc': b''}, 'GE')['Protocol'] == 'gaba (MEGA-PRESS)'
+        assert r({'Protocol': 'PROBE-P'}, {'rhs_se_desc': b''}, 'GE') == {}          # left alone
+        assert r({'Protocol': 'HERC_ACC'}, {}, 'Philips')['Protocol'] == 'HERC_ACC (HERCULES)'
+        assert r({'Protocol': 'MRS_dACC'}, {}, 'Philips')['Protocol'] == 'MRS_dACC (sLASER)'
+        assert r({'Protocol': 'svs_se_30'}, {}, 'Siemens') == {}                     # names itself
+        assert r({'Protocol': ''}, {}, 'Siemens') == {}
+
+    def test_remy_siemens_dcm_reads_like_ima(self, example_data_dir):
+        f = os.path.join(example_data_dir, 'spec2nii_tests', 'siemens', 'XAData', 'XA20', 'DICOM', '26516628.dcm')
+        if not os.path.exists(f):
+            pytest.skip("spec2nii Siemens XA DICOM not found")
+        params = BasisREMY().runREMY(import_fpath=f)
+        assert float(params['TE']) == 30.0 and int(params['NumberOfDatapoints']) == 1024
+        assert 'svs_se' in params['Protocol']
+
     def test_remy_nifti_times_in_ms_and_points(self, example_data_dir):
         """NIfTI-MRS stores TE/TR in seconds; the sheet is in ms. Points come from the image."""
         f = os.path.join(example_data_dir, 'example_data.nii.gz')
