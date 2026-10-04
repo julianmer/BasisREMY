@@ -544,11 +544,15 @@ class MRSCloudBackend(Backend):
         find it via `io_loadRFwaveform`.
         """
         import os, shutil
-        if not user_path:
-            return
         missing = self.missing_pulse_files(vendor, sequence, localization)
         if not missing:
             return
+        if not user_path:
+            # no file given: the open GOIA-WURST stands in for a missing GOIA .mat, as
+            # the sheet pre-fills it (get_params_for_mode); anything else stays missing
+            if not all(os.path.basename(m) in self._GOIA_VARS for m in missing):
+                return
+            user_path = 'standard:goia-wurst'
         wanted = [os.path.basename(m) for m in missing]
         if is_standard(user_path):
             self._stage_standard_pulse(user_path, os.path.join(workdir, wanted[0]))

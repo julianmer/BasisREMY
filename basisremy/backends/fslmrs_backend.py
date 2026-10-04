@@ -141,7 +141,7 @@ class FSLMRSBackend(Backend):
             'Edit On': 1.9,          # ppm (GABA; 4.56 for GSH) — MEGA kinds only
             'Edit Off': 7.5,
             'Edit Tp': 14.0,         # editing pulse duration [ms], all edited kinds
-            'Linewidth': 2.0,
+            'Linewidth': 1.0,
             'Custom Sequence': None,
         }
 
@@ -341,7 +341,7 @@ class FSLMRSBackend(Backend):
         params['Metabolites'] = []
 
         # Optional parameters
-        opt['Linewidth'] = 2.0
+        opt['Linewidth'] = 1.0
         opt['Custom Sequence'] = None
 
         return params, opt
@@ -557,7 +557,7 @@ class FSLMRSBackend(Backend):
             'centralShift': central_shift,  # ppm - typical for 1H MRS
             'Rx_Points': samples,
             'Rx_SW': bandwidth,
-            'Rx_LW': 2.0 if self._is_missing(params.get('Linewidth'))
+            'Rx_LW': 1.0 if self._is_missing(params.get('Linewidth'))
                      else float(params['Linewidth']),
             # denmatsim's FID starts at -90 deg for an on-resonance spin;
             # this receiver phase puts singlets on the real axis, so no
