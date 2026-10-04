@@ -122,7 +122,11 @@ class TestBasisREMYIntegration:
         assert r({'Protocol': 'PROBE-P'}, {'rhs_se_desc': b''}, 'GE') == {}          # left alone
         assert r({'Protocol': 'HERC_ACC'}, {}, 'Philips')['Protocol'] == 'HERC_ACC (HERCULES)'
         assert r({'Protocol': 'MRS_dACC'}, {}, 'Philips')['Protocol'] == 'MRS_dACC (sLASER)'
-        assert r({'Protocol': 'svs_se_30'}, {}, 'Siemens') == {}                     # names itself
+        assert r({'Protocol': 'svs_se_30'}, {}, 'Siemens')['Protocol'] == 'svs_se_30 (PRESS)'
+        assert r({'Protocol': 'eja_svs_mpress_pre'}, {}, 'Siemens')['Protocol'] == 'eja_svs_mpress_pre (MEGA-PRESS)'
+        assert r({'Protocol': 'eja_svs_mslaser_W'}, {}, 'Siemens')['Protocol'] == 'eja_svs_mslaser_W (MEGA-sLASER)'
+        assert r({'Protocol': 'research/oslaser'}, {}, 'GE') == {}                 # spells sLASER already
+        assert r({'Protocol': 'Dataset_28 PRESS TE35'}, {}, 'Siemens') == {}       # names itself
         assert r({'Protocol': ''}, {}, 'Siemens') == {}
 
     def test_remy_siemens_dcm_reads_like_ima(self, example_data_dir):

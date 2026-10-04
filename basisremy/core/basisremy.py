@@ -16,6 +16,7 @@
 #   imports   #
 #*************#
 import json
+import re
 import numpy as np
 import pathlib
 
@@ -373,30 +374,44 @@ class BasisREMY:
         'mrs_dacc': 'sLASER', 'mrs_hippo': 'sLASER',          # Philips 7 T customised sLASER
     }
     _GE_PSD_ALIASES = {'gaba': 'MEGA-PRESS'}                  # GE MEGA-PRESS psd (Big GABA)
-    _SEQUENCE_WORDS = ('press', 'steam', 'laser', 'mega', 'hermes', 'hercules', 'special',
-                       'isis', 'csi', 'svs_se', 'svs_edit', 'spin', 'unedited')
+    # canonical sequence from a protocol name (first match wins); the product-name
+    # patterns are the vendors' own: Siemens svs_se / svs_edit / eja_svs_mpress /
+    # mslaser, GE oslaser. (A fuller recogniser belongs to the loader project.)
+    _SEQUENCE_PATTERNS = (
+        ('MEGA-sLASER', r'mega.?s?laser|mslaser'), ('MEGA-PRESS', r'mega|mpress|meshcher|svs_edit'),
+        ('HERMES', r'hermes'), ('HERCULES', r'hercules'), ('sLASER', r'slaser|semi.?laser'),
+        ('LASER', r'(?<!s)laser'), ('SPECIAL', r'special'), ('ISIS', r'isis'), ('CSI', r'csi'),
+        ('STEAM', r'steam'), ('PRESS', r'press|svs_se'), ('Spin Echo', r'spin.?echo|unedited'),
+    )
+
+    @classmethod
+    def _canonical(cls, text):
+        t = str(text or '').lower()
+        return next((name for name, pat in cls._SEQUENCE_PATTERNS if re.search(pat, t)), None)
 
     @classmethod
     def resolve_protocol(cls, unif, raw, vendor):
-        """'Protocol' with the sequence appended when the name alone names none.
+        """'Protocol' with the sequence appended when the name does not spell it out.
 
-        GE P-files: the psd name (rhi_psdname) is often generic ('hbcd') while the
-        series description (rhs_se_desc) says 'PRESS HBCD' or 'HERCULES HBCD'.
-        Otherwise the alias tables. The header's own name is kept in
-        'Protocol (header)'. PROBE-P is left alone: GE runs MEGA under it too.
+        Vendor product names (Siemens svs_se, eja_svs_mpress, GE oslaser ...) get
+        their canonical sequence appended so every backend's parser sees it. GE
+        P-files whose psd name says nothing ('hbcd') use the series description
+        (rhs_se_desc: 'PRESS HBCD', 'HERCULES HBCD'); then the alias tables from
+        the REMY table. The header's own name is kept in 'Protocol (header)'.
+        PROBE-P is left alone: GE runs MEGA under it too.
         """
         proto = unif.get('Protocol')
         if proto in (None, '') or str(proto).lower() == 'nan':
             return {}
         p = str(proto).strip()
         low = p.lower()
-        if any(w in low for w in cls._SEQUENCE_WORDS):
-            return {}
-        hint = None
+        hint = cls._canonical(low)
+        if hint is not None:
+            return {} if hint.lower() in low else {'Protocol': f'{p} ({hint})', 'Protocol (header)': p}
         if vendor == 'GE':
             desc = raw.get('rhs_se_desc', '')
             desc = desc.decode(errors='ignore') if isinstance(desc, bytes) else str(desc or '')
-            if any(w in desc.lower() for w in cls._SEQUENCE_WORDS):
+            if cls._canonical(desc):
                 hint = desc.strip()
             elif low in cls._GE_PSD_ALIASES:
                 hint = cls._GE_PSD_ALIASES[low]

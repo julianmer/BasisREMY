@@ -297,7 +297,8 @@ def evaluate(ds, entry, simulate=True):
     # the sequence counts as extracted when the backend's mapped value names the same
     # sequence (choosing the pulse model / backend variant is not a blank)
     mapped = f"{b.mandatory_params.get('Sequence') or ''} {b.mandatory_params.get('Localization') or ''}"
-    seq_blank = 'Sequence' in seq_params and recognise(mapped) != row['sequence']
+    seq_blank = 'Sequence' in seq_params and recognise(mapped) != row['sequence'] \
+        and not (row['sequence'] == 'SPECIAL' and 'spin echo' in mapped.lower())   # SPECIAL = spin echo
     b.mandatory_params.update(seq_params)
     visible = b.get_params_for_mode()               # what the GUI shows and validates
     row['shown'] = ';'.join(sorted(k for k in visible if k != 'Metabolites'))
