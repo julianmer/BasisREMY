@@ -141,6 +141,9 @@ class FSLMRSBackend(Backend):
             'Edit On': 1.9,          # ppm (GABA; 4.56 for GSH) — MEGA kinds only
             'Edit Off': 7.5,
             'Edit Tp': 14.0,         # editing pulse duration [ms], all edited kinds
+            'sLASER TE1': None,      # sLASER echo split [ms] (spant's TE1/TE2/TE3 convention,
+            'sLASER TE2': None,      #   TE = TE1 + TE2 + TE3); all blank → symmetric
+            'sLASER TE3': None,      #   TE/4, TE/2, TE/4
             'Linewidth': 1.0,
             'Custom Sequence': None,
         }
@@ -219,6 +222,9 @@ class FSLMRSBackend(Backend):
                 params['Edit Off'] = self.optional_params['Edit Off']
             if seq in self._edited_sequences:
                 params['Edit Tp'] = self.optional_params['Edit Tp']
+            if seq == 'sLASER':
+                for k in self._SLASER_KEYS:
+                    params[k] = self.optional_params[k]
             params['Linewidth'] = self.optional_params['Linewidth']
             params.update(common)
             return params
@@ -392,7 +398,7 @@ class FSLMRSBackend(Backend):
         """
         p = dict(params)
         float_keys = ('TE', 'Bfield', 'Bandwidth', 'TM', 'Edit On', 'Edit Off',
-                      'Edit Tp', 'Linewidth', 'Center Freq')
+                      'Edit Tp', 'Linewidth', 'Center Freq') + self._SLASER_KEYS
         int_keys   = ('Samples',)
         for k in float_keys:
             if k in p and not self._is_missing(p[k]):
@@ -475,6 +481,7 @@ class FSLMRSBackend(Backend):
     # at TE/4 and 3TE/4). FID-A lists the set for "TE = 68" but it sums to
     # 69.0 ms, so the fractions - not the ms values - are what is kept.
     _MEGA_TAU_FRACTIONS = tuple(t / 69.0001 for t in (4.545, 12.7025, 21.7975, 12.7025, 17.2526))
+    _SLASER_KEYS = ('sLASER TE1', 'sLASER TE2', 'sLASER TE3')
     _EDIT_PULSE_POINTS = 400
 
     @staticmethod
@@ -662,12 +669,22 @@ class FSLMRSBackend(Backend):
         elif sequence == 'sLASER':
             # sLASER: 90° + 2 pairs of 180° AFP = 5 RF pulses
             # 5 RF = 5 delays, 5 rephaseAreas, 5 CoherenceFilter
-            # 90 - TE/8 - 180 - TE/4 - 180 - TE/4 - 180 - TE/4 - 180 - TE/8 - ACQ
+            # spant's seq_slaser_ideal layout, TE = TE1 + TE2 + TE3:
+            # 90 - TE1/2 - 180 - TE1/2+TE2/4 - 180 - TE2/2 - 180 - TE2/4+TE3/2 - 180 - TE3/2 - ACQ
+            # All three blank → symmetric TE/4, TE/2, TE/4, i.e. TE/8, TE/4, TE/4, TE/4, TE/8
             # (five equal TE/4 delays made the effective TE 5/4 too long).
-            te_s = te / 1000.0
-            d = te_s / 4.0 - ideal_pulse_duration
-            d_start = te_s / 8.0 - ideal_pulse_duration
-            d_end = te_s / 8.0 - ideal_pulse_duration / 2.0
+            given = [params.get(k) for k in self._SLASER_KEYS]
+            if all(self._is_missing(v) for v in given):
+                te1, te2, te3 = te / 4.0, te / 2.0, te / 4.0
+            elif any(self._is_missing(v) for v in given):
+                raise ValueError("FSL-MRS: give all three of sLASER TE1 / TE2 / TE3 (ms) or none.")
+            else:
+                te1, te2, te3 = (float(v) for v in given)
+                if abs(te1 + te2 + te3 - te) > 1e-6:
+                    raise ValueError(f"FSL-MRS: sLASER TE1 + TE2 + TE3 = {te1 + te2 + te3:g} ms "
+                                     f"must equal TE = {te:g} ms.")
+            spacing_s = [x / 1000.0 for x in (te1 / 2, te1 / 2 + te2 / 4, te2 / 2, te2 / 4 + te3 / 2, te3 / 2)]
+            delays = [sp - ideal_pulse_duration for sp in spacing_s[:4]] + [spacing_s[4] - ideal_pulse_duration / 2.0]
             seq_def.update({
                 'RF': [
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
@@ -681,7 +698,7 @@ class FSLMRSBackend(Backend):
                     {'time': ideal_pulse_duration, 'frequencyOffset': 0, 'phaseOffset': 0,
                      'amp': [amp_180], 'phase': [1.5708], 'grad': [0, 0, 0]},
                 ],
-                'delays': [d_start, d, d, d, d_end],
+                'delays': delays,
                 'rephaseAreas': [[0, 0, 0]] * 5,
                 'CoherenceFilter': [-1, 1, -1, 1, -1],
             })

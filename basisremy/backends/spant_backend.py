@@ -88,6 +88,9 @@ class SpantBackend(Backend):
             'TE':            None,
             'Tau 1':         None,        # PRESS: TE1, blank → TE/2
             'Tau 2':         None,        # PRESS: TE2, blank → TE/2
+            'sLASER TE1':    None,        # sLASER: seq_slaser_ideal TE1/TE2/TE3 [ms],
+            'sLASER TE2':    None,        #   TE = TE1 + TE2 + TE3; all blank → spant's
+            'sLASER TE3':    None,        #   8 : 11 : 9 split scaled to TE
             'TM':            10.0,        # STEAM only
             'STEAM Variant': 'Standard',  # STEAM only
             'Edit On':       1.9,         # MEGA-PRESS only (ppm)
@@ -104,6 +107,7 @@ class SpantBackend(Backend):
 
     # ------------------------------------------------------------ schema
     _PRESS_KEYS = ('Tau 1', 'Tau 2')
+    _SLASER_KEYS = ('sLASER TE1', 'sLASER TE2', 'sLASER TE3')
     _STEAM_KEYS = ('TM', 'STEAM Variant')
     _MEGA_KEYS = ('Edit On', 'Edit Off', 'Edit Bandwidth (Hz)')
     _SHAPED_KEYS = ('Path to Pulse', 'RefTp', 'Flip Angle')
@@ -116,12 +120,14 @@ class SpantBackend(Backend):
             show |= set(self._PRESS_KEYS)
         if seq == 'PRESS shaped':
             show |= set(self._SHAPED_KEYS)
+        if seq == 'sLASER':
+            show |= set(self._SLASER_KEYS)
         if seq == 'STEAM':
             show |= set(self._STEAM_KEYS)
         if seq == 'MEGA-PRESS':
             show |= set(self._MEGA_KEYS)
-        for k in (self._PRESS_KEYS + self._STEAM_KEYS + self._MEGA_KEYS
-                  + self._SHAPED_KEYS):
+        for k in (self._PRESS_KEYS + self._SLASER_KEYS + self._STEAM_KEYS
+                  + self._MEGA_KEYS + self._SHAPED_KEYS):
             if k not in show:
                 params.pop(k, None)
         if seq == 'Pulse-acquire':
@@ -248,8 +254,17 @@ class SpantBackend(Backend):
                        steam_variant=self._STEAM_VARIANTS.get(
                            params.get('STEAM Variant') or 'Standard', 'ideal'))
         elif key == 'slaser':
-            total = sum(self._SLASER_SPLIT_MS)
-            te1, te2, te3 = (te * s / total for s in self._SLASER_SPLIT_MS)
+            given = [params.get(k) for k in self._SLASER_KEYS]
+            if all(self._blank(v) for v in given):
+                total = sum(self._SLASER_SPLIT_MS)
+                te1, te2, te3 = (te * s / total for s in self._SLASER_SPLIT_MS)
+            elif any(self._blank(v) for v in given):
+                raise ValueError("spant: give all three of sLASER TE1 / TE2 / TE3 (ms) or none.")
+            else:
+                te1, te2, te3 = (float(v) for v in given)
+                if abs(te1 + te2 + te3 - te) > 1e-6:
+                    raise ValueError(f"spant: sLASER TE1 + TE2 + TE3 = {te1 + te2 + te3:g} ms "
+                                     f"must equal TE = {te:g} ms.")
             job.update(te1_s=te1 / 1e3, te2_s=te2 / 1e3, te3_s=te3 / 1e3)
         elif key == 'spin_echo':
             job.update(te_s=te / 1e3)

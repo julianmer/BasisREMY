@@ -261,6 +261,8 @@ def complete(params, blanks, sequence, vendor):
             v = float(params.get('Bfield') or COMPLETION['Bfield']) * 42.577
         elif k in ('Tau 1', 'Tau 2'):
             v = float(params.get('TE') or COMPLETION['TE']) / 2.0
+        elif k in ('sLASER TE1', 'sLASER TE2', 'sLASER TE3'):   # same symmetric split for every engine
+            v = float(params.get('TE') or COMPLETION['TE']) * {'sLASER TE2': 0.5}.get(k, 0.25)
         elif k in COMPLETION:
             v = COMPLETION[k]
         else:

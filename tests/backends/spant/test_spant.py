@@ -110,6 +110,21 @@ class TestJob:
         assert (job['te1_s'], job['te2_s'], job['te3_s']) == \
             pytest.approx((0.016, 0.022, 0.018))
 
+    def test_slaser_user_split(self, backend):
+        p = {**_BASE, 'Sequence': 'sLASER', 'TE': 56, 'sLASER TE1': 14, 'sLASER TE2': 28, 'sLASER TE3': 14}
+        job = backend._build_job(p, 'naa')
+        assert (job['te1_s'], job['te2_s'], job['te3_s']) == pytest.approx((0.014, 0.028, 0.014))
+        with pytest.raises(ValueError, match='must equal TE'):
+            backend._build_job({**p, 'sLASER TE3': 15}, 'naa')
+        with pytest.raises(ValueError, match='all three'):
+            backend._build_job({**p, 'sLASER TE3': None}, 'naa')
+
+    def test_slaser_keys_shown_only_for_slaser(self, backend):
+        backend.mandatory_params['Sequence'] = 'sLASER'
+        assert 'sLASER TE1' in backend.get_params_for_mode()
+        backend.mandatory_params['Sequence'] = 'PRESS'
+        assert 'sLASER TE1' not in backend.get_params_for_mode()
+
     def test_mega_press(self, backend):
         job = backend._build_job({**_BASE, 'Sequence': 'MEGA-PRESS', 'TE': 68,
                                   'Edit On': 1.9, 'Edit Off': 7.5,

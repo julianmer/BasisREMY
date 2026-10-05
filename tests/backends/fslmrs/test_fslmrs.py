@@ -396,6 +396,14 @@ class TestFSLMRSSequenceTiming:
         sp = self._centre_spacing(self._gen('sLASER', te=40.0))
         assert sp == pytest.approx([5.0, 10.0, 10.0, 10.0, 5.0], abs=1e-6)
 
+    def test_slaser_user_split(self):
+        # spant's 8 : 11 : 9 split at TE 28: TE1/2, TE1/2+TE2/4, TE2/2, TE2/4+TE3/2, TE3/2
+        sp = self._centre_spacing(self._gen('sLASER', te=28.0, **{'sLASER TE1': 8.0, 'sLASER TE2': 11.0,
+                                                                   'sLASER TE3': 9.0}))
+        assert sp == pytest.approx([4.0, 6.75, 5.5, 7.25, 4.5], abs=1e-6)
+        with pytest.raises(ValueError, match='must equal TE'):
+            self._gen('sLASER', te=30.0, **{'sLASER TE1': 8.0, 'sLASER TE2': 11.0, 'sLASER TE3': 9.0})
+
     def test_steam_te_and_tm(self):
         sp = self._centre_spacing(self._gen('STEAM', te=20.0, TM=12.0))
         assert sp == pytest.approx([10.0, 12.0, 10.0], abs=1e-6)

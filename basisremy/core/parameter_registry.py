@@ -131,6 +131,37 @@ REGISTRY: dict[str, ParamInfo] = {
         units="ms",
         typical="0 (symmetric) or the vendor's TE2",
     ),
+    "sLASER TE1": ParamInfo(
+        label="sLASER TE1",
+        description=(
+            "First echo time of the ideal sLASER (spant seq_slaser_ideal "
+            "convention: excitation → first refocusing pair); TE = TE1 + TE2 + "
+            "TE3. Engine defaults when all three are blank: spant 8 : 11 : 9 "
+            "scaled to TE, FSL-MRS symmetric TE/4, TE/2, TE/4."
+        ),
+        units="ms",
+        typical="TE/4 (symmetric) or spant's 8/28 TE",
+    ),
+    "sLASER TE2": ParamInfo(
+        label="sLASER TE2",
+        description=(
+            "Second echo time of the ideal sLASER (between the first and the "
+            "second refocusing pair); TE = TE1 + TE2 + TE3. See sLASER TE1 for "
+            "the engine defaults."
+        ),
+        units="ms",
+        typical="TE/2 (symmetric) or spant's 11/28 TE",
+    ),
+    "sLASER TE3": ParamInfo(
+        label="sLASER TE3",
+        description=(
+            "Third echo time of the ideal sLASER (second refocusing pair → "
+            "acquisition); TE = TE1 + TE2 + TE3. See sLASER TE1 for the engine "
+            "defaults."
+        ),
+        units="ms",
+        typical="TE/4 (symmetric) or spant's 9/28 TE",
+    ),
     "TM": ParamInfo(
         label="Mixing time (TM)",
         description="STEAM mixing time between the 2nd and 3rd 90° pulses.",
