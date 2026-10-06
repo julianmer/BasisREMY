@@ -95,14 +95,17 @@ def steam_sigma(system, te, tm, h_op):
     by 0/90/180/270 degrees and averaging, which keeps only the pathways with
     p(before pulse 2) = -p(after pulse 3), i.e. FID-A's sim_COF(+1).
 
-    The TM spoiler is emulated with zero_mqc(sys, sigma, 0, 1), which keeps
-    only zero-order coherence during TM (longitudinal + zero-quantum), like
+    The TM spoiler is emulated the same way: the density matrix after the
+    2nd pulse is averaged over eight z rotations, which keeps every p = 0
+    term (populations and zero-quantum coherences) and nothing else, like
     FID-A's sim_COF(0). Vespa's own code calls zero_mqc(sys, sigma, 2, 0)
     there; measured in this PyGAMMA build that leaves magnetisation that stays
     transverse through TM untouched for multi-spin systems, which the z
     rotations cannot remove either (same net phase as the stimulated echo),
     giving e.g. 0.15 instead of 0.5 of the spin-echo amplitude for NAA's CH3.
-    With (0, 1) every uncoupled spin gives exactly 0.5, as it must.
+    zero_mqc(sys, sigma, 0, 1) was used before; measured on a coupled pair it
+    also drops the zero-quantum terms, so the TM-dependent J evolution was
+    missing (Glu at TE 40 / TM 10: r 0.91 vs FSL-MRS, 0.9995 with the average).
     """
     u_half_te = pg.prop(h_op, te / 2.0)
     u_tm = pg.prop(h_op, tm)
@@ -115,7 +118,7 @@ def steam_sigma(system, te, tm, h_op):
         riz = pg.gen_op(pg.Rz(system, angle))
         sigma = pg.evolve(pg.gen_op(sigma0), riz)
         sigma = pg.Ixpuls(system, sigma, 90.0)
-        pg.zero_mqc(system, sigma, 0, 1)   # keep only p = 0 during TM
+        sigma = _tm_spoiled(system, sigma)   # keep only p = 0 during TM
         sigma = pg.evolve(sigma, u_tm)
         sigma = pg.Ixpuls(system, sigma, 90.0)
         sigma = pg.evolve(sigma, riz)
@@ -125,6 +128,17 @@ def steam_sigma(system, te, tm, h_op):
         else:
             sigma_res += sigma
     return pg.evolve(sigma_res, u_half_te)
+
+
+def _tm_spoiled(system, sigma, nsteps=8):
+    """Average sigma over nsteps z rotations: only p = 0 terms survive."""
+    res = None
+    for k in range(nsteps):
+        riz = pg.gen_op(pg.Rz(system, 360.0 * k / nsteps))
+        s = pg.evolve(pg.gen_op(sigma), riz)
+        s *= 1.0 / float(nsteps)
+        res = pg.gen_op(s) if res is None else res + s
+    return res
 
 
 def shaped_pulse_propagator(system, pulse):
