@@ -39,6 +39,7 @@ from basisremy.gui.help_widget import label_with_help
 from basisremy.gui.local_file_picker import LocalFilePicker
 from basisremy.gui.ui_state import get_state, set_state
 from basisremy.gui.export_dialog import open_export_dialog
+from basisremy.gui.sequence_dialog import open_sequence_dialog
 
 
 # Brand palette sampled from the BasisREMY mouse logo (deep teal-navy + slate).
@@ -759,7 +760,11 @@ class BasisREMYApp:
                 self._pgrid = ui.element("div").classes("br-pgrid")
                 with self._pgrid:
                     with ui.column().classes("gap-2 min-w-0"):
-                        ui.label("Parameters").classes("br-section-title")
+                        with ui.row().classes("w-full items-center justify-between no-wrap"):
+                            ui.label("Parameters").classes("br-section-title")
+                            ui.button("Sequence…", icon="timeline",
+                                      on_click=lambda: open_sequence_dialog(self)).props(
+                                "flat dense color=primary")
                         self.params_col = ui.column().classes(
                             "br-card br-plist w-full"
                         )

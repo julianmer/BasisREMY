@@ -71,3 +71,50 @@ async def test_metab_buttons_all_none_default(user: User) -> None:
     await user.should_see('Metabolites')
     user.find('Default').click()
     await user.should_see('Metabolites')
+
+
+async def test_sequence_panel_opens(user: User) -> None:
+    await user.open('/')
+    user.find('Skip').click()
+    await user.should_see('Sequence…')
+    user.find('Sequence…').click()
+    await user.should_see('Runs on')
+    await user.should_see('Whole sequence from a file')
+    await user.should_see('Pulseq (.seq)')
+
+
+async def _select(user, pred, kind=ui.select, tries=50):
+    import asyncio
+    for _ in range(tries):
+        try:
+            found = [s for s in user.find(kind).elements if pred(s)]
+        except AssertionError:          # none of that kind on the page yet
+            found = []
+        if found:
+            return found[0]
+        await asyncio.sleep(0.05)
+    raise AssertionError(f'{kind.__name__} not found')
+
+
+async def test_sequence_panel_switches_ideal_and_waveform(user: User) -> None:
+    # Vespa PRESS: a standard refocusing pulse turns it into 'PRESS shaped', Ideal turns it back
+    await user.open('/')
+    user.find('Skip').click()
+    await user.should_see('Simulation Software')
+    software = next(s for s in user.find(ui.select).elements if s.value == 'MRSCloud')
+    software.value = 'Vespa'
+    seq = await _select(user, lambda s: 'PRESS shaped' in s.options)
+    seq.value = 'PRESS'
+    user.find('Sequence…').click()
+    await user.should_see('Refocusing')
+    refoc = await _select(user, lambda s: 'standard:sinc-ref' in s.options)
+    assert refoc.value == 'ideal'
+    refoc.value = 'standard:sinc-ref'
+    seq = await _select(user, lambda s: 'PRESS shaped' in s.options and s.value == 'PRESS shaped')
+    await _select(user, lambda n: n.props.get('label') == 'Duration [ms] (RefTp)', ui.number)
+    refoc = await _select(user, lambda s: 'standard:sinc-ref' in s.options)
+    assert refoc.value == 'standard:sinc-ref'
+    refoc.value = 'ideal'
+    seq = await _select(user, lambda s: 'PRESS shaped' in s.options and s.value == 'PRESS')
+    with pytest.raises(AssertionError):     # no duration field once the pulse is ideal again
+        await _select(user, lambda n: n.props.get('label') == 'Duration [ms] (RefTp)', ui.number, tries=5)
