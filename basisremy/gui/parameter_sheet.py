@@ -500,7 +500,7 @@ async def _pulse_design(app, path: str) -> None:
     if seq not in sd.DESIGNABLE or te is None:
         ui.notify("Set the sequence and TE first, then the pulse.", type="warning")
         return
-    d = app._design if app.seq_file and app._design is not None else sd.recommend(seq, te, sheet)
+    d = app._design if app.seq_file and app._design is not None else sd.recommend(seq, te, sheet, getattr(br, '_last_mrsinmrs', None))
     role = await _ask_role([r for r in sd.roles(d.kind)], path)
     if role is None:
         return

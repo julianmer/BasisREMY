@@ -22,7 +22,7 @@ from basisremy.core import sequence_design as sd            # noqa: E402
 from basisremy.core.basisremy import BasisREMY              # noqa: E402
 from basisremy.core.pulse_library import bandwidth_hz, make_standard   # noqa: E402
 
-_SHEET = {'Samples': 2048, 'Bandwidth': 4000}
+_SHEET = {'Samples': 2048, 'Bandwidth': 4000, 'Bfield': 2.89}
 
 
 @pytest.fixture(scope='module')
@@ -43,7 +43,9 @@ def _shaped(kind, te):
 @pytest.mark.parametrize('kind', sd.DESIGNABLE)
 @pytest.mark.parametrize('shaped', [False, True])
 def test_round_trip(kind, shaped, tmp_path):
-    te = 80.0 if shaped and 'LASER' in kind else 68.0 if kind.startswith('MEGA') else 35.0
+    edited = 'edit' in sd.roles(kind)
+    te = (100.0 if shaped and edited and 'LASER' in kind else 80.0 if shaped and 'LASER' in kind
+          else 80.0 if edited else 35.0)
     d = _shaped(kind, te) if shaped else sd.recommend(kind, te, _SHEET)
     assert sd.problems(d) == []
     back = sd.read_design(sd.write_seq(d, str(tmp_path / 'd.seq')))
@@ -59,6 +61,7 @@ def test_round_trip(kind, shaped, tmp_path):
             assert back.pulses[role]['dur'] == pytest.approx(p['dur'], abs=1e-3)
     if kind.startswith('MEGA'):
         assert back.edit == (1.9, 7.5)
+    assert back.scheme == d.scheme
 
 
 def test_waveform_and_slab_survive(tmp_path):
@@ -138,3 +141,60 @@ def test_apply_fills_the_engine_sheet(br, tmp_path):
     pl = sd.apply(br, back, path, 'FSL-MRS')
     assert br.backend.current_mode == 'Custom'
     assert br.backend.optional_params['Custom Sequence'] == path
+
+
+_HEADER = {'LeftRightSize': 30.0, 'AnteriorPosteriorSize': 25.0, 'CranioCaudalSize': 20.0}
+
+
+def test_voxel_from_the_header_reaches_the_slabs(br, tmp_path):
+    d = sd.recommend('PRESS', 35.0, _SHEET, _HEADER)
+    assert d.voxel == (3.0, 2.5, 2.0) and 'voxel' not in d.rec
+    assert sd.recommend('PRESS', 35.0, _SHEET).rec['voxel']          # no header: recommended
+    d.pulses['exc'] = {'source': 'standard:sinc-exc', 'dur': 2.0}
+    d.pulses['ref'] = {'source': 'standard:sinc-ref', 'dur': 5.0}
+    path = sd.write_seq(d, str(tmp_path / 'v.seq'))
+    rf = [r for r in pulseq.read_seq(path).rf]
+    assert [round(pulseq.slab_cm(r), 1) for r in rf] == [3.0, 2.5, 2.0]
+    back = sd.read_design(path)
+    assert back.voxel == (3.0, 2.5, 2.0)
+    sd.apply(br, back, path, 'FID-A')                 # FID-A's two slabs: the refocusing pulses
+    p = {**br.backend.optional_params, **br.backend.mandatory_params}
+    assert (p['thkX'], p['thkY']) == (2.5, 2.0)
+
+
+@pytest.mark.parametrize('kind', ['HERMES', 'HERCULES', 'HERMES (sLASER)', 'HERCULES (sLASER)'])
+def test_hadamard_designs(kind, br, tmp_path):
+    sheet = {**_SHEET, 'Bfield': 2.89}
+    d = sd.recommend(kind, 80.0, sheet)
+    family = 'HERMES' if kind.startswith('HERMES') else 'HERCULES'
+    assert d.scheme == sd.SCHEMES[family]
+    # 20 ms editing pulses; between the pulses of an sLASER pair at TE 80 they get 19.96 ms
+    assert d.pulses['edit']['dur'] == (19.96 if 'sLASER' in kind else 20.0)
+    assert sd.problems(d) == []
+    path = sd.write_seq(d, str(tmp_path / 'h.seq'))
+    back = sd.read_design(path)
+    assert back.kind == kind and back.scheme == sd.SCHEMES[family]
+    assert back.timing == pytest.approx(d.timing, abs=1e-3)
+    out = sd.fsl_sequences(path, {'TE': 80, 'Bandwidth': 4000, 'Samples': 2048, 'Bfield': 2.89})
+    assert list(out) == ['A', 'B', 'C', 'D']
+    assert sd.plan(back, 'FSL-MRS', br).status == 'ok'
+    assert sd.plan(back, 'FID-A', br).status == 'no'
+    assert sd.plan(back, 'MRSCloud', br).status == 'no'
+
+
+def test_dual_lobe_edits_both_targets(tmp_path):
+    import numpy as np
+    d = sd.recommend('HERMES', 80.0, {**_SHEET, 'Bfield': 2.89})
+    path = sd.write_seq(d, str(tmp_path / 'h.seq'))
+    out = sd.fsl_sequences(path, {'TE': 80, 'Bandwidth': 4000, 'Samples': 2048, 'Bfield': 2.89})
+    edit = out['C']['RF'][2]                         # 90 - 180 - edit - 180 - edit
+    assert out['C']['CoherenceFilter'][2] is None
+    wave = np.asarray(edit['amp']) * np.exp(1j * np.asarray(edit['phase']))
+    n = len(wave)
+    spec = np.abs(np.fft.fftshift(np.fft.fft(wave, 64 * n)))
+    f = np.fft.fftshift(np.fft.fftfreq(64 * n, edit['time'] / n))
+    peaks = sorted(f[np.argsort(spec)[-1:]].tolist() + [f[np.argmax(spec * (np.abs(f - f[np.argmax(spec)]) > 100))]])
+    want = sorted((p - 4.65) * 2.89 * 42.577 for p in (4.56, 1.90))
+    assert peaks == pytest.approx(want, abs=10)
+    no_b0 = {k: v for k, v in _SHEET.items() if k != 'Bfield'}
+    assert any('field strength' in p for p in sd.problems(sd.recommend('HERMES', 80.0, no_b0)))

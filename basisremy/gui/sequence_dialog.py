@@ -125,7 +125,7 @@ def _seed(app) -> sd.Design | None:
     seq = ss.current(br)[0]
     kind = seq if seq in sd.DESIGNABLE else 'PRESS'
     te = sd._num(sheet.get('TE'))
-    return sd.recommend(kind, te, sheet) if te else None
+    return sd.recommend(kind, te, sheet, br._last_mrsinmrs) if te else None
 
 
 def open_sequence_dialog(app) -> None:
@@ -133,6 +133,7 @@ def open_sequence_dialog(app) -> None:
     br = app.BasisREMY
     b = br.backend
     sheet = {**b.optional_params, **b.mandatory_params}
+    header = getattr(br, '_last_mrsinmrs', None)
     state = {'d': _seed(app), 'kind': None, 'name': None}
     if state['d'] is None:
         seq = ss.current(br)[0]
@@ -152,7 +153,7 @@ def open_sequence_dialog(app) -> None:
         if te is None or te <= 0:
             return
         if d is None:
-            state['d'] = sd.recommend(state['kind'], te, sheet)
+            state['d'] = sd.recommend(state['kind'], te, sheet, header)
         else:
             fresh = sd.recommend(d.kind, te, {})
             d.te = te
@@ -173,7 +174,10 @@ def open_sequence_dialog(app) -> None:
             return
         if kind == d.kind:
             return
-        new = sd.recommend(kind, d.te, sheet)
+        new = sd.recommend(kind, d.te, sheet, header)
+        new.voxel = d.voxel
+        if 'voxel' not in d.rec:
+            new.rec.pop('voxel', None)
         for role, p in d.pulses.items():                 # chosen pulses carry over
             if role in new.pulses and f'pulse:{role}' not in d.rec and not \
                     str(p['source']).partition('#')[0].lower().endswith(_WHOLE_EXTS):
@@ -228,12 +232,29 @@ def open_sequence_dialog(app) -> None:
         d.rec.pop('edit', None)
         soon()
 
-    def set_slab(value) -> None:
+    def set_voxel(i, value) -> None:
         v = sd._num(value)
-        if v is None or v <= 0:
+        d = state['d']
+        if v is None or v <= 0 or v == d.voxel[i]:
             return
-        state['d'].slab_cm = v
-        state['d'].rec.pop('slab', None)
+        vox = list(d.voxel)
+        vox[i] = v
+        d.voxel = tuple(vox)
+        d.rec.pop('voxel', None)
+        state['voxel_user'] = True
+        soon()
+
+    def set_targets(label, value) -> None:
+        try:
+            targets = tuple(float(x) for x in str(value).replace(';', ',').split(',') if x.strip())
+        except ValueError:
+            ui.notify("Editing targets: ppm values separated by commas.", type="warning")
+            return
+        d = state['d']
+        if not targets or targets == tuple(d.scheme.get(label, ())):
+            return
+        d.scheme[label] = targets
+        d.rec.pop('edit', None)
         soon()
 
     async def load() -> None:
@@ -301,7 +322,7 @@ def open_sequence_dialog(app) -> None:
         body.clear()
         d = state['d']
         with body:
-            _header_row(d, state, set_kind, set_te, set_slab)
+            _header_row(d, state, set_kind, set_te, set_voxel)
             plot = ui.matplotlib(figsize=(9.0, 2.2)).classes("w-full")
             plot.figure.patch.set_alpha(0.0)
             ax = plot.figure.add_subplot(111)
@@ -322,7 +343,7 @@ def open_sequence_dialog(app) -> None:
                 return
             _timings(d, set_timing)
             for role in sd.roles(d.kind):
-                _pulse_row(d, role, set_source, set_dur, set_edit)
+                _pulse_row(d, role, set_source, set_dur, set_edit, set_targets)
             _engines(app, d)
             errs = sd.problems(d)
             for e in errs:
@@ -359,13 +380,24 @@ def _num_field(label, value, on_set, css, tip, width="w-28"):
     return field
 
 
+def _text_field(label, value, on_set, css, tip, width="w-28"):
+    with ui.row().classes("items-center gap-2 no-wrap"):
+        ui.label(label).classes("text-sm")
+        field = ui.input(value=value).props("filled dense").classes(f"{width} br-v-{css}")
+        with field:
+            ui.tooltip(tip)
+        field.on("blur", lambda: on_set(field.value))
+        field.on("keydown.enter", lambda: on_set(field.value))
+    return field
+
+
 def _css(d, key) -> tuple[str, str]:
     if d is not None and key in d.rec:
         return 'rec', f"Recommended: {d.rec[key]}"
     return 'user', "Set by you or from the loaded file"
 
 
-def _header_row(d, state, set_kind, set_te, set_slab) -> None:
+def _header_row(d, state, set_kind, set_te, set_voxel) -> None:
     with ui.row().classes("w-full items-center gap-6"):
         with ui.row().classes("items-center gap-2 no-wrap"):
             ui.label("Sequence").classes("text-sm font-semibold")
@@ -375,9 +407,16 @@ def _header_row(d, state, set_kind, set_te, set_slab) -> None:
         _num_field("TE [ms]", te, set_te, 'file' if te else 'missing',
                    "The scan's echo time (from the data file)")
         if d is not None and any(p['source'] != 'ideal' for r, p in d.pulses.items() if r != 'edit'):
-            css, tip = _css(d, 'slab')
-            _num_field("Voxel [cm]", d.slab_cm, set_slab, css,
-                       tip + " · the slab every selective pulse selects", width="w-20")
+            css, tip = _css(d, 'voxel')
+            if state.get('voxel_user'):
+                css, tip = 'user', "Set by you"
+            elif 'voxel' not in d.rec:
+                css, tip = 'file', "From the data or sequence file"
+            ui.label("Voxel [cm]").classes("text-sm")
+            for i, axis in enumerate(("L-R", "A-P", "C-C")):
+                _num_field(axis, d.voxel[i], lambda v, i=i: set_voxel(i, v), css,
+                           tip + " · selected by the excitation, the first and the second "
+                           "refocusing pulse", width="w-16")
 
 
 def _timings(d, set_timing) -> None:
@@ -401,7 +440,7 @@ def _source_label(src) -> str:
     return f"From {os.path.basename(path)}" + (f" ({sel})" if sel and not sel.isdigit() else "")
 
 
-def _pulse_row(d, role, set_source, set_dur, set_edit) -> None:
+def _pulse_row(d, role, set_source, set_dur, set_edit, set_targets) -> None:
     p = d.pulses[role]
     src = p['source']
     options = {} if role == 'edit' else {_IDEAL: _source_label(_IDEAL)}
@@ -434,7 +473,14 @@ def _pulse_row(d, role, set_source, set_dur, set_edit) -> None:
                     dcss, dtip = _css(d, f'dur:{role}')
                     _num_field("Duration [ms]", p['dur'], lambda v: set_dur(role, v), dcss, dtip,
                                width="w-20")
-            if role == 'edit':
+            if role == 'edit' and d.scheme:
+                with ui.row().classes("items-center gap-4 pl-28"):
+                    ecss, etip = _css(d, 'edit')
+                    for label, targets in d.scheme.items():
+                        _text_field(f"{label} [ppm]", ", ".join(f"{p:g}" for p in targets),
+                                    lambda v, k=label: set_targets(k, v), ecss,
+                                    etip + " · two targets = dual-lobe pulse")
+            elif role == 'edit':
                 with ui.row().classes("items-center gap-4 pl-28"):
                     ecss, etip = _css(d, 'edit')
                     _num_field("ON [ppm]", d.edit[0], lambda v: set_edit(0, v), ecss, etip, "w-20")

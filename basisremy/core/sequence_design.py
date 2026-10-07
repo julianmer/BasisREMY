@@ -8,7 +8,7 @@
 #                                                                                                  #
 # Purpose: One sequence design for every engine: the sequence, its timings, a pulse per role       #
 #          (ideal, a standard shape or a pulse file in any format, with its duration), the         #
-#          editing frequencies and the slab. The designer behind the wand edits one; it is saved   #
+#          editing targets and the voxel. The designer behind the wand edits one; it is saved      #
 #          as a Pulseq .seq (RF `use` roles, [DEFINITIONS]) and read back from any .seq or         #
 #          FSL-MRS / WIN sequence JSON. Per engine, plan() tells whether and how the engine runs   #
 #          the design (and why not), apply() fills its sheet, and fsl_sequences() translates a     #
@@ -26,7 +26,18 @@ import numpy as np
 
 from basisremy.core import sequence_setup as ss
 
-DESIGNABLE = ['PRESS', 'sLASER', 'STEAM', 'Spin Echo', 'LASER', 'MEGA-PRESS', 'MEGA-sLASER']
+DESIGNABLE = ['PRESS', 'sLASER', 'STEAM', 'Spin Echo', 'LASER', 'MEGA-PRESS', 'MEGA-sLASER',
+              'HERMES', 'HERCULES', 'HERMES (sLASER)', 'HERCULES (sLASER)']
+# Hadamard-edited sequences: the MEGA layout, four sub-experiments A-D
+_LAYOUT = {'HERMES': 'MEGA-PRESS', 'HERCULES': 'MEGA-PRESS',
+           'HERMES (sLASER)': 'MEGA-sLASER', 'HERCULES (sLASER)': 'MEGA-sLASER'}
+# sub-experiment -> editing targets [ppm] (two = dual-lobe pulse), in MRSCloud's order A-D, as
+# the FSL-MRS backend simulates them
+SCHEMES = {'HERMES':   {'A': (4.56,), 'B': (1.90,), 'C': (4.56, 1.90), 'D': (7.50,)},
+           'HERCULES': {'A': (4.58,), 'B': (4.18,), 'C': (4.58, 1.90), 'D': (4.18, 1.90)}}
+_SCHEME_SRC = {'HERMES': "HERMES GABA / GSH (Chan et al. 2016), as MRSCloud orders A-D",
+               'HERCULES': "HERCULES (Oeltzschner et al. 2019), as MRSCloud orders A-D"}
+_AXES = 'xyz'                      # voxel: x = excitation (L-R), y / z = refocusing (A-P / C-C)
 WATER_PPM = 4.65                   # carrier on water
 GAMMA_HZ_T = 42.577e6
 IDEAL_MS = 0.02                    # an ideal pulse in a .seq: 20 us, constant, non-selective
@@ -40,9 +51,10 @@ STANDARD_FOR = {'exc': ['sinc-exc'],
                 'ref': ['sinc-ref', 'hs4-ref', 'hs1-inv', 'goia-wurst', 'goia-hs', 'foci'],
                 'edit': ['gauss-edit', 'gauss-edit-20ms']}
 # timing values per sequence (ms); TE itself is the scan's
-TIMING_KEYS = {'PRESS': ('TE1', 'TE2'), 'MEGA-PRESS': ('TE1', 'TE2'),
-               'sLASER': ('TE1', 'TE2', 'TE3'), 'MEGA-sLASER': ('TE1', 'TE2', 'TE3'),
-               'STEAM': ('TM',), 'Spin Echo': (), 'LASER': ()}
+_TIMING_KEYS = {'PRESS': ('TE1', 'TE2'), 'MEGA-PRESS': ('TE1', 'TE2'),
+                'sLASER': ('TE1', 'TE2', 'TE3'), 'MEGA-sLASER': ('TE1', 'TE2', 'TE3'),
+                'STEAM': ('TM',), 'Spin Echo': (), 'LASER': ()}
+TIMING_KEYS = {k: _TIMING_KEYS[_LAYOUT.get(k, k)] for k in DESIGNABLE}
 TIMING_LABEL = {'TE1': 'TE1 (first echo)', 'TE2': 'TE2 (second echo)', 'TE3': 'TE3 (last pair)',
                 'TM': 'TM (mixing time)'}
 
@@ -52,7 +64,16 @@ def roles(kind: str | None) -> list[str]:
 
 
 def _edited(kind) -> bool:
-    return bool(kind) and kind.startswith('MEGA')
+    return 'edit' in roles(kind)
+
+
+def layout(kind: str) -> str:
+    """The pulse layout of ``kind``: HERMES / HERCULES use the MEGA ones."""
+    return _LAYOUT.get(kind, kind)
+
+
+def _family(kind: str) -> str | None:
+    return next((f for f in SCHEMES if kind.startswith(f)), None)
 
 
 #**************************************************************************************************#
@@ -62,14 +83,18 @@ def _edited(kind) -> bool:
 class Design:
     """kind, TE [ms], timing {TE1/TE2/TE3/TM: ms}, pulses {role: {'source', 'dur'}} where source
     is 'ideal', 'standard:<name>' or a pulse file (any format, '#role' / '#n' selects in a whole
-    sequence file) and dur its duration in ms; edit = (ON, OFF) ppm; slab_cm the voxel side the
-    selective pulses select; rec {key: source} the values that are recommendations."""
+    sequence file) and dur its duration in ms; edit = (ON, OFF) ppm (MEGA); scheme = {sub-
+    experiment: editing targets in ppm} (HERMES / HERCULES); voxel = (x, y, z) cm the selective
+    pulses select (excitation x, first refocusing y, second z); bfield [T] for dual-lobe editing;
+    rec {key: source} the values that are recommendations."""
     kind: str
     te: float
     timing: dict = field(default_factory=dict)
     pulses: dict = field(default_factory=dict)
     edit: tuple = (1.9, 7.5)
-    slab_cm: float = 2.0
+    scheme: dict = field(default_factory=dict)
+    voxel: tuple = (2.0, 2.0, 2.0)
+    bfield: float | None = None
     samples: int | None = None
     bandwidth: float | None = None
     rec: dict = field(default_factory=dict)
@@ -97,25 +122,30 @@ def default_duration(source: str, role: str) -> tuple[float, str]:
     return typical, "typical duration: the file does not hold one"
 
 
-def recommend(kind: str, te: float, sheet: dict | None = None) -> Design:
+_VOXEL_KEYS = ('LeftRightSize', 'AnteriorPosteriorSize', 'CranioCaudalSize')   # mm, from REMY
+
+
+def recommend(kind: str, te: float, sheet: dict | None = None, header: dict | None = None) -> Design:
     """The recommended design for ``kind`` at ``te``: ideal excitation and refocusing, a shaped
-    editing pulse (Saleh 2019), symmetric timing; sheet values (TE1/TE2, sLASER TE1-3, TM,
-    slab) that the user set or the file gave are kept."""
+    editing pulse (Saleh 2019), symmetric timing; sheet values (TE1/TE2, sLASER TE1-3, TM) that
+    the user set or the file gave are kept, and the voxel comes from the data ``header`` (REMY's
+    L-R / A-P / C-C sizes) when it has one."""
     sheet = sheet or {}
     d = Design(kind=kind, te=float(te))
+    lay = layout(kind)
     sym = "Symmetric: the scan's own split is not in the data header"
     keys = TIMING_KEYS[kind]
     given = {'TE1': _num(sheet.get('Tau 1')), 'TE2': _num(sheet.get('Tau 2') or sheet.get('TE2'))}
-    if kind in ('sLASER', 'MEGA-sLASER'):
+    if lay in ('sLASER', 'MEGA-sLASER'):
         given = {f'TE{i}': _num(sheet.get(f'sLASER TE{i}')) for i in (1, 2, 3)}
     given['TM'] = _num(sheet.get('TM'))
     if kind == 'PRESS':
         d.timing, d.rec = {'TE1': te / 2, 'TE2': te / 2}, {'TE1': sym, 'TE2': sym}
-    elif kind == 'MEGA-PRESS':
+    elif lay == 'MEGA-PRESS':
         te1 = round(13.1 * te / 68.0, 3)
         src = f"{_SALEH}: TE1 13.1 ms at TE 68, scaled to TE"
         d.timing, d.rec = {'TE1': te1, 'TE2': te - te1}, {'TE1': src, 'TE2': src}
-    elif kind in ('sLASER', 'MEGA-sLASER'):
+    elif lay in ('sLASER', 'MEGA-sLASER'):
         src = "Symmetric spacing (TE/4, TE/2, TE/4): the scan's own is not in the data header"
         d.timing = {'TE1': te / 4, 'TE2': te / 2, 'TE3': te / 4}
         d.rec = dict.fromkeys(d.timing, src)
@@ -130,19 +160,30 @@ def recommend(kind: str, te: float, sheet: dict | None = None) -> Design:
         d.pulses[role] = {'source': 'ideal', 'dur': 0.0}
         d.rec[f'pulse:{role}'] = "Recommended: ideal wherever the engine allows"
     if _edited(kind):
-        tp, src = 15.0, f"15 ms editing pulse ({_SALEH})"
-        if kind == 'MEGA-sLASER' and te / 4 - 0.02 < tp:   # between the pulses of a pair
-            tp, src = round(te / 4 - 0.02, 2), src + ", shortened to fit TE"
-        d.pulses['edit'] = {'source': 'standard:gauss-edit', 'dur': tp}
-        d.rec['pulse:edit'] = (f"Gaussian editing pulse, open stand-in for the 15 ms sinc-Gaussian "
+        family = _family(kind)
+        if family:
+            tp, src = 20.0, f"20 ms editing pulses, as in HERMES ({_SALEH})"
+        else:
+            tp, src = 15.0, f"15 ms editing pulse ({_SALEH})"
+        fit = te / 4 - 2 * IDEAL_MS                   # between the (ideal) pulses of a pair
+        if lay == 'MEGA-sLASER' and fit < tp:
+            tp, src = round(math.floor(fit * 100) / 100, 2), src + ", shortened to fit TE"
+        d.pulses['edit'] = {'source': 'standard:gauss-edit-20ms' if family else 'standard:gauss-edit',
+                            'dur': tp}
+        d.rec['pulse:edit'] = (f"Gaussian editing pulse, open stand-in for the sinc-Gaussian "
                                f"of {_SALEH}; an editing pulse is never ideal")
         d.rec['dur:edit'] = src
-        d.rec['edit'] = f"GABA editing: ON 1.9 ppm, OFF 7.5 ppm ({_SALEH})"
-    slab = _num(sheet.get('thkX'))
-    if slab:
-        d.slab_cm = slab
+        if family:
+            d.scheme = dict(SCHEMES[family])
+            d.rec['edit'] = _SCHEME_SRC[family]
+        else:
+            d.rec['edit'] = f"GABA editing: ON 1.9 ppm, OFF 7.5 ppm ({_SALEH})"
+    mm = [_num((header or {}).get(k)) for k in _VOXEL_KEYS]
+    if all(mm):
+        d.voxel = tuple(round(v / 10.0, 4) for v in mm)
     else:
-        d.rec['slab'] = "2 cm voxel: the data header's voxel size is not used here"
+        d.rec['voxel'] = "2 x 2 x 2 cm: the data header holds no voxel size"
+    d.bfield = _num(sheet.get('Bfield'))
     d.samples = int(_num(sheet.get('Samples'))) if _num(sheet.get('Samples')) else None
     d.bandwidth = _num(sheet.get('Bandwidth'))
     return d
@@ -153,7 +194,7 @@ def recommend(kind: str, te: float, sheet: dict | None = None) -> Design:
 #**************************************************************************************************#
 def events(d: Design) -> list[dict]:
     """[{'role', 'centre', 'dur', 'source', 'axis'}] in ms from the excitation's centre."""
-    te, t, kind = d.te, d.timing, d.kind
+    te, t, kind = d.te, d.timing, layout(d.kind)
     ev = [('exc', 0.0, 'x')]
     if kind in ('PRESS', 'MEGA-PRESS'):
         te1, te2 = t['TE1'], t['TE2']
@@ -181,6 +222,16 @@ def events(d: Design) -> list[dict]:
     return out
 
 
+def acquisitions(d: Design) -> list[tuple]:
+    """[(label, editing targets in ppm)] per acquisition: MEGA ON / OFF, HERMES / HERCULES
+    A-D, else one unedited acquisition."""
+    if d.scheme:
+        return [(k, tuple(v)) for k, v in d.scheme.items()]
+    if _edited(d.kind):
+        return [('ON', (d.edit[0],)), ('OFF', (d.edit[1],))]
+    return [(None, ())]
+
+
 def echo(d: Design) -> float:
     return d.te + (d.timing.get('TM', 0.0) if d.kind == 'STEAM' else 0.0)
 
@@ -196,6 +247,9 @@ def problems(d: Design) -> list[str]:
     for role, p in d.pulses.items():
         if p['source'] != 'ideal' and not (_num(p['dur']) or 0) > 0:
             out.append(f"Set the {ss.ROLE_NAME[role].lower()} pulse's duration.")
+    if any(len(t) > 1 for t in d.scheme.values()) and not d.bfield:
+        out.append("A dual-lobe editing pulse needs the field strength: read the data file or "
+                   "type it in the sheet.")
     if out:
         return out
     ev = events(d)
@@ -248,16 +302,16 @@ def write_seq(d: Design, path: str) -> str:
                      adc_raster_time=1e-9)
     seq = pp.Sequence(system)
     ev = events(d)
-    slab_m = d.slab_cm / 100.0
     ideal = [r for r, p in d.pulses.items() if p['source'] == 'ideal']
     built = {}
 
-    def rf_block(e, ppm, shift):
+    def rf_block(e, targets, shift):
         """RF event and gradient of one pulse, the RF delayed by ``shift`` (< one block raster)
-        so its centre lands on the design time; the centre lies ``lead`` s into the block."""
+        so its centre lands on the design time; the centre lies ``lead`` s into the block. An
+        editing pulse sits at its one target (freq_ppm) or carries several as lobes."""
         role = e['role']
         phase = math.pi / 2 if role == 'ref' else 0.0
-        freq_ppm = (ppm - WATER_PPM) if role == 'edit' else 0.0
+        freq_ppm = (targets[0] - WATER_PPM) if role == 'edit' and len(targets) == 1 else 0.0
         if e['source'] is None:
             n = int(round(IDEAL_MS * 1e3))
             b1 = _FLIP[role] / 360.0 / (IDEAL_MS / 1e3)       # Hz: flip = 2 pi B1 t
@@ -270,11 +324,16 @@ def write_seq(d: Design, path: str) -> str:
             built[key] = _waveform(e['source'], role, e['dur'])
         signal, gshape, bw = built[key]
         dur = len(signal) * 1e-6
+        if role == 'edit' and len(targets) > 1:               # dual-lobe: one lobe per target
+            t = (np.arange(len(signal)) + 0.5) * 1e-6 - dur / 2
+            hz = [(p - WATER_PPM) * float(d.bfield) * 42.577 for p in targets]
+            signal = signal * sum(np.exp(2j * np.pi * f * t) for f in hz)
         if e['axis'] is None:                                 # non-selective (editing)
             rf = pp.make_arbitrary_rf(signal, math.radians(_FLIP[role]), no_signal_scaling=True,
                                       use=_USE[role], phase_offset=phase, freq_ppm=freq_ppm,
                                       delay=shift, system=system)
             return [rf], rf.delay + dur / 2, None
+        slab_m = d.voxel[_AXES.index(e['axis'])] / 100.0
         if gshape is not None:                               # gradient-modulated (GOIA / FOCI)
             ramp = 0.2e-3
             g = gshape / slab_m * 1e-2 * 4257.7 * 100.0       # G/cm at the design slab -> Hz/m
@@ -303,6 +362,7 @@ def write_seq(d: Design, path: str) -> str:
         seq.add_block(*events_, pp.make_delay(_ceil(pp.calc_duration(*events_))))
 
     def acquisition(ppm):
+        """One acquisition with the editing targets ``ppm``."""
         t = 0.0                                                # time in this acquisition [s]
         t0 = None
         for i, e in enumerate(ev):
@@ -338,8 +398,8 @@ def write_seq(d: Design, path: str) -> str:
         add(pp.make_adc(samples, dwell=dwell, system=system))
         add(pp.make_delay(0.01))                               # end of the acquisition
 
-    for ppm in (d.edit if _edited(d.kind) else (None,)):
-        acquisition(ppm)
+    for _label, targets in acquisitions(d):
+        acquisition(targets)
     seq.set_definition('Name', d.kind)
     seq.set_definition('Creator', 'BasisREMY')
     seq.set_definition('TE', d.te)
@@ -348,8 +408,11 @@ def write_seq(d: Design, path: str) -> str:
     if ideal:
         seq.set_definition('IdealPulses', ' '.join(ideal))
     if _edited(d.kind):
-        seq.set_definition('EditPPM', ' '.join(f'{p:g}' for p in d.edit))
-    seq.set_definition('SlabCm', d.slab_cm)
+        seq.set_definition('EditScheme', ';'.join(f"{k}={','.join(f'{p:g}' for p in v)}"
+                                                  for k, v in acquisitions(d)))
+    if d.bfield:
+        seq.set_definition('B0', d.bfield)
+    seq.set_definition('VoxelCm', ' '.join(f'{v:g}' for v in d.voxel))
     seq.set_definition('ADCFromScan', int(bool(d.samples and d.bandwidth)))
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     seq.write(path)
@@ -374,6 +437,7 @@ def kind_of(roles_: list[str]) -> str:
 
 def _timing_from(kind, centres, te):
     """TE1/TE2/TE3/TM from the pulse centres (ms from the excitation)."""
+    kind = layout(kind)
     exc = [c for r, c in centres if r == 'exc']
     ref = [c for r, c in centres if r == 'ref']
     if kind == 'STEAM':
@@ -404,10 +468,14 @@ def _read_seq_design(path, bfield):
     defs = raw.definitions
     rf = [r for r in info.rf if r.role in ('exc', 'ref', 'edit')]
     kind = kind_of([r.role for r in rf])
+    name = str(defs.get('Name', ''))
+    if name in DESIGNABLE and layout(name) == kind:          # HERMES / HERCULES by name
+        kind = name
     t0 = next(r.centre_ms for r in rf if r.role == 'exc')
     te = pulseq.echo_ms(info)
     centres = [(r.role, r.centre_ms - t0) for r in rf]
     ideal = set(str(defs.get('IdealPulses', '')).split())
+    bfield = _num(defs.get('B0')) or _num(bfield)
     d = Design(kind=kind, te=round(float(te), 4),
                timing={k: round(float(v), 4) for k, v in _timing_from(kind, centres, te).items()})
     for role in roles(kind):
@@ -416,7 +484,16 @@ def _read_seq_design(path, bfield):
             d.pulses[role] = {'source': 'ideal', 'dur': 0.0}
         else:
             d.pulses[role] = {'source': f'{path}#{role}', 'dur': round(first.dur_ms, 4)}
-    if _edited(kind):
+    scheme = {}
+    for part in str(defs.get('EditScheme', '')).split(';'):
+        label, _, ppm = part.partition('=')
+        if ppm:
+            scheme[label.strip()] = tuple(float(p) for p in ppm.split(','))
+    if _family(kind):
+        d.scheme = scheme or dict(SCHEMES[_family(kind)])
+    elif _edited(kind) and {'ON', 'OFF'} <= set(scheme):
+        d.edit = (scheme['ON'][0], scheme['OFF'][0])
+    elif _edited(kind):
         ppm = []
         for acq in (0, 1):
             try:
@@ -429,11 +506,18 @@ def _read_seq_design(path, bfield):
                                                        if ev.freq_offset_hz else 0.0), 3))
         if len(ppm) == 2:
             d.edit = tuple(ppm) if ppm[0] < WATER_PPM else (ppm[1], ppm[0])
-    slab = _num(defs.get('SlabCm'))
-    if slab is None:
-        sel = next((r for r in rf if r.slab_grad_hz_m), None)
-        slab = pulseq.slab_cm(sel) if sel is not None else None
-    d.slab_cm = round(slab, 3) if slab else 2.0
+    voxel = [_num(v) for v in str(defs.get('VoxelCm', '')).split()]
+    if len(voxel) == 3 and all(voxel):
+        d.voxel = tuple(voxel)
+    else:              # from the slice gradients: excitation, first and last refocusing slab
+        exc = [r for r in rf if r.role == 'exc']
+        ref = [r for r in rf if r.role == 'ref']
+        picks = [exc[0], ref[0] if ref else None, ref[-1] if len(ref) > 1 else None]
+        if kind == 'STEAM':
+            picks = exc[:3]
+        slabs = [pulseq.slab_cm(r) if r is not None and r.slab_grad_hz_m else None for r in picks]
+        d.voxel = tuple(round(v, 3) if v else 2.0 for v in slabs)
+    d.bfield = bfield
     if int(_num(defs.get('ADCFromScan')) if defs.get('ADCFromScan') is not None else 1):
         d.samples, d.bandwidth = info.samples, round(1.0 / info.dwell_s, 4)
     return d
@@ -455,6 +539,7 @@ def _read_json_design(path):
         d.pulses[role] = ({'source': 'ideal', 'dur': 0.0} if dur <= 0.1
                           else {'source': f'{path}#{role}', 'dur': round(dur, 4)})
     d.samples, d.bandwidth = seq.get('Rx_Points'), seq.get('Rx_SW')
+    d.bfield = _num(seq.get('B0'))
     return d
 
 
@@ -475,7 +560,7 @@ def _symmetric(d: Design) -> bool:
     t, te = d.timing, d.te
     if d.kind in ('PRESS',):
         return abs(t['TE1'] - te / 2) < 0.01
-    if d.kind in ('sLASER', 'MEGA-sLASER'):
+    if layout(d.kind) in ('sLASER', 'MEGA-sLASER'):
         return all(abs(t[k] - te * f) < 0.01 for k, f in (('TE1', .25), ('TE2', .5), ('TE3', .25)))
     return True
 
@@ -539,12 +624,12 @@ def plan(d: Design, category: str, br=None, whole_file: str | None = None) -> Pl
         b = br.backends[route.backend]
         keys = _timing_keys(b, route)
         need = {'PRESS': {'Tau 1', 'TE2'}, 'MEGA-PRESS': {'Tau 1'}, 'sLASER': {'sLASER TE1'},
-                'MEGA-sLASER': {'sLASER TE1'}, 'STEAM': {'TM'}}.get(d.kind, set())
+                'MEGA-sLASER': {'sLASER TE1'}, 'STEAM': {'TM'}}.get(layout(d.kind), set())
         if need and not (need & keys):
             p = {**b.optional_params, **b.mandatory_params, **route.sheet}
             fixed = (ss.FIXED_TIMING.get((b.name, p.get('Sequence')))
                      or ss.FIXED_TIMING.get((b.name, None)))
-            if d.kind.startswith('MEGA') or not _symmetric(d) or d.kind == 'STEAM':
+            if _edited(d.kind) or not _symmetric(d) or d.kind == 'STEAM':
                 status = 'approx' if status == 'ok' else status
                 notes.append(fixed or f"{eng} places the pulses its own way.")
     return Plan(status, notes, route)
@@ -591,9 +676,10 @@ def _sheet_values(b, d: Design, path: str) -> dict:
     shown = b.get_params_for_mode()
     t = d.timing
     vals = {'TE': d.te}
-    if d.kind in ('PRESS', 'MEGA-PRESS'):
+    lay = layout(d.kind)
+    if lay in ('PRESS', 'MEGA-PRESS'):
         vals.update({'Tau 1': t['TE1'], 'Tau 2': t['TE2'], 'TE2': t['TE2']})
-    elif d.kind in ('sLASER', 'MEGA-sLASER'):
+    elif lay in ('sLASER', 'MEGA-sLASER'):
         vals.update({f'sLASER TE{i}': t[f'TE{i}'] for i in (1, 2, 3)})
     elif d.kind == 'STEAM':
         vals['TM'] = t['TM']
@@ -611,12 +697,14 @@ def _sheet_values(b, d: Design, path: str) -> dict:
                 vals['Edit Bandwidth (Hz)'] = round(bandwidth_hz(pulse, p['dur']), 1)
             except Exception:                              # noqa: BLE001 - keeps the sheet's
                 pass
-    if _edited(d.kind):
+    if _edited(d.kind) and not d.scheme:
         vals['Edit On'], vals['Edit Off'] = d.edit
     if any(p['source'] != 'ideal' for r, p in d.pulses.items() if r != 'edit'):
-        for ax in ('X', 'Y'):
-            vals[f'thk{ax}'] = d.slab_cm
-            vals[f'fov{ax}'] = round(2 * d.slab_cm, 3)     # grid covers the transition bands
+        # the engines' two simulated slabs: the first and the second refocusing (STEAM: the
+        # second and third 90) pulse, i.e. the voxel's y and z
+        for ax, size in (('X', d.voxel[1]), ('Y', d.voxel[2])):
+            vals[f'thk{ax}'] = size
+            vals[f'fov{ax}'] = round(2 * size, 3)          # grid covers the transition bands
     return {k: v for k, v in vals.items() if k in shown}
 
 
@@ -630,9 +718,14 @@ def fsl_sequences(path: str, params: dict) -> dict:
     """{label: FSL-MRS sequence description} of a .seq, one per acquisition (MEGA: 'ON', 'OFF' by
     the editing frequency; otherwise a single None). B0, the readout and the linewidth come from
     ``params``; RF amplitudes in Hz, gradients in mT/m, rephasing of the excitation slab."""
+    import pypulseq as pp
     from basisremy.core import pulseq
     bfield = float(params['Bfield'])
     hz_per_ppm = bfield * 42.577
+    raw = pp.Sequence()
+    raw.read(path)
+    labels = [part.partition('=')[0].strip() for part in
+              str(raw.definitions.get('EditScheme', '')).split(';') if '=' in part]
     out, acq = {}, 0
     while True:
         try:
@@ -689,10 +782,14 @@ def fsl_sequences(path: str, params: dict) -> dict:
         t0 = rf[0].centre_ms
         echo_at = t0 + te + (rf[2].centre_ms - rf[1].centre_ms if steam else 0.0)
         delays.append((echo_at - (rf[-1].centre_ms + rf[-1].dur_ms / 2)) / 1e3)
+        delays = [0.0 if -1e-8 < x < 0 else x for x in delays]     # rounding, not an overlap
         if min(delays) < 0:
             raise ValueError(f"{os.path.basename(path)}: pulses overlap; FSL-MRS cannot run it.")
-        slabs = [pulseq.slab_cm(r) for r in rf if r.slab_axis]
-        half_mm = max([s for s in slabs if s] or [0.0]) * 10.0
+        # grid per axis: the slab selected along it (the whole slab plus its transition bands)
+        half_mm = {}
+        for r in rf:
+            if r.slab_axis:
+                half_mm[r.slab_axis] = max(half_mm.get(r.slab_axis, 0.0), (pulseq.slab_cm(r) or 0) * 10.0)
         res = int(_num(params.get('Spatial Points')) or 10)
         seq = {
             'sequenceName': os.path.splitext(os.path.basename(path))[0],
@@ -705,11 +802,14 @@ def fsl_sequences(path: str, params: dict) -> dict:
             'RF': blocks, 'delays': delays, 'rephaseAreas': reph, 'CoherenceFilter': cfilter,
         }
         if half_mm:
-            seq.update({'x': [-half_mm, half_mm], 'y': [-half_mm, half_mm], 'z': [-half_mm, half_mm],
-                        'resolution': [res, res, res]})
+            seq['resolution'] = [res if a in half_mm else 1 for a in _AXES]
+            for a, h in half_mm.items():
+                seq[a] = [-h, h]
         edit = next((r for r in rf if r.role == 'edit'), None)
         label = None
-        if edit is not None:
+        if acq < len(labels):                     # the design's own sub-experiment names
+            label = labels[acq]
+        elif edit is not None:
             ppm = WATER_PPM + edit.freq_ppm + edit.freq_offset_hz / hz_per_ppm
             label = 'ON' if ppm < WATER_PPM else 'OFF'
             if label in out:
