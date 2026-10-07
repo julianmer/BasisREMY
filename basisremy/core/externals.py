@@ -56,7 +56,8 @@ REGISTRY: dict[str, tuple[str, str]] = {
     # with the Siemens / Bruker pulse waveforms under sequences/<seq>/pulses.
     # Public repository without a licence file; its README asks users to link
     # to it and cite FSL-MRS (Clarke et al., MRM 2021). Fetched sparsely, the
-    # files are read in place and never copied into BasisREMY.
+    # files are read in place and never copied into BasisREMY. Its basis_sets/
+    # (Git LFS) are checked out folder by folder on demand (core.win_basis).
     "win_mrs_basis": (
         "https://git.fmrib.ox.ac.uk/wclarke/win-mrs-basis-sets.git",
         "c4201dd403d5a49eb11c3246b7d1b95bfd162855",

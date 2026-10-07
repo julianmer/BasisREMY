@@ -58,6 +58,8 @@ pygamma-env/
 
 # Spinach is fetched on demand (sparse clone, see core/externals.py), never vendored
 externals/spinach/
+# WIN basis sets: no licence file, read in place only (see core/win_basis.py)
+externals/win_mrs_basis/
 
 # Paper / poster material (local only)
 paper/
