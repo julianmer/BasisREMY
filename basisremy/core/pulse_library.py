@@ -339,10 +339,23 @@ def make_standard(name: str) -> Pulse:
     return STANDARD[name][0]()
 
 
+NATIVE_EXTS = ('.pta', '.rf', '.txt')   # read by every engine as they are
+
+
 def resolve_pulse(spec, workdir: str) -> str:
-    """'standard:<name>' -> generated file in workdir; any other value is returned unchanged."""
+    """A pulse file every engine reads: 'standard:<name>' -> generated file in workdir; any other
+    format (Bruker, .mat, Pulseq .seq, FSL-MRS / WIN .json, with an optional '#ref' / '#edit' /
+    '#exc' / '#<n>' pulse selector) -> its waveform written as .pta (.txt when it carries a
+    gradient) in workdir; .pta / .RF / .txt are returned unchanged."""
     if not is_standard(spec):
-        return spec
+        path, _, _sel = str(spec).partition('#')
+        if os.path.splitext(path)[1].lower() in NATIVE_EXTS and not _sel:
+            return spec
+        from basisremy.core.sequence_view import read_pulse
+        pulse = read_pulse(str(spec))
+        stem = os.path.splitext(os.path.basename(path))[0] + (f'_{_sel}' if _sel else '')
+        out = os.path.join(workdir, stem + ('.txt' if pulse.is_gradient_modulated else '.pta'))
+        return pulse.write(out)
     name = standard_name(spec)
     factory, ext = STANDARD[name]
     path = os.path.join(workdir, f'std_{name}{ext}')

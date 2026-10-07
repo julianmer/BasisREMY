@@ -11,7 +11,9 @@
 #          headless w1max search of adapters/backends/io_loadRFwaveform.m), so a pulse file gives  #
 #          the same B1 scaling here as in the Octave backends.                                     #
 #                                                                                                  #
-#          Formats: Siemens .pta, Varian/Agilent .RF, FID-A basic .txt (amp phase [timestep]).     #
+#          Formats: Siemens .pta, Varian/Agilent .RF, FID-A basic .txt (amp phase [timestep]),     #
+#          Bruker JCAMP-DX shapes (.exc / .rfc / .inv) and a MATLAB .mat holding an FID-A RF       #
+#          struct (its 'waveform' field, as MRSCloud's GOIA files).                                #
 #                                                                                                  #
 ####################################################################################################
 
@@ -32,8 +34,55 @@ def read_waveform(path: str) -> np.ndarray:
         return _read_rf(path)
     if ext == '.txt':
         return _read_txt(path)
+    if ext in BRUKER_EXTS:
+        return _read_bruker(path)
+    if ext == '.mat':
+        return _read_mat(path)
     raise ValueError(f"Unrecognised RF pulse file '{os.path.basename(path)}' "
-                     f"(supported: .pta, .RF, .txt)")
+                     f"(supported: .pta, .RF, .txt, Bruker .exc/.rfc/.inv, FID-A .mat)")
+
+
+BRUKER_EXTS = ('.exc', '.rfc', '.inv')
+
+
+def _read_bruker(path):
+    """Bruker JCAMP-DX shape: '##XYPOINTS=(XY..XY)' then 'amplitude, phase' lines (amplitude in
+    percent, phase in degrees) up to '##END' - the layout FID-A's io_readRFBruk reads."""
+    rows, data = [], False
+    with open(path, 'r', errors='replace') as f:
+        for line in f:
+            s = line.strip()
+            if s.startswith('##XYPOINTS'):
+                data = True
+                continue
+            if not data or not s:
+                continue
+            if s.startswith('##'):
+                break
+            try:
+                amp, phase = (float(v) for v in s.split(',')[:2])
+            except ValueError:
+                continue
+            rows.append((phase, amp, 1.0))
+    if not rows:
+        raise ValueError(f"No ##XYPOINTS waveform found in {path}")
+    return np.array(rows, dtype=float)
+
+
+def _read_mat(path):
+    """MATLAB .mat with an FID-A RF struct: its 'waveform' [phase deg, amp, step(, gradient)]."""
+    from scipy.io import loadmat
+    d = loadmat(path, squeeze_me=True, struct_as_record=False)
+    for name, v in d.items():
+        if name.startswith('__'):
+            continue
+        wave = getattr(v, 'waveform', None)
+        if wave is not None:
+            wave = np.atleast_2d(np.asarray(wave, dtype=float))
+            if wave.shape[1] >= 3:
+                return wave
+    raise ValueError(f"{os.path.basename(path)}: no FID-A RF struct (a variable with a "
+                     f"'waveform' field) in the file")
 
 
 def _read_pta(path):
