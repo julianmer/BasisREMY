@@ -23,6 +23,7 @@
 #*************#
 import os
 import threading
+import time
 from pathlib import Path
 
 import matplotlib
@@ -30,16 +31,14 @@ matplotlib.use("Agg")  # NiceGUI renders figures to SVG; no interactive backend 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from nicegui import app, run, ui
+from nicegui import app, background_tasks, run, ui
 
 # own
-from basisremy.core.basisremy import BasisREMY
 from basisremy.core.parameter_registry import get as registry_get, metabolite_full_name
-from basisremy.gui.help_widget import label_with_help
 from basisremy.gui.local_file_picker import LocalFilePicker
 from basisremy.gui.ui_state import get_state, set_state
 from basisremy.gui.export_dialog import open_export_dialog
-from basisremy.gui.sequence_dialog import open_sequence_dialog
+from basisremy.gui import parameter_sheet
 
 
 # Brand palette sampled from the BasisREMY mouse logo (deep teal-navy + slate).
@@ -54,16 +53,6 @@ _UNSET = (None, "", "missing input", "Select option")
 # File suffixes / names that BasisREMY's REMY reader can actually parse. Used to
 # filter the data-file picker so users can only pick processable files.
 _MRS_SUFFIXES = {".dat", ".ima", ".dcm", ".rda", ".spar", ".7", ".nii"}
-
-
-def _display_value(value) -> str:
-    # A sheet value as text: floats without float noise (a field derived from the
-    # frequency is 2.894812480916927 T). The stored value is untouched until edited.
-    if value is None:
-        return ""
-    if isinstance(value, float):
-        return f"{value:.6f}".rstrip("0").rstrip(".")
-    return str(value)
 
 
 def _is_mrs_file(p: Path) -> bool:
@@ -301,6 +290,24 @@ body, .body--dark {{ background: var(--br-bg); color: var(--br-fg); }}
   gap: 32px; align-items: start; width: 100%;
 }}
 .br-pgrid--single {{ grid-template-columns: minmax(0, 560px); }}
+.br-splash {{ min-height: 80vh; }}
+.br-splash-logo {{ height: 120px; width: auto; }}
+/* where a value comes from: a bar on the field's left edge (tinted when it is a
+   recommendation or missing), the same colours as the legend dots */
+.br-v-file .q-field__control {{ box-shadow: inset 3px 0 0 var(--br-primary); }}
+.br-v-rec .q-field__control {{ box-shadow: inset 3px 0 0 #c98a2b;
+  background: rgba(201,138,43,.11) !important; }}
+.br-v-user .q-field__control {{ box-shadow: inset 3px 0 0 #6b57c9; }}
+.br-v-missing .q-field__control {{ box-shadow: inset 3px 0 0 #c2453c;
+  background: rgba(194,69,60,.10) !important; }}
+.br-dot {{ width: 9px; height: 9px; border-radius: 50%; display: inline-block; }}
+.br-dot-file {{ background: var(--br-primary); }}
+.br-dot-rec {{ background: #c98a2b; }}
+.br-dot-user {{ background: #6b57c9; }}
+.br-dot-missing {{ background: #c2453c; }}
+/* sub-rows of a pulse (duration, editing frequencies) */
+.br-prow-sub {{ border-top: none; min-height: 34px; padding-left: 34px; }}
+.br-prow-sub .br-prow-label .text-sm {{ font-weight: 400 !important; color: var(--br-muted); }}
 /* dense metabolite grid */
 .br-metab .q-checkbox {{ min-height: 0; }}
 .br-metab .q-checkbox__inner {{ font-size: 30px; }}
@@ -320,7 +327,8 @@ body, .body--dark {{ background: var(--br-bg); color: var(--br-fg); }}
 class BasisREMYApp:
 
     def __init__(self) -> None:
-        # data backend
+        # data backend (imported here: the engines load behind the start-up splash)
+        from basisremy.core.basisremy import BasisREMY
         self.BasisREMY = BasisREMY()
 
         # selection / simulation state
@@ -341,6 +349,15 @@ class BasisREMYApp:
         # widget handles rebuilt on every backend/mode change
         self.metab_checks: dict = {}
         self.simulate_button = None
+        # parameter sheet: keys the user set (never overwritten by a recommendation),
+        # the wanted pulse per role (ideal / shaped, kept across engines), the
+        # recommended keys with their source, and the field widgets
+        self._user_set: set = set()
+        self._want: dict = {}
+        self._rec: dict = {}
+        self._fields: dict = {}
+        self._tooltips: dict = {}
+        self._programmatic = False
 
         # step navigation state (custom sleek stepper drives the tab panels)
         self._current_step = "data"
@@ -589,6 +606,13 @@ class BasisREMYApp:
         if picker is not None:
             picker.show_dropped_path(paths[0])
             return
+        if self._current_step == "params":
+            # a sequence or pulse file for the sheet's file field
+            async def use() -> None:
+                with self.panel2:     # the drop arrives outside any UI context
+                    await parameter_sheet.use_file(self, paths[0])
+            background_tasks.create(use())
+            return
         if self._current_step != "data":
             return
         seqs = [p for p in paths if p.lower().endswith(".seq")]
@@ -672,6 +696,8 @@ class BasisREMYApp:
         for w in caught:
             if "basisremy" in str(w.filename):
                 ui.notify(str(w.message), type="warning")
+        # the file's values show as "from the file"
+        self.BasisREMY.from_file.setdefault(self.BasisREMY.backend.name, {}).update(params)
         ui.notify(f"Sequence file: {self.BasisREMY.backend.display_name}, TE {params['TE']:g} ms — "
                   "timing, pulse and slabs from the file.", type="positive")
         return True
@@ -714,14 +740,8 @@ class BasisREMYApp:
                     return  # file cleared or replaced while parsing — discard
                 # A new file starts from clean defaults — values from the
                 # previous file must not masquerade as this file's metadata.
-                self.BasisREMY.reset_backend_params()
-                params, opt = self.BasisREMY.backend.parseREMY(MRSinMRS)
-                # drop None so REMY gaps don't clobber backend defaults
-                self.BasisREMY.backend.mandatory_params.update(
-                    {k: v for k, v in params.items() if v is not None})
-                self.BasisREMY.backend.optional_params.update(
-                    {k: v for k, v in opt.items() if v is not None})
-                self.BasisREMY._last_mrsinmrs = MRSinMRS
+                self.BasisREMY.apply_remy(MRSinMRS)
+                self._user_set, self._want = set(), {}
             if self.seq_file and not self._apply_sequence_file():
                 return
         except Exception as exc:  # noqa: BLE001
@@ -745,67 +765,14 @@ class BasisREMYApp:
         self.panel2.clear()
         self.metab_checks = {}
         self.simulate_button = None
-        backend = self.BasisREMY.backend
-
         # Settle mode-dependent state (current_mode, dropdown options,
-        # file_selection) BEFORE drawing the selectors so the Mode picker and
-        # the parameter list below it stay consistent (e.g. a parsed Philips
-        # vendor steers MRSCloud to Non-universal up front).
-        params_to_show = backend.get_params_for_mode()
+        # file_selection) before drawing (e.g. a parsed GE vendor steers
+        # MRSCloud to its vendor pulse set up front).
+        self.BasisREMY.backend.get_params_for_mode()
 
         with self.panel2:
             with ui.column().classes("w-full gap-6"):
-                self._backend_selectors()
-
-                self._pgrid = ui.element("div").classes("br-pgrid")
-                with self._pgrid:
-                    with ui.column().classes("gap-2 min-w-0"):
-                        with ui.row().classes("w-full items-center justify-between no-wrap"):
-                            ui.label("Parameters").classes("br-section-title")
-                            ui.button("Sequence…", icon="timeline",
-                                      on_click=lambda: open_sequence_dialog(self)).props(
-                                "flat dense color=primary")
-                        self.params_col = ui.column().classes(
-                            "br-card br-plist w-full"
-                        )
-                    self._metabs_wrap = ui.column().classes("gap-2 min-w-0")
-                    with self._metabs_wrap:
-                        self.metabs_col = ui.column().classes("w-full gap-0")
-
-                # Per-backend mode selector. For single-backend software
-                # (FSL-MRS, MRSCloud) the mode now lives in the selectors card
-                # above, so only show it here for multi-backend software
-                # (e.g. FID-A's semi-LASER Standard / Phase-cycled).
-                cat_backends = self.BasisREMY.categories.get(
-                    self.BasisREMY.get_current_category(), []
-                )
-                if len(cat_backends) > 1 and len(backend.modes) > 1:
-                    with self.params_col:
-                        with ui.element("div").classes("br-prow"):
-                            ui.label("Mode").classes(
-                                "br-prow-label text-sm font-semibold"
-                            )
-                            ui.select(
-                                backend.modes,
-                                value=backend.current_mode,
-                                on_change=lambda e: self._change_mode(e.value),
-                            ).props("filled dense").classes("br-pfield")
-
-                for key, value in params_to_show.items():
-                    if key in backend.file_selection:
-                        self._param_file(key, value)
-                    elif key == "Metabolites":
-                        self._param_metabolites()
-                    elif key in backend.dropdown:
-                        self._param_dropdown(key, value)
-                    else:
-                        self._param_text(key, value)
-
-                # Hide the (empty) metabolite column for backends without a
-                # metabolite list so the parameters span a single tidy column.
-                if not self.metab_checks:
-                    self._metabs_wrap.set_visibility(False)
-                    self._pgrid.classes(add="br-pgrid--single")
+                parameter_sheet.build(self)
 
                 ui.element("div").classes("br-hairline")
                 with ui.row().classes("w-full justify-between items-center"):
@@ -819,137 +786,10 @@ class BasisREMYApp:
 
         self.validate_inputs()
 
-    # ---- backend / category selectors -------------------------------------
-    def _backend_selectors(self) -> None:
-        br = self.BasisREMY
-        current_category = br.get_current_category()
-        category_options = [c for c in br.CATEGORY_ORDER if br.categories.get(c)]
-        for c in br.categories:
-            if c not in category_options and br.categories[c]:
-                category_options.append(c)
-
-        def backends_for(cat):
-            names = br.categories.get(cat, [])
-            label_to_name, labels = {}, []
-            for n in names:
-                b = br.backends[n]
-                label = getattr(b, "display_name", None) or b.name
-                if getattr(b, "_is_stub", False):
-                    label += " (in development)"
-                label_to_name[label] = n
-                labels.append(label)
-            return labels, label_to_name
-
-        async def do_switch(target_name) -> bool:
-            if target_name == br.backend.name:
-                return True
-            new_backend = br.backends[target_name]
-            if new_backend.requires_octave and new_backend.octave is None:
-                from basisremy.core.octave_manager import OctaveManager
-                manager = OctaveManager()
-                # probes take seconds — don't freeze the dropdown click
-                available = await run.io_bound(
-                    lambda: manager.check_docker_availability()
-                    or manager.check_local_octave_availability())
-                if not available:
-                    self._show_octave_instructions(manager)
-                    return False
-            br.set_backend(target_name)
-            return True
-
-        with ui.column().classes("br-card br-plist w-full"):
-            with ui.element("div").classes("br-prow"):
-                ui.label("Simulation Software").classes(
-                    "br-prow-label text-sm font-semibold"
-                )
-                category_select = ui.select(
-                    category_options, value=current_category
-                ).props("filled dense").classes("br-selfield")
-
-            labels, self._backend_label_map = backends_for(current_category)
-            current_label = next(
-                (lbl for lbl, nm in self._backend_label_map.items()
-                 if nm == br.backend.name),
-                labels[0] if labels else "",
-            )
-            backend_select = None
-            if len(labels) > 1:
-                # Multiple backends in this software (FID-A): the backend list
-                # is the "Variant"; a backend's own modes (e.g. semi-LASER
-                # Standard / Phase cycled) keep the "Mode" row in the sheet.
-                with ui.element("div").classes("br-prow"):
-                    ui.label("Variant").classes(
-                        "br-prow-label text-sm font-semibold"
-                    )
-                    backend_select = ui.select(
-                        labels, value=current_label
-                    ).props("filled dense").classes("br-selfield")
-            elif len(br.backend.modes) > 1:
-                # Single backend exposing several modes (FSL-MRS, MRSCloud):
-                # show the mode selector right under the software picker.
-                with ui.element("div").classes("br-prow"):
-                    ui.label("Mode").classes(
-                        "br-prow-label text-sm font-semibold"
-                    )
-                    ui.select(
-                        br.backend.modes,
-                        value=br.backend.current_mode,
-                        on_change=lambda e: self._change_mode(e.value),
-                    ).props("filled dense").classes("br-selfield")
-
-        async def on_category_change(e) -> None:
-            cat = e.value
-            new_labels, label_map = backends_for(cat)
-            if not new_labels:
-                return
-            self._backend_label_map = label_map
-            target_name = label_map[new_labels[0]]
-            if target_name == br.backend.name:
-                return  # revert echo — leave the panel (and any open dialog) be
-            if getattr(self, "_switching", False):
-                return
-            self._switching = True
-            try:
-                ok = await do_switch(target_name)
-            finally:
-                self._switching = False
-            if ok:
-                self._build_tab2()
-            else:
-                category_select.value = br.get_current_category()
-
-        async def on_backend_change(e) -> None:
-            target_name = self._backend_label_map.get(e.value)
-            if target_name is None or target_name == br.backend.name:
-                return  # unknown label or revert echo
-            if getattr(br.backends[target_name], "_is_stub", False):
-                ui.notify("This shaped sequence is under development — "
-                          "simulation support is coming soon.", type="info")
-                cur = next((lbl for lbl, nm in self._backend_label_map.items()
-                            if nm == br.backend.name), e.value)
-                backend_select.value = cur
-                return
-            if getattr(self, "_switching", False):
-                return
-            self._switching = True
-            try:
-                ok = await do_switch(target_name)
-            finally:
-                self._switching = False
-            if ok:
-                self._build_tab2()
-            else:
-                cur = next((lbl for lbl, nm in self._backend_label_map.items()
-                            if nm == br.backend.name), e.value)
-                backend_select.value = cur
-
-        category_select.on_value_change(on_category_change)
-        if backend_select is not None:
-            backend_select.on_value_change(on_backend_change)
-
     def _change_mode(self, mode: str) -> None:
         self.BasisREMY.backend.set_mode(mode)
-        self._build_tab2()
+        self.BasisREMY.backend.get_params_for_mode()     # settles the mode (see below)
+        self._rebuild_soon()
         # Some backends veto a mode for the current selection (e.g. MRSCloud
         # forces Non-Universal for GE, which has no Universal waveform set) —
         # say so instead of silently snapping the dropdown back.
@@ -958,89 +798,35 @@ class BasisREMYApp:
             ui.notify(f"'{mode}' is not available for the current System "
                       f"selection — kept '{actual}'.", type="warning")
 
-    # ---- individual parameter widgets -------------------------------------
+    def _rebuild_soon(self) -> None:
+        """Rebuild the parameter step on the next tick: the widget whose change
+        asked for it must finish its own update before it is deleted."""
+        with self.panel2.client.layout:
+            ui.timer(0.01, self._build_tab2, once=True)
+
+    # ---- individual parameter values ---------------------------------------
+    def _set_value(self, key: str, value) -> None:
+        """Store a value the user chose (outside a text field, e.g. a pulse)."""
+        backend = self.BasisREMY.backend
+        target = (backend.optional_params if key in backend.optional_params
+                  and key not in backend.mandatory_params else backend.mandatory_params)
+        target[key] = value
+        self._user_set.add(key)
+
     def _update_param(self, key: str, value) -> None:
+        if self._programmatic:
+            return      # a recommendation written into the field, not an edit
         backend = self.BasisREMY.backend
         if key in backend.mandatory_params:
             backend.mandatory_params[key] = value
         elif key in backend.optional_params:
             backend.optional_params[key] = value
-        self.validate_inputs()
+        self._user_set.add(key)
         if key in getattr(backend, "schema_affecting_keys", set()):
-            self._build_tab2()
-
-    def _param_text(self, key, value) -> None:
-        with self.params_col:
-            with ui.element("div").classes("br-prow"):
-                label_with_help(key).classes("br-prow-label")
-                inp = ui.input(
-                    value=_display_value(value),
-                ).props("filled dense").classes("br-pfield")
-                inp.on_value_change(lambda e, k=key: self._update_param(k, e.value))
-
-    def _param_dropdown(self, key, value) -> None:
-        backend = self.BasisREMY.backend
-        options = backend.dropdown[key]
-        # ``options`` may be a list (label == value) or a dict (value -> label).
-        keys = list(options)
-        initial = str(value) if (
-            value is not None and str(value) in [str(k) for k in keys]
-        ) else None
-        with self.params_col:
-            with ui.element("div").classes("br-prow"):
-                label_with_help(key).classes("br-prow-label")
-                sel = ui.select(options, value=initial).props(
-                    "filled dense"
-                ).classes("br-pfield")
-                sel.on_value_change(lambda e, k=key: self._update_param(k, e.value))
-
-    def _param_file(self, key, value) -> None:
-        with self.params_col:
-            with ui.element("div").classes("br-prow"):
-                label_with_help(key).classes("br-prow-label")
-                with ui.row().classes("br-pfield items-center gap-1 no-wrap"):
-                    inp = ui.input(
-                        value="" if value in _UNSET else str(value),
-                    ).props("filled dense").classes("grow min-w-0")
-                    inp.on_value_change(lambda e, k=key: self._update_param(k, e.value))
-
-                    async def browse(k=key, field=inp) -> None:
-                        if LocalFilePicker.active() is not None:
-                            return  # don't stack a second picker
-                        # Per-field folder memory: pulse waveforms, sequence
-                        # JSONs, etc. live in different places.
-                        state_key = f"last_dir_{k.lower().replace(' ', '_')}"
-                        cur = field.value or ""
-                        start = (os.path.dirname(cur)
-                                 if cur and os.path.isdir(os.path.dirname(cur))
-                                 else get_state(state_key) or "~")
-                        if not isinstance(start, str) or (
-                                start != "~" and not os.path.isdir(start)):
-                            start = "~"
-                        path = await LocalFilePicker(start, title=f"Select {k}")
-                        if path:
-                            set_state(state_key, os.path.dirname(path))
-                            field.value = path
-                            self._update_param(k, path)
-
-                    ui.button(icon="folder_open", on_click=browse).props(
-                        "flat dense round color=primary"
-                    )
-                    if key in ("Path to Pulse", "Edit Pulse Path"):
-                        # generated standard pulses (core.pulse_library) as an
-                        # alternative to a vendor waveform file
-                        from basisremy.core.pulse_library import STANDARD
-
-                        def choose(name, k=key, field=inp) -> None:
-                            field.value = f"standard:{name}"
-                            self._update_param(k, field.value)
-
-                        with ui.button(icon="auto_fix_high").props(
-                                "flat dense round color=primary") as std_btn:
-                            with ui.menu():
-                                for name in STANDARD:
-                                    ui.menu_item(name, on_click=lambda _, n=name: choose(n))
-                        std_btn.tooltip("Use a generated standard pulse instead of a file")
+            self._rebuild_soon()
+            return
+        parameter_sheet.refresh_states(self)
+        self.validate_inputs()
 
     def _param_metabolites(self) -> None:
         backend = self.BasisREMY.backend
@@ -1175,6 +961,7 @@ class BasisREMYApp:
                     self.progress_label = ui.label("0%").classes(
                         "text-sm br-muted"
                     )
+                    self.progress_detail = ui.label("").classes("text-xs br-muted")
                 self.results_container = ui.column().classes("w-full gap-4")
             ui.element("div").classes("br-hairline")
             with ui.row().classes("w-full justify-start"):
@@ -1231,6 +1018,7 @@ class BasisREMYApp:
         self._sim_failures = {}
         self.progress.set_value(0)
         self.progress_label.set_text("0%")
+        self._sim_started = time.monotonic()
 
         self._sim_stop_event.clear()
         self._sim_thread = threading.Thread(target=self._run_simulation, daemon=True)
@@ -1282,6 +1070,10 @@ class BasisREMYApp:
         frac = self._sim_step / self._sim_total if self._sim_total else 0
         self.progress.set_value(frac)
         self.progress_label.set_text(f"{int(frac * 100)}%")
+        elapsed = int(time.monotonic() - getattr(self, "_sim_started", time.monotonic()))
+        self.progress_detail.set_text(
+            f"{self._sim_step} of {self._sim_total} metabolites done · "
+            f"{elapsed // 60}:{elapsed % 60:02d}")
 
         if not self._sim_done:
             return
@@ -1487,7 +1279,30 @@ def build_page() -> None:
         warning="#c98a2b",
     )
     ui.add_head_html(_GLOBAL_CSS)
-    BasisREMYApp()
+
+    # Start-up splash: the mouse and a spinner at once, while the engines (REMY,
+    # pandas, the backends) import in a worker thread; then the app replaces it.
+    splash = ui.column().classes("br-splash w-full items-center justify-center gap-4")
+    with splash:
+        ui.html(
+            '<img src="/assets/basisremy_mouse_all_colors/png/basisremy_mouse_navy_blue.png" '
+            'class="br-splash-logo br-logo-light" alt="BasisREMY" />'
+            '<img src="/assets/basisremy_mouse_all_colors/png/basisremy_mouse_sky_blue.png" '
+            'class="br-splash-logo br-logo-dark" alt="BasisREMY" />')
+        ui.label("BasisREMY").classes("br-wordmark text-3xl font-extrabold")
+        ui.spinner("dots", size="lg").style("color:var(--br-primary)")
+        ui.label("Loading the simulation engines…").classes("text-sm br-muted")
+
+    async def load() -> None:
+        await run.io_bound(_import_core)
+        splash.delete()
+        BasisREMYApp()
+
+    ui.timer(0.05, load, once=True)
+
+
+def _import_core() -> None:
+    import basisremy.core.basisremy  # noqa: F401  (the slow part of start-up)
 
 
 def run_app(*, native: bool = True, show: bool = True, port: int = 8080) -> None:

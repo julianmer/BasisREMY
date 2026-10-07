@@ -52,6 +52,9 @@ class BasisREMY:
         # Cache the last REMY-extracted MRSinMRS dict so that switching
         # backends can re-parse it with the new backend's parseREMY().
         self._last_mrsinmrs = None
+        # {backend name: {key: value}} the data file gave that backend (the GUI
+        # shows them as "from file")
+        self.from_file: dict[str, dict] = {}
 
         # Build the flat backend registry. The FID-A category contains many
         # entries (FidaIdeal = ex-LCModel, plus PRESS shaped, MEGA-PRESS
@@ -108,11 +111,7 @@ class BasisREMY:
         # System which FID-A doesn't expose).
         if self._last_mrsinmrs is not None:
             try:
-                params, opt = self.backend.parseREMY(self._last_mrsinmrs)
-                self.backend.mandatory_params.update(
-                    {k: v for k, v in params.items() if v is not None})
-                self.backend.optional_params.update(
-                    {k: v for k, v in opt.items() if v is not None})
+                self.apply_remy(self._last_mrsinmrs, reset=False)
             except Exception as e:
                 print(f"Warning: could not re-parse REMY data for {backend}: {e}")
 
@@ -178,6 +177,21 @@ class BasisREMY:
 
     def get_current_category(self):
         return getattr(self.backend, 'category', 'Other')
+
+    def apply_remy(self, MRSinMRS, reset=True):
+        """Fill the active backend's sheet from REMY output (from clean defaults
+        when ``reset``); None values leave the defaults, and what the file gave is
+        kept in ``from_file``."""
+        if reset:
+            self.reset_backend_params()
+        params, opt = self.backend.parseREMY(MRSinMRS)
+        given = {k: v for k, v in {**opt, **params}.items() if v is not None}
+        self.backend.mandatory_params.update(
+            {k: v for k, v in params.items() if v is not None})
+        self.backend.optional_params.update(
+            {k: v for k, v in opt.items() if v is not None})
+        self.from_file[self.backend.name] = given
+        self._last_mrsinmrs = MRSinMRS
 
     def reset_backend_params(self):
         """Restore the active backend's parameter defaults (per new file).

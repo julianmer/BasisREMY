@@ -285,10 +285,12 @@ class FidaIdeal(FidaBackend):
         self._refresh_metab_list()
 
     def get_params_for_mode(self, mode=None):
-        # TM applies to STEAM only; hide it for the other sequences.
+        # TM applies to STEAM only, TE2 (the PRESS echo split) to PRESS only.
         params = dict(self.mandatory_params)
         if params.get('Sequence') != 'STEAM':
             params.pop('TM', None)
+        if params.get('Sequence') != 'PRESS':
+            params.pop('TE2', None)
         return params
 
     # ---- sequence mapping ----------------------------------------------

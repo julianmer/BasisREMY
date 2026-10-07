@@ -102,28 +102,16 @@ def test_fslmrs_timeline_is_its_own_sequence():
     assert t['echo_ms'] == pytest.approx(68.0, abs=0.01)
 
 
-def test_switch_targets():
+def test_pulse_keys():
     from basisremy.core.basisremy import BasisREMY
-    br = BasisREMY('Vespa')
-    br.backend.mandatory_params['Sequence'] = 'PRESS shaped'
-    assert sv.switch_target(br.backend, 'ref', True) == {'Sequence': 'PRESS'}
-    br.backend.mandatory_params['Sequence'] = 'PRESS'
-    assert sv.switch_target(br.backend, 'ref', False) == {'Sequence': 'PRESS shaped'}
-    br.set_backend('FidaSteamShaped')
+    br = BasisREMY('FidaSteamShaped')
     assert sv.pulse_role(br.backend) == 'exc' and sv.pulse_key(br.backend, 'exc') == 'Path to Pulse'
-    assert sv.switch_target(br.backend, 'exc', True) == {'backend': 'FidaIdeal', 'Sequence': 'STEAM'}
-    br.set_backend('FidaIdeal')
-    br.backend.mandatory_params['Sequence'] = 'PRESS'
-    assert sv.switch_target(br.backend, 'ref', False) == {'backend': 'FidaPressShaped'}
-    assert sv.switch_target(br.backend, 'exc', False) is None
     br.set_backend('FidaMegaPressShaped')
     br.backend.set_mode('Full shaped (refoc + edit)')
-    assert sv.switch_target(br.backend, 'edit', True) == {'mode': 'Refoc-only shaped (ideal edit)'}
+    assert sv.pulse_key(br.backend, 'ref') == 'Path to Pulse'
+    assert sv.pulse_key(br.backend, 'edit') == 'Edit Pulse Path'
     br.backend.set_mode('Edit-only shaped (ideal refoc)')
-    assert sv.switch_target(br.backend, 'edit', True) == {'backend': 'FidaMegaPressIdeal'}
-    assert sv.switch_target(br.backend, 'ref', False) == {'mode': 'Full shaped (refoc + edit)'}
-    br.set_backend('FidaSemiLaserShaped')
-    assert sv.switch_target(br.backend, 'ref', True) is None    # no ideal sLASER in FID-A
+    assert sv.pulse_key(br.backend, 'ref') is None
 
 
 def _bruker(path, n=64):

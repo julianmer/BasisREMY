@@ -12,8 +12,8 @@
 #              sequence / basis JSON) into a pulse_library.Pulse;                                  #
 #            - timeline(): the RF events and the echo of a sequence, exact from a .seq or FSL-MRS  #
 #              description, else from the sheet (TE, echo split, TM, pulse durations);             #
-#            - RUNS_ON: which engine simulates which sequence with ideal pulses, with a shaped     #
-#              pulse, or from a whole sequence file (read from the backends, 7 Oct 2026).          #
+#            - pulse_key(): the sheet key holding a role's waveform. Which engine runs what is     #
+#              core/sequence_setup.py.                                                             #
 #                                                                                                  #
 ####################################################################################################
 
@@ -25,30 +25,6 @@ import os
 import numpy as np
 
 from basisremy.core.pulse_library import Pulse, is_standard, make_standard, standard_name
-
-# sequence -> {'ideal' | 'shaped' | 'file': engines}. 'shaped' = a pulse waveform per role
-# (MRSCloud: its vendor / universal set, the open GOIA stand-in); 'file' = the whole sequence
-# from a file (Pulseq .seq -> FID-A shaped, FSL-MRS / WIN .json -> FSL-MRS Custom).
-RUNS_ON = {
-    'PRESS':        {'ideal': ['FID-A', 'FSL-MRS', 'Vespa', 'spant', 'Spinach'],
-                     'shaped': ['FID-A', 'Spinach', 'Vespa', 'spant', 'MRSCloud'],
-                     'file': ['FID-A (.seq)', 'FSL-MRS (.json)']},
-    'sLASER':       {'ideal': ['FSL-MRS', 'spant'],
-                     'shaped': ['FID-A', 'Spinach', 'MRSCloud', 'jbss'],
-                     'file': ['FID-A (.seq)', 'FSL-MRS (.json)']},
-    'LASER':        {'ideal': ['FID-A', 'FSL-MRS', 'Spinach'], 'shaped': [],
-                     'file': ['FSL-MRS (.json)']},
-    'STEAM':        {'ideal': ['FID-A', 'FSL-MRS', 'Vespa', 'spant', 'Spinach'], 'shaped': ['FID-A'],
-                     'file': ['FID-A (.seq)', 'FSL-MRS (.json)']},
-    'Spin Echo':    {'ideal': ['FID-A', 'Vespa', 'spant', 'Spinach'], 'shaped': ['FID-A'],
-                     'file': ['FSL-MRS (.json)']},
-    'MEGA-PRESS':   {'ideal': ['FID-A', 'FSL-MRS', 'spant'], 'shaped': ['FID-A', 'MRSCloud'],
-                     'file': ['FID-A (.seq)', 'FSL-MRS (.json)']},
-    'MEGA-sLASER':  {'ideal': ['FSL-MRS'], 'shaped': ['MRSCloud'], 'file': ['FSL-MRS (.json)']},
-    'MEGA-SPECIAL': {'ideal': [], 'shaped': ['FID-A'], 'file': ['FSL-MRS (.json)']},
-    'HERMES':       {'ideal': ['FSL-MRS'], 'shaped': ['MRSCloud'], 'file': ['FSL-MRS (.json)']},
-    'HERCULES':     {'ideal': ['FSL-MRS'], 'shaped': ['MRSCloud'], 'file': ['FSL-MRS (.json)']},
-}
 
 _EDITED = {'MEGA-PRESS', 'MEGA-sLASER', 'MEGA-SPECIAL', 'HERMES', 'HERCULES'}
 
@@ -71,18 +47,10 @@ _FIDA_KIND = {'FidaPressShaped': 'PRESS', 'FidaSemiLaserShaped': 'sLASER', 'Fida
 
 
 #**************************************************************************************************#
-#                                     ideal <-> waveform pulse                                     #
+#                                          pulse roles                                             #
 #**************************************************************************************************#
 # backends whose 'Path to Pulse' is the excitation (STEAM's 90s, the FID), not the refocusing
 _EXC_PULSE = {'FidaSteamShaped', 'FidaOnePulse'}
-# the same sequence with the waveform pulse made ideal (and back): shaped backend -> ideal one
-_TO_IDEAL = {'FidaPressShaped': ('FidaIdeal', 'PRESS'), 'FidaSteamShaped': ('FidaIdeal', 'STEAM'),
-             'FidaSpinEchoShaped': ('FidaIdeal', 'Spin Echo'), 'SpinachPressShaped': ('Spinach', 'PRESS')}
-_TO_SHAPED = {v: k for k, v in _TO_IDEAL.items()}
-# FID-A MEGA-PRESS: which mode makes one role ideal / shaped
-_MEGA = 'FidaMegaPressShaped'
-_FULL, _EDIT_ONLY, _REFOC_ONLY = ('Full shaped (refoc + edit)', 'Edit-only shaped (ideal refoc)',
-                                  'Refoc-only shaped (ideal edit)')
 
 
 def pulse_role(backend) -> str:
@@ -96,38 +64,6 @@ def pulse_key(backend, role: str) -> str | None:
     if role == 'edit':
         return 'Edit Pulse Path' if 'Edit Pulse Path' in shown else None
     return 'Path to Pulse' if 'Path to Pulse' in shown and pulse_role(backend) == role else None
-
-
-def switch_target(backend, role: str, to_ideal: bool) -> dict | None:
-    """How to make ``role`` ideal (to_ideal) or a waveform pulse in the same sequence:
-    {'backend': name, 'Sequence': value, 'mode': mode} (only the keys that change), or None when
-    no engine of this software has that variant."""
-    p = {**backend.optional_params, **backend.mandatory_params}
-    seq, name = p.get('Sequence'), backend.name
-    if name in ('Vespa', 'Spant') and role == 'ref':
-        if to_ideal and seq == 'PRESS shaped':
-            return {'Sequence': 'PRESS'}
-        if not to_ideal and seq == 'PRESS':
-            return {'Sequence': 'PRESS shaped'}
-        return None
-    if name == _MEGA:
-        mode = backend.current_mode
-        table = {('ref', True): {_FULL: _EDIT_ONLY, _REFOC_ONLY: None},
-                 ('edit', True): {_FULL: _REFOC_ONLY, _EDIT_ONLY: None},
-                 ('ref', False): {_EDIT_ONLY: _FULL}, ('edit', False): {_REFOC_ONLY: _FULL}}
-        if mode not in table[(role, to_ideal)]:
-            return None
-        target = table[(role, to_ideal)][mode]
-        return {'mode': target} if target else {'backend': 'FidaMegaPressIdeal'}
-    if name == 'FidaMegaPressIdeal' and not to_ideal and role in ('ref', 'edit'):
-        return {'backend': _MEGA, 'mode': _REFOC_ONLY if role == 'ref' else _EDIT_ONLY}
-    if to_ideal and name in _TO_IDEAL and role == pulse_role(backend):
-        target, sequence = _TO_IDEAL[name]
-        return {'backend': target, 'Sequence': sequence}
-    if not to_ideal and (name, seq) in _TO_SHAPED:
-        target = _TO_SHAPED[(name, seq)]
-        return {'backend': target} if role == ('exc' if target in _EXC_PULSE else 'ref') else None
-    return None
 
 
 #**************************************************************************************************#
@@ -211,7 +147,7 @@ def _fsl_roles(seq: dict) -> list[str]:
 #                                            timeline                                              #
 #**************************************************************************************************#
 def sequence_kind(backend) -> str | None:
-    """The sequence of the current sheet in RUNS_ON's names."""
+    """The sequence of the current sheet in sequence_setup's names."""
     if backend.name in _FIDA_KIND:
         return _FIDA_KIND[backend.name]
     p = {**backend.optional_params, **backend.mandatory_params}
@@ -219,7 +155,8 @@ def sequence_kind(backend) -> str | None:
     if backend.name == 'MRSCloud':
         loc = 'sLASER' if 'laser' in str(p.get('Localization', '')).lower() else 'PRESS'
         return {'UnEdited': loc, 'MEGA': f'MEGA-{loc}'}.get(seq, seq or None)
-    return seq if seq in RUNS_ON else None
+    from basisremy.core.sequence_setup import SEQUENCES
+    return seq if seq in SEQUENCES else None
 
 
 def _num(v, default=None):

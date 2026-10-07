@@ -6,13 +6,11 @@
 #                                                                                                  #
 # Created: 07/10/26                                                                                #
 #                                                                                                  #
-# Purpose: The Sequence panel of the parameter step. One view of the sequence the current engine   #
-#          will simulate - a timeline of its RF pulses (their waveforms where known) up to the     #
-#          echo - with one row per pulse role whose source is ideal, a generated standard pulse    #
-#          or any pulse file, and the whole sequence from a Pulseq .seq or an FSL-MRS / WIN .json  #
-#          file. Underneath, which engines run the sequence with ideal pulses, a waveform per      #
-#          role, or a whole sequence file. The rows edit the same sheet values as the parameter    #
-#          list (Path to Pulse, RefTp, Edit Pulse Path, Edit Tp).                                  #
+# Purpose: The Sequence panel behind the wand of the parameter step: a timeline of the RF pulses   #
+#          the current engine will simulate (their waveforms where known) up to the echo, one      #
+#          preview per pulse role (source, duration, bandwidth, waveform) and which engines run    #
+#          the sequence with ideal pulses, a waveform per pulse, their own pulse set or a whole    #
+#          sequence file. The pulses themselves are chosen in the parameter sheet.                 #
 #                                                                                                  #
 ####################################################################################################
 
@@ -20,16 +18,13 @@ from __future__ import annotations
 
 import os
 
-import json
-
 import numpy as np
 from matplotlib.patches import Rectangle
 from nicegui import ui
 
+from basisremy.core import sequence_setup as ss
 from basisremy.core import sequence_view as sv
-from basisremy.core.pulse_library import STANDARD, bandwidth_hz, is_standard
-from basisremy.gui.local_file_picker import LocalFilePicker
-from basisremy.gui.ui_state import get_state, set_state
+from basisremy.core.pulse_library import bandwidth_hz, is_standard
 
 _ACCENT = "var(--br-primary)"
 _AXIS = "#8a95a3"
@@ -37,11 +32,8 @@ _ROLE_COLOUR = {'exc': '#15627f', 'ref': '#5b7083', 'edit': '#c2892e'}
 _ROLE_LABEL = {'exc': '90°', 'ref': '180°', 'edit': 'edit'}
 _ROLE_NAME = {'exc': 'Excitation', 'ref': 'Refocusing', 'edit': 'Editing'}
 _TP_KEY = {'exc': 'RefTp', 'ref': 'RefTp', 'edit': 'Edit Tp'}   # duration of a role's waveform
-_IDEAL = "ideal"
-_FILE = "__file__"
-# BasisREMY category -> engine name in sequence_view.RUNS_ON
-_ENGINE = {'Spant': 'spant', 'Custom': 'jbss'}
-_LEVELS = [('ideal', 'Ideal pulses'), ('shaped', 'Pulse per role'), ('file', 'Whole sequence file')]
+_LEVELS = [('ideal', 'Ideal pulses'), ('shaped', 'Waveform per pulse'), ('own', 'Own pulse set'),
+           ('file', 'Whole sequence file')]
 
 
 def _pulse(spec, kind):
@@ -136,7 +128,8 @@ def open_sequence_dialog(app) -> None:
             tl = sv.timeline(br.backend, app.seq_file)
             kind = tl['kind'] or sv.sequence_kind(br.backend) or "sequence not set"
             source = "exact, from the sequence file" if tl['exact'] else "placed from the sheet"
-            subtitle.text = f"{kind} · {br.backend.display_name} · {source}"
+            engine = ss.ENGINE_LABEL.get(br.backend.category, br.backend.category)
+            subtitle.text = f"{kind} · {engine} · {source}"
             draw_timeline(ax, tl)
             try:
                 plot.figure.tight_layout(pad=0.3)
@@ -144,272 +137,84 @@ def open_sequence_dialog(app) -> None:
                 pass
             plot.update()
 
-        def changed(rebuild: bool = False) -> None:
-            if rebuild:          # engine, sequence or mode changed: the sheet below changes too
-                app._build_tab2()
-                rows.refresh()
-            redraw()
-            runs_on.refresh()
-
-        @ui.refreshable
-        def rows() -> None:
-            _pulse_rows(app, changed)
-
-        @ui.refreshable
-        def runs_on() -> None:
-            _runs_on(app)
-
-        rows()
+        _pulse_previews(app)
         ui.element("div").classes("br-hairline")
-        _file_row(app, dialog)
-        runs_on()
+        _runs_on(app)
         with ui.row().classes("w-full justify-end"):
             ui.button("Close", on_click=dialog.close).props("flat color=primary")
     redraw()
     dialog.open()
 
 
-def _pulse_rows(app, changed) -> None:
+def _source(spec) -> str:
+    if spec is None:
+        return "Ideal (instantaneous)"
+    if isinstance(spec, tuple):
+        return f"{os.path.basename(spec[0])}, RF {spec[1] + 1}"
+    if isinstance(spec, dict):
+        return "from the sequence description"
+    if is_standard(spec):
+        return f"Standard: {str(spec).split(':', 1)[1]}"
+    return f"File: {os.path.basename(str(spec).partition('#')[0])}"
+
+
+def _pulse_previews(app) -> None:
+    """One read-only row per pulse role: its source, duration, bandwidth and waveform."""
     br = app.BasisREMY
     b = br.backend
     tl = sv.timeline(b, app.seq_file)
-    if tl['exact']:
-        ui.label("Every pulse comes from the sequence file; remove the file below to set them "
-                 "one by one.").classes("text-sm")
+    seq, route = ss.current(br)
+    first = {}
+    for e in tl['events']:
+        first.setdefault(e['role'], e)
+    if not first:
+        ui.label("Pick the sequence and TE in the sheet to see its pulses.").classes("text-sm br-muted")
         return
-    if b.name == 'MRSCloud':
-        ui.label("MRSCloud uses its own pulse set: the vendor or universal waveforms chosen by "
-                 "System, Localization and Mode in the sheet.").classes("text-sm")
-        return
-    roles = sv.roles(sv.sequence_kind(b))
-    if not roles:
-        ui.label("Pick the sequence in the sheet first.").classes("text-sm br-muted")
-        return
-    for role in roles:
-        _pulse_row(app, role, changed)
-
-
-def _pulse_row(app, role, changed) -> None:
-    br = app.BasisREMY
-    b = br.backend
-    key = sv.pulse_key(b, role)
-    tp_key = _TP_KEY[role]
-    current = b.mandatory_params.get(key) if key else _IDEAL
-    options = {}
-    if not key or sv.switch_target(b, role, True):
-        options[_IDEAL] = "Ideal (instantaneous)"
-    if key or sv.switch_target(b, role, False):
-        options.update({f"standard:{n}": f"Standard: {n}" for n in STANDARD})
-        if current not in options and current != _IDEAL:
-            options[current] = f"File: {os.path.basename(str(current))}"
-        options[_FILE] = "Pulse file…"
-    with ui.row().classes("w-full items-center no-wrap gap-4"):
-        with ui.column().classes("gap-1 grow min-w-0"):
-            ui.label(_ROLE_NAME[role]).classes("text-sm font-semibold")
-            if len(options) <= 1:
-                if role == 'edit' and b.name in ('FSL-MRS', 'Spant'):
-                    ui.label(f"{b.display_name}'s own Gaussian editing pulse: Edit On / Off and its "
-                             "duration or bandwidth in the sheet").classes("text-xs br-muted")
-                elif role == 'exc':
-                    ui.label("Ideal (instantaneous). A shaped excitation comes from a whole sequence "
-                             "file (FSL-MRS), MRSCloud's pulse set or FID-A's STEAM shaped."
-                             ).classes("text-xs br-muted")
-                else:
-                    ui.label(f"Ideal: {b.display_name} has no waveform for this pulse "
-                             f"({_shaped_engines(b, role)})").classes("text-xs br-muted")
-                return
-            sel = ui.select(options, value=current if current in options else None).props(
-                "filled dense").classes("w-full")
-            info = ui.label().classes("text-xs br-muted")
-            tp = None
-            if key:
-                tp = ui.number(f"Duration [ms] ({tp_key})", value=sv._num(b.mandatory_params.get(tp_key)),
-                               format="%.4g").props("filled dense").classes("w-48")
-        mini = ui.matplotlib(figsize=(2.6, 1.1)).classes("w-56 shrink-0")
-        mini.figure.patch.set_alpha(0.0)
-        mini_ax = mini.figure.add_subplot(111)
-
-    def preview() -> None:
-        spec = b.mandatory_params.get(key) if key else None
-        p = _pulse(spec, role) if spec else None
-        tpv = sv._num(b.mandatory_params.get(tp_key))
-        mini.set_visibility(p is not None)
-        if p is None:
-            _style(mini_ax)
-            info.text = "instantaneous rotation" if not spec else "cannot read this pulse"
-        else:
-            draw_pulse(mini_ax, p, tpv)
-            try:
-                bw = bandwidth_hz(p, tpv) if tpv else None
-            except Exception:                           # noqa: BLE001
-                bw = None
-            info.text = f"{p.n} points" + (f" · bandwidth {bw:.0f} Hz" if bw else "")
-        try:
-            mini.figure.tight_layout(pad=0.2)
-        except Exception:                               # noqa: BLE001
-            pass
-        mini.update()
-
-    async def pick(e) -> None:
-        value = e.value
-        if value == current or value is None:
-            return
-        if value == _FILE:
-            value = await _pick_pulse_file(key or 'Path to Pulse')
-            if not value:
-                sel.value = current
-                return
-            if os.path.splitext(value)[1].lower() in ('.seq', '.json'):
-                value = f"{value}#{role}"     # whole-sequence file: its pulse of this role
-        if value == _IDEAL:
-            _apply(app, sv.switch_target(b, role, True))
-            changed(rebuild=True)
-            return
-        target = None if key else sv.switch_target(b, role, False)
-        if target:
-            _apply(app, target)
-        new_key = sv.pulse_key(br.backend, role)
-        app._update_param(new_key, value)
-        p = _pulse(value, role)
-        if p is not None and np.isfinite(p.tp_ms) and not is_standard(value):
-            app._update_param(tp_key, round(p.tp_ms, 4))   # the file knows its duration
-        changed(rebuild=True)
-
-    def set_tp(e) -> None:
-        if e.value is not None:
-            app._update_param(tp_key, float(e.value))
-            preview()
-            changed()
-
-    sel.on_value_change(pick)
-    if tp is not None:
-        tp.on_value_change(set_tp)
-    preview()
-
-
-def _apply(app, target) -> None:
-    """Switch engine / sequence / mode as switch_target() says (sheet values carry over)."""
-    br = app.BasisREMY
-    if 'backend' in target:
-        br.set_backend(target['backend'])
-    if 'mode' in target:
-        br.backend.set_mode(target['mode'])
-    if 'Sequence' in target:
-        br.backend.mandatory_params['Sequence'] = target['Sequence']
-
-
-def _shaped_engines(b, role) -> str:
-    kind = sv.sequence_kind(b)
-    engines = ", ".join(sv.RUNS_ON.get(kind, {}).get('shaped', [])) or "none yet"
-    return f"a {_ROLE_NAME[role].lower()} waveform for {kind}: {engines}"
-
-
-async def _pick_pulse_file(key) -> str | None:
-    if LocalFilePicker.active() is not None:
-        return None
-    state_key = f"last_dir_{key.lower().replace(' ', '_')}"
-    start = get_state(state_key) or "~"
-    if not isinstance(start, str) or (start != "~" and not os.path.isdir(start)):
-        start = "~"
-    path = await LocalFilePicker(start, title="Select pulse file (.pta, .RF, .txt, .seq, .json)")
-    if path:
-        set_state(state_key, os.path.dirname(path))
-    return path
+    for role in ('exc', 'ref', 'edit'):
+        if role not in first:
+            continue
+        e = first[role]
+        own = route is not None and route.pulses.get(role) == ss.OWN and not tl['exact']
+        p = None if own else _pulse(e['pulse'], role)
+        with ui.row().classes("w-full items-center no-wrap gap-4"):
+            with ui.column().classes("gap-0 grow min-w-0"):
+                ui.label(ss.ROLE_NAME[role]).classes("text-sm font-semibold")
+                text = (f"{ss.ENGINE_LABEL.get(b.category, b.category)}'s own pulse" if own
+                        else _source(e['pulse']))
+                if p is not None and e['dur_ms']:
+                    try:
+                        bw = bandwidth_hz(p, e['dur_ms'])
+                    except Exception:                       # noqa: BLE001
+                        bw = None
+                    text += f" · {e['dur_ms']:.4g} ms" + (f" · bandwidth {bw:.0f} Hz" if bw else "")
+                ui.label(text).classes("text-xs br-muted")
+            if p is not None:
+                mini = ui.matplotlib(figsize=(2.6, 1.1)).classes("w-56 shrink-0")
+                mini.figure.patch.set_alpha(0.0)
+                draw_pulse(mini.figure.add_subplot(111), p, e['dur_ms'])
+                try:
+                    mini.figure.tight_layout(pad=0.2)
+                except Exception:                           # noqa: BLE001
+                    pass
+                mini.update()
 
 
 def _runs_on(app) -> None:
     br = app.BasisREMY
-    kind = sv.timeline(br.backend, app.seq_file)['kind'] or sv.sequence_kind(br.backend)
-    current = _ENGINE.get(br.get_current_category(), br.get_current_category())
-    levels = sv.RUNS_ON.get(kind)
+    seq = sv.timeline(br.backend, app.seq_file)['kind'] or ss.current(br)[0]
+    current = ss.ENGINE_LABEL.get(br.backend.category, br.backend.category)
     with ui.column().classes("w-full gap-1"):
-        ui.label(f"Runs on{f' ({kind})' if kind else ''}").classes("br-section-title")
-        if not levels:
+        ui.label(f"Runs on{f' ({seq})' if seq else ''}").classes("br-section-title")
+        if not seq:
             ui.label("Pick the sequence in the sheet to see which engines run it.").classes(
                 "text-xs br-muted")
             return
+        levels = ss.levels(seq)
         for level, label in _LEVELS:
             with ui.row().classes("items-center gap-1 w-full"):
                 ui.label(label).classes("text-xs br-muted w-40 shrink-0")
                 if not levels[level]:
                     ui.label("none yet").classes("text-xs br-muted")
                 for engine in levels[level]:
-                    on = engine.split(' ')[0] == current
+                    on = engine.split(' (')[0] == current.split(' (')[0]
                     ui.badge(engine).props(f"{'' if on else 'outline'} color={'primary' if on else 'grey-7'}")
-
-
-def _file_row(app, dialog) -> None:
-    br = app.BasisREMY
-    with ui.row().classes("w-full items-center gap-2"):
-        ui.label("Whole sequence from a file").classes("text-sm font-semibold")
-        loaded = None
-        if app.seq_file:
-            loaded = f"Pulseq: {os.path.basename(app.seq_file)}"
-        elif br.backend.current_mode == 'Custom' and br.backend.optional_params.get('Custom Sequence'):
-            loaded = f"FSL-MRS: {os.path.basename(br.backend.optional_params['Custom Sequence'])}"
-        if loaded:
-            ui.badge(loaded).props("color=primary")
-
-    async def pick(title, suffix, state_key):
-        if LocalFilePicker.active() is not None:
-            return None
-        start = get_state(state_key) or get_state("last_import_dir") or "~"
-        if not isinstance(start, str) or (start != "~" and not os.path.isdir(start)):
-            start = "~"
-        path = await LocalFilePicker(start, title=title, show_file=lambda p: p.suffix.lower() == suffix)
-        if path:
-            set_state(state_key, os.path.dirname(path))
-        return path
-
-    async def use_pulseq() -> None:
-        path = await pick("Select Pulseq sequence file", ".seq", "last_dir_seq")
-        if not path:
-            return
-        app.seq_file = path
-        if app._apply_sequence_file():
-            dialog.close()
-            app._build_tab2()
-        else:
-            app.seq_file = None
-
-    async def use_fslmrs() -> None:
-        path = await pick("Select FSL-MRS / WIN sequence (.json)", ".json", "last_dir_fsl_sequence")
-        if not path:
-            return
-        try:
-            seq = sv._fsl_sequence(path)
-        except Exception as exc:                        # noqa: BLE001
-            ui.notify(str(exc), type="negative")
-            return
-        app.seq_file = None
-        br.set_backend('FSL-MRS')
-        br.backend.set_mode('Custom')
-        with open(path) as fh:
-            nested = 'seq' in json.load(fh)
-        if nested:   # a basis JSON: FSL-MRS reads the bare description
-            path = os.path.join(br.backend.ensure_workdir(), os.path.basename(path))
-            with open(path, 'w') as fh:
-                json.dump(seq, fh)
-        br.backend.optional_params['Custom Sequence'] = path
-        ui.notify(f"FSL-MRS runs {os.path.basename(path)} as given (Custom mode).", type="positive")
-        dialog.close()
-        app._build_tab2()
-
-    def clear() -> None:
-        if app.seq_file:
-            app.seq_file = None
-        elif br.backend.current_mode == 'Custom':
-            br.backend.optional_params['Custom Sequence'] = None
-            br.backend.set_mode('Simple')
-        dialog.close()
-        app._build_tab2()
-
-    with ui.row().classes("gap-2 items-center"):
-        ui.button("Pulseq (.seq)", icon="timeline", on_click=use_pulseq).props("outline color=primary dense")
-        ui.button("FSL-MRS / WIN (.json)", icon="data_object", on_click=use_fslmrs).props(
-            "outline color=primary dense")
-        if loaded:
-            ui.button("Remove file", icon="close", on_click=clear).props("flat dense color=primary")
-    ui.label("A .seq file runs in FID-A's shaped backend for its sequence; an FSL-MRS description "
-             "(or a basis JSON, which carries its sequence) runs in FSL-MRS Custom mode."
-             ).classes("text-xs br-muted")
