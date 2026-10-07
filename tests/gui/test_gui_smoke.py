@@ -49,8 +49,11 @@ async def test_skip_reaches_parameters(user: User) -> None:
     await _open(user)
     user.find('Skip').click()
     await user.should_see('Engine')
-    await user.should_see('Pulses')
+    await user.should_see('Sequence file')
     await user.should_see('Metabolites')
+    # pulses live in the sequence designer only
+    await user.should_not_see('Excitation')
+    await user.should_not_see('Refocusing')
 
 
 async def test_simulate_locked_when_params_blank(user: User) -> None:
@@ -107,7 +110,7 @@ async def test_sequence_panel_opens(user: User) -> None:
     user.find('Skip').click()
     await user.should_see('Engine')
     user.find(marker='sequence-panel').click()
-    await user.should_see('Runs on')
+    await user.should_see('Sequence designer')
 
 
 async def test_unsupported_sequences_are_greyed(user: User) -> None:
@@ -119,23 +122,33 @@ async def test_unsupported_sequences_are_greyed(user: User) -> None:
     assert 'PRESS' not in disabled and 'STEAM' not in disabled
 
 
-async def test_pulse_switches_ideal_and_waveform(user: User) -> None:
-    # Vespa PRESS: a standard refocusing pulse is Vespa's 'PRESS shaped', Ideal turns it back
+async def test_designer_saves_and_selects_the_design(user: User, tmp_path, monkeypatch) -> None:
+    # Vespa PRESS: a standard refocusing pulse in the designer, Save -> the .seq is selected in the
+    # sheet's file field and Vespa runs it as 'PRESS shaped' with the pulse from the file
+    monkeypatch.setenv('BASISREMY_SEQUENCES_DIR', str(tmp_path))
     await _open(user)
     user.find('Skip').click()
     seq = await _engine(user, 'Vespa')
     seq.value = 'PRESS'
+    await user.should_see('Echo split: symmetric (TE/2 each) in Vespa.')   # rebuilt PRESS sheet
+    te = user.find(marker='param:TE').elements.pop()
+    te.value = '30'
+    user.find(marker='sequence-panel').click()
+    await user.should_see('Sequence designer')
     refoc = await _select(user, lambda s: 'standard:sinc-ref' in s.options and s.value == 'ideal')
     refoc.value = 'standard:sinc-ref'
-    old = refoc         # the sheet is rebuilt: wait for the new select
-    refoc = await _select(user, lambda s: 'standard:sinc-ref' in s.options
-                          and s.value == 'standard:sinc-ref' and s is not old)
+    await _select(user, lambda s: 'standard:sinc-ref' in s.options
+                  and s.value == 'standard:sinc-ref' and s is not refoc)
     await user.should_see('Duration [ms]')
-    refoc.value = 'ideal'
-    old = refoc
-    await _select(user, lambda s: 'standard:sinc-ref' in s.options and s.value == 'ideal'
-                  and s is not old)
-    await user.should_not_see('Duration [ms]')
+    user.find(marker='designer-save').click()
+    saved = await _select(user, lambda s: any(str(k).endswith('.seq') for k in s.options)
+                          and str(s.value).endswith('.seq'))
+    assert str(saved.value).startswith(str(tmp_path))
+    await user.should_see('Runs as given.')
+    # the timings now come from the file; MRSCloud cannot run it and is greyed
+    assert 'readonly' in user.find(marker='param:TE').elements.pop().props
+    engine = await _select(user, lambda s: 'FID-A' in s.options and 'MRSCloud' in s.options)
+    assert 'cannot run' in engine.options['MRSCloud']
 
 
 async def test_echo_split_recommended_from_te(user: User) -> None:

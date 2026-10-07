@@ -6,32 +6,32 @@
 #                                                                                                  #
 # Created: 07/10/26                                                                                #
 #                                                                                                  #
-# Purpose: The parameter step, laid out the same for every engine: Engine, Sequence and a          #
-#          sequence or pulse file (any format) with the wand opening the Sequence panel; one row   #
-#          per pulse role (ideal, a standard pulse or a file); Timings, Acquisition and the        #
-#          engine's own settings; the metabolites. Every value shows where it comes from - the     #
-#          data file, a recommendation (with its source), the user - or that it is missing.        #
-#          What an engine cannot run is greyed out with the reason (core/sequence_setup.py).       #
+# Purpose: The parameter step, laid out the same for every engine: Engine, Sequence and the        #
+#          sequence file (none = ideal pulses, a dropped or picked file, or a design saved from    #
+#          the wand's sequence designer); Timings, Acquisition and the engine's own settings; the  #
+#          metabolites. Pulses live in the designer only. Every value shows where it comes from -  #
+#          the data file, a recommendation (with its source), the user - or that it is missing.    #
+#          What an engine cannot run is greyed out with the reason (core/sequence_setup.py,        #
+#          core/sequence_design.py).                                                               #
 #                                                                                                  #
 ####################################################################################################
 
 from __future__ import annotations
 
-import json
 import os
 
 from nicegui import run, ui
 
+from basisremy.core import sequence_design as sd
 from basisremy.core import sequence_setup as ss
-from basisremy.core import sequence_view as sv
 from basisremy.core.parameter_registry import get as registry_get
 from basisremy.gui.help_widget import label_with_help
 from basisremy.gui.local_file_picker import LocalFilePicker
 from basisremy.gui.ui_state import get_state, set_state
 
 _UNSET = (None, "", "missing input", "Select option")
-_IDEAL, _FILE = "ideal", "__file__"
 _PULSE_EXTS = {'.pta', '.rf', '.txt', '.exc', '.rfc', '.inv', '.mat'}
+_NONE, _TEMPLATE = "", "template:"
 
 # one name per value, whatever the engine calls it
 _LABEL = {
@@ -52,14 +52,12 @@ _TIMING = ['TE', 'Tau 1', 'Tau 2', 'TE2', 'sLASER TE1', 'sLASER TE2', 'sLASER TE
            'Nechoes', 'Delay']
 _ACQ = ['Bfield', 'Center Freq', 'Samples', 'Bandwidth', 'Nucleus', 'Linewidth', 'System']
 _EDIT_FIELDS = ['Edit On', 'Edit Off', 'Edit Tp', 'Edit Bandwidth (Hz)']
-# handled by the selectors, the pulse rows or the metabolite list
+# pulses and the slab they select: set in the sequence designer, not in the sheet
+_PULSE_FIELDS = {'Path to Pulse', 'Edit Pulse Path', 'RefTp', 'Flip Angle', 'Pulse Phase',
+                 'thkX', 'thkY', *_EDIT_FIELDS}
+# handled by the selectors, the file field, the designer or the metabolite list
 _ELSEWHERE = {'Sequence', 'Localization', 'Metabolites', 'Custom Sequence', 'Template File',
-              'Path to Pulse', 'Edit Pulse Path', 'RefTp', 'Vendor Pulse File', *_EDIT_FIELDS}
-_TP_KEY = {'exc': 'RefTp', 'ref': 'RefTp', 'edit': 'Edit Tp'}
-# standard pulses offered per role
-_STANDARD_FOR = {'exc': ['sinc-exc'],
-                 'ref': ['sinc-ref', 'hs4-ref', 'hs1-inv', 'goia-wurst', 'goia-hs', 'foci'],
-                 'edit': ['gauss-edit', 'gauss-edit-20ms']}
+              'Vendor Pulse File', *_PULSE_FIELDS}
 # engine options: the backend modes that keep the same pulses
 _MODE_LABEL = {
     'MRSCloud': ('Pulse set', {'Universal': 'Universal (open, bundled)',
@@ -166,11 +164,15 @@ def _register(app, key, el, value) -> None:
     _style(app, el, key, value)
 
 
-def text_field(app, key, value, sub=False) -> None:
+def text_field(app, key, value, sub=False, readonly=False) -> None:
     with _field_row(key, sub):
         inp = ui.input(value=_display(value)).props("filled dense").classes("br-pfield")
         inp.on_value_change(lambda e, k=key: app._update_param(k, e.value))
+        if readonly:
+            inp.props("readonly")
     _register(app, key, inp, value)
+    if readonly:
+        app._tooltips[key].set_text("From the sequence file: change it in the sequence designer (wand)")
 
 
 def dropdown_field(app, key, value) -> None:
@@ -223,11 +225,11 @@ def build(app) -> None:
         grid = ui.element("div").classes("br-pgrid")
         with grid:
             with ui.column().classes("gap-4 min-w-0"):
-                _pulses_card(app, seq, route, whole, shown)
                 timing = [k for k in _TIMING if k in shown]
                 if b.name == 'CustomSLaser':          # its Tau 1/2 only set the reference's ppm range
                     timing = [k for k in timing if k == 'TE']
-                _card(app, "Timings", timing, note=ss.fixed_timing(b) if seq and not whole else None)
+                _card(app, "Timings", timing, note=ss.fixed_timing(b) if seq and not whole else None,
+                      readonly=bool(app.seq_file))
                 _card(app, "Acquisition", [k for k in _ACQ if k in shown])
                 _card(app, "Engine settings", [k for k in shown if k not in _ELSEWHERE
                                                and k not in timing and k not in _ACQ], modes=route)
@@ -266,11 +268,18 @@ def _selectors(app, seq, route, whole) -> None:
     cat = br.backend.category
     with ui.column().classes("br-card br-plist w-full"):
         eng_opts = {c: ss.ENGINE_LABEL.get(c, c) for c in ss.engines() if br.categories.get(c)}
-        if seq:
+        greyed = []
+        if app.seq_file and app._design is not None:
+            for c in eng_opts:
+                if c != cat and sd.plan(app._design, c, br).status == 'no':
+                    eng_opts[c] += "  ·  cannot run this sequence file"
+                    greyed.append(c)
+        elif seq:
             eng_opts = {c: lbl if seq in ss.ROUTES[c] else f"{lbl}  ·  no {seq}"
                         for c, lbl in eng_opts.items()}
         with _row("Engine"):
-            eng = ui.select(eng_opts, value=cat).props("filled dense").classes("br-selfield")
+            eng = _Select(eng_opts, disabled=greyed, value=cat).props("filled dense").classes(
+                "br-selfield")
         eng.on_value_change(lambda e: _on_engine(app, e.value, eng))
 
         with _row("Sequence"):
@@ -298,8 +307,15 @@ async def _on_engine(app, cat, select) -> None:
     if cat == br.backend.category or getattr(app, "_switching", False):
         return
     seq, _ = ss.current(br)
-    route = ss.choose(cat, seq, app._want) if seq else None
-    target = br.backends[route.backend if route else br.categories[cat][0]]
+    design = app._design if app.seq_file else None
+    if design is not None:
+        pl = sd.plan(design, cat, br)
+        route = pl.route
+        name = 'FSL-MRS' if cat == 'FSL-MRS' else (route.backend if route else br.categories[cat][0])
+    else:
+        route = ss.choose(cat, seq, app._want) if seq else None
+        name = route.backend if route else br.categories[cat][0]
+    target = br.backends[name]
     app._switching = True
     try:
         if target.requires_octave and target.octave is None and not await _octave_ready(app):
@@ -307,8 +323,13 @@ async def _on_engine(app, cat, select) -> None:
             return
     finally:
         app._switching = False
-    app.seq_file = None
-    if route:
+    if design is not None:
+        app._plan = sd.apply(br, design, app.seq_file, cat)
+        if app._plan.status == 'no':
+            _drop_file(app)
+            br.set_category(cat)
+            ui.notify(" ".join(app._plan.notes), type="warning", multi_line=True)
+    elif route:
         ss.apply(br, cat, seq, app._want)
     else:
         br.set_category(cat)
@@ -338,7 +359,6 @@ def _on_sequence(app, seq) -> None:
     if seq is None or seq == ss.current(br)[0]:
         return
     app._user_set.add('Sequence')
-    app.seq_file = None
     ss.apply(br, br.backend.category, seq, app._want)
     app._rebuild_soon()
 
@@ -347,40 +367,84 @@ def _whole_file(app) -> tuple[str, str] | None:
     """(name, what) of the whole-sequence file the engine runs, None without one."""
     b = app.BasisREMY.backend
     if app.seq_file:
-        return os.path.basename(app.seq_file), "Pulseq sequence: timing, pulses and slabs"
-    if b.name == 'FSL-MRS' and b.current_mode == 'Custom' and b.optional_params.get('Custom Sequence'):
-        return os.path.basename(b.optional_params['Custom Sequence']), "Sequence description, run as given"
+        return os.path.basename(app.seq_file), "Sequence file: timing, pulses and slabs"
     if b.name == 'FSL-MRS' and b.current_mode == 'Template' and b.optional_params.get('Template File'):
         return b.optional_params['Template File'], "FSL-MRS example sequence, run as given"
     return None
 
 
+# ---- the sequence file ---------------------------------------------------------------------------
+def _file_options(app) -> dict:
+    """None (ideal pulses / the engine's own), files used in this session, saved designs, and
+    FSL-MRS's example sequences."""
+    b = app.BasisREMY.backend
+    if b.category == 'MRSCloud':
+        opts = {_NONE: "MRSCloud's own pulse set"}
+        vendor = b.mandatory_params.get('Vendor Pulse File')
+        if vendor not in _UNSET:
+            opts[vendor] = f"Vendor pulse: {os.path.basename(str(vendor))}"
+        return opts
+    opts = {_NONE: "Ideal pulses (recommended)"}
+    for path in [app.seq_file, *app._seq_files, *sd.saved_designs()]:
+        if path:
+            opts.setdefault(path, os.path.basename(path))
+    if b.category == 'FSL-MRS':
+        for info in b.predefined_sequences.values():
+            opts[_TEMPLATE + info['description']] = f"FSL-MRS example: {info['description']}"
+    return opts
+
+
+def _file_value(app) -> str:
+    b = app.BasisREMY.backend
+    if app.seq_file:
+        return app.seq_file
+    if b.name == 'FSL-MRS' and b.current_mode == 'Template' and b.optional_params.get('Template File'):
+        return _TEMPLATE + b.optional_params['Template File']
+    if b.category == 'MRSCloud' and b.mandatory_params.get('Vendor Pulse File') not in _UNSET:
+        return b.mandatory_params['Vendor Pulse File']
+    return _NONE
+
+
 def _file_row(app, whole) -> None:
     br = app.BasisREMY
-    with _row("Sequence / pulse file"):
+    b = br.backend
+    options = _file_options(app)
+    value = _file_value(app)
+    with _row("Sequence file"):
         with ui.row().classes("br-selfield items-center gap-1 no-wrap"):
-            if whole:
-                with ui.column().classes("gap-0 min-w-0 grow"):
-                    ui.label(whole[0]).classes("text-sm font-semibold truncate w-full")
-                    ui.label(whole[1]).classes("text-xs br-muted truncate w-full")
-                ui.button(icon="close", on_click=lambda: _clear_file(app)).props(
-                    "flat dense round").classes("br-muted").tooltip("Remove the file")
-            else:
-                ui.label("drop a file here, or browse").classes("text-xs br-muted grow")
+            sel = ui.select(options, value=value if value in options else _NONE).props(
+                "filled dense").classes("grow min-w-0")
+            needs_vendor = 'Vendor Pulse File' in b.get_params_for_mode() and value == _NONE
+            sel.classes(add="br-v-missing" if needs_vendor else
+                        "br-v-file" if value != _NONE else "br-v-rec")
+            sel.mark("sequence-file")
+            with sel:
+                ui.tooltip("MRSCloud needs the vendor's refocusing pulse file for this scanner: "
+                           "drop or pick it" if needs_vendor else
+                           "Drop or pick any sequence (Pulseq .seq, sequence .json) or pulse file "
+                           "(.pta, .RF, .txt, Bruker, .mat), or make one with the wand")
+
+            async def chosen(e) -> None:
+                if e.value == value:
+                    return
+                if e.value == _NONE:
+                    _clear_file(app)
+                elif str(e.value).startswith(_TEMPLATE):
+                    _use_template(app, e.value[len(_TEMPLATE):])
+                else:
+                    await use_file(app, e.value)
+            sel.on_value_change(chosen)
             ui.button(icon="folder_open", on_click=lambda: _browse(app)).props(
-                "flat dense round color=primary").tooltip(
-                "A whole sequence (Pulseq .seq, sequence .json) or one pulse "
-                "(.pta, .RF, .txt, Bruker, .mat)")
-            if br.backend.category == 'FSL-MRS':
-                with ui.button(icon="library_books").props("flat dense round color=primary") as lib:
-                    with ui.menu():
-                        for info in br.backend.predefined_sequences.values():
-                            ui.menu_item(info['description'],
-                                         on_click=lambda _, d=info['description']: _use_template(app, d))
-                lib.tooltip("FSL-MRS example sequences")
+                "flat dense round color=primary").tooltip("Pick a sequence or pulse file")
             ui.button(icon="auto_fix_high", on_click=lambda: _open_panel(app)).props(
                 "flat dense round color=primary").mark("sequence-panel").tooltip(
-                "Sequence: timeline and pulses")
+                "Sequence designer: pulses, timings, save as a sequence file")
+    pl = getattr(app, '_plan', None)
+    if app.seq_file and pl is not None:
+        colour = {'ok': 'br-muted', 'approx': '', 'no': ''}[pl.status]
+        style = {'ok': '', 'approx': 'color:#a86d12', 'no': 'color:#c2453c'}[pl.status]
+        text = " ".join(pl.notes) if pl.notes else "Runs as given."
+        ui.label(text).classes(f"text-xs px-4 pb-2 {colour}").style(style)
 
 
 def _open_panel(app) -> None:
@@ -401,207 +465,105 @@ async def _browse(app) -> None:
 
 
 async def use_file(app, path: str) -> None:
-    """A dropped or picked file: a whole sequence, or one pulse for a role."""
+    """A dropped or picked file: a whole sequence runs as it is; a single pulse becomes a design
+    (the recommended one, with this pulse) saved next to the others and selected."""
     ext = os.path.splitext(path)[1].lower()
-    if ext == '.seq':
+    b = app.BasisREMY.backend
+    if ext in ('.seq', '.json'):
+        previous = app.seq_file
         app.seq_file = path
         if not app._apply_sequence_file():
-            app.seq_file = None
+            app.seq_file = previous
         app._rebuild_soon()
-    elif ext == '.json':
-        _use_sequence_json(app, path)
     elif ext in _PULSE_EXTS or path.lower().endswith(('.exc', '.rfc', '.inv')):
-        await _use_pulse_file(app, path)
+        if b.category == 'MRSCloud':
+            if 'Vendor Pulse File' in b.get_params_for_mode():
+                app._set_value('Vendor Pulse File', path)
+                app._rebuild_soon()
+            else:
+                ui.notify("MRSCloud uses its own pulse set; pick another engine for this pulse.",
+                          type="warning")
+            return
+        await _pulse_design(app, path)
     else:
         ui.notify(f"{os.path.basename(path)}: not a sequence or pulse file BasisREMY reads.",
                   type="warning")
 
 
-def _use_sequence_json(app, path: str) -> None:
+async def _pulse_design(app, path: str) -> None:
+    from basisremy.gui.sequence_dialog import _ask_role
     br = app.BasisREMY
-    try:
-        seq = sv._fsl_sequence(path)
-    except Exception as exc:                                # noqa: BLE001
-        ui.notify(str(exc), type="negative")
+    b = br.backend
+    sheet = {**b.optional_params, **b.mandatory_params}
+    seq, _ = ss.current(br)
+    te = sd._num(sheet.get('TE'))
+    if seq not in sd.DESIGNABLE or te is None:
+        ui.notify("Set the sequence and TE first, then the pulse.", type="warning")
         return
-    app.seq_file = None
-    if br.backend.name != 'FSL-MRS':
-        br.set_backend('FSL-MRS')
-    br.backend.set_mode('Custom')
-    with open(path) as fh:
-        nested = 'seq' in json.load(fh)
-    if nested:          # a basis set JSON carries its sequence: FSL-MRS reads the bare description
-        path = os.path.join(br.backend.ensure_workdir(), os.path.basename(path))
-        with open(path, 'w') as fh:
-            json.dump(seq, fh)
-    br.backend.optional_params['Custom Sequence'] = path
-    ui.notify(f"FSL-MRS runs {os.path.basename(path)} as given.", type="positive")
-    app._rebuild_soon()
+    d = app._design if app.seq_file and app._design is not None else sd.recommend(seq, te, sheet)
+    role = await _ask_role([r for r in sd.roles(d.kind)], path)
+    if role is None:
+        return
+    dur, _why = sd.default_duration(path, role)
+    d.pulses[role] = {'source': path, 'dur': dur}
+    target = os.path.join(sd.designs_dir(), sd.default_name(d) + ".seq")
+    n = 2
+    while os.path.exists(target):
+        target = os.path.join(sd.designs_dir(), f"{sd.default_name(d)}_{n}.seq")
+        n += 1
+    try:
+        sd.write_seq(d, target)
+    except Exception as exc:                                # noqa: BLE001
+        ui.notify(f"{os.path.basename(path)}: {exc}", type="negative", multi_line=True)
+        return
+    ui.notify(f"{os.path.basename(path)} as the {ss.ROLE_NAME[role].lower()} pulse: saved as "
+              f"{os.path.basename(target)} (open the wand to change it).", type="positive",
+              multi_line=True)
+    await use_file(app, target)
 
 
 def _use_template(app, description: str) -> None:
+    _drop_file(app)
     b = app.BasisREMY.backend
-    app.seq_file = None
     b.set_mode('Template')
     b.optional_params['Template File'] = description
     app._rebuild_soon()
 
 
-def _clear_file(app) -> None:
-    b = app.BasisREMY.backend
-    if app.seq_file:
-        app.seq_file = None
-    elif b.name == 'FSL-MRS':
+def _drop_file(app) -> None:
+    """Forget the sequence file: its values go back to recommendations, ideal pulses."""
+    br = app.BasisREMY
+    b = br.backend
+    pl = getattr(app, '_plan', None)
+    if pl is not None:
+        given = br.from_file.get(b.name, {})
+        for k in pl.values:
+            if k in ss.SCAN_KEYS:
+                continue
+            given.pop(k, None)
+            for params in (b.mandatory_params, b.optional_params):
+                if k in params and k not in ('Path to Pulse', 'Edit Pulse Path'):
+                    params[k] = None
+    app.seq_file, app._design, app._plan = None, None, None
+    if b.name == 'FSL-MRS':
         b.optional_params['Custom Sequence'] = None
         b.optional_params['Template File'] = None
         b.set_mode('Simple')
-    app._rebuild_soon()
-
-
-async def _use_pulse_file(app, path: str) -> None:
-    br = app.BasisREMY
     seq, _ = ss.current(br)
-    cat = br.backend.category
-    if seq is None:
-        ui.notify("Pick the sequence first, then the pulse.", type="warning")
-        return
-    can = [r for r in ss.roles(seq) if ss.SHAPED in ss.pulse_choices(cat, seq, r)]
-    if not can:
-        role = 'ref' if 'ref' in ss.roles(seq) else 'exc'
-        ui.notify(ss.pulse_note(cat, seq, role, ss.SHAPED), type="warning", multi_line=True)
-        return
-    role = can[0]
-    if len(can) > 1:
-        with ui.dialog() as dlg, ui.card().classes("gap-3"):
-            ui.label(f"Use {os.path.basename(path)} as").classes("text-sm font-semibold")
-            with ui.row().classes("gap-2"):
-                for r in can:
-                    ui.button(ss.ROLE_NAME[r], on_click=lambda _, r=r: dlg.submit(r)).props(
-                        "outline color=primary")
-        role = await dlg
-        if role is None:
-            return
-    set_pulse(app, seq, role, path)
+    if seq:
+        ss.apply(br, b.category, seq, {})
 
 
-# ---- pulses -------------------------------------------------------------------------------------
-def set_pulse(app, seq, role, value) -> None:
-    """Make ``role`` ideal or a waveform (standard name or file) and rebuild the sheet."""
-    br = app.BasisREMY
-    cat = br.backend.category
-    app._want[role] = ss.IDEAL if value == _IDEAL else ss.SHAPED
-    app._user_set.add(f"pulse:{role}")
-    ss.apply(br, cat, seq, app._want)
-    if value != _IDEAL:
-        b = br.backend
-        key = sv.pulse_key(b, role)
-        if key:
-            if os.path.splitext(str(value))[1].lower() in ('.seq', '.json'):
-                value = f"{value}#{role}"
-            app._set_value(key, value)
-            try:
-                tp = sv.read_pulse(value, sv._KIND[role]).tp_ms
-            except Exception:                                # noqa: BLE001 - kept as typed
-                tp = float('nan')
-            if tp == tp and _TP_KEY[role] in b.get_params_for_mode():
-                app._set_value(_TP_KEY[role], round(tp, 4))
+def _clear_file(app) -> None:
+    b = app.BasisREMY.backend
+    if b.category == 'MRSCloud' and b.mandatory_params.get('Vendor Pulse File') not in _UNSET:
+        b.mandatory_params['Vendor Pulse File'] = None
+    _drop_file(app)
     app._rebuild_soon()
-
-
-def _own_text(b, role) -> str:
-    if b.name == 'MRSCloud':
-        vendor = b.mandatory_params.get('System') or 'vendor'
-        return ("MRSCloud's universal pulse set" if b.current_mode == 'Universal'
-                else f"MRSCloud's {vendor} product pulses")
-    return f"Gaussian, generated by {ss.ENGINE_LABEL.get(b.category, b.category)}"
-
-
-def _pulses_card(app, seq, route, whole, shown) -> None:
-    b = app.BasisREMY.backend
-    with ui.column().classes("gap-2 min-w-0 w-full"):
-        ui.label("Pulses").classes("br-section-title")
-        with ui.column().classes("br-card br-plist w-full"):
-            if whole:
-                with _row("All pulses"):
-                    ui.label("from the sequence file").classes("text-sm br-muted")
-                return
-            if route is None:
-                with _row("Pulses"):
-                    ui.label("follow from the sequence").classes("text-sm br-muted")
-                return
-            for role in ss.roles(seq):
-                _pulse_row(app, seq, route, role, shown)
-            if 'Vendor Pulse File' in shown:
-                file_field(app, 'Vendor Pulse File', b.mandatory_params.get('Vendor Pulse File'))
-
-
-def _pulse_row(app, seq, route, role, shown) -> None:
-    b = app.BasisREMY.backend
-    cat = b.category
-    kind = route.pulses.get(role)
-    with _row(ss.ROLE_NAME[role]):
-        if kind == ss.OWN or kind is None:
-            ui.label(_own_text(b, role)).classes("br-selfield text-sm")
-        else:
-            key = sv.pulse_key(b, role) if kind == ss.SHAPED else None
-            value = b.mandatory_params.get(key) if key else _IDEAL
-            choices = ss.pulse_choices(cat, seq, role)
-            options = {_IDEAL: "Ideal (instantaneous)"}
-            options.update({f"standard:{n}": f"Standard: {n}" for n in _STANDARD_FOR[role]})
-            if value not in options:
-                options[value] = f"File: {os.path.basename(str(value))}"
-            options[_FILE] = "Pulse file…"
-            disabled = set()
-            if ss.IDEAL not in choices:
-                disabled.add(_IDEAL)
-            if ss.SHAPED not in choices:
-                disabled |= set(options) - {_IDEAL}
-            sel = _Select(options, disabled=disabled, value=value).props("filled dense").classes(
-                "br-selfield")
-            user = f"pulse:{role}" in app._user_set or (key in app._user_set if key else False)
-            sel.classes(add="br-v-user" if user else "br-v-rec")
-            sel.tooltip("Set by you" if user else
-                        "Recommended: ideal wherever the engine allows" if value == _IDEAL else
-                        f"{ss.ENGINE_LABEL.get(cat, cat)} default / recommended")
-
-            async def pick(e, current=value) -> None:
-                if e.value in (None, current):
-                    return
-                new = e.value
-                if new == _FILE:
-                    new = await _pick_pulse_file(role)
-                    if not new:
-                        e.sender.value = current
-                        return
-                set_pulse(app, seq, role, new)
-            sel.on_value_change(pick)
-    # duration, editing frequencies: small rows under the role
-    extra = [_TP_KEY[role]] if kind == ss.SHAPED and _TP_KEY[role] in shown else []
-    if role == 'edit':
-        extra = [k for k in _EDIT_FIELDS if k in shown]
-    for k in extra:
-        text_field(app, k, b.mandatory_params.get(k, b.optional_params.get(k)), sub=True)
-    other = ss.SHAPED if kind == ss.IDEAL else ss.IDEAL if kind == ss.SHAPED else None
-    note = ss.pulse_note(cat, seq, role, other) if other else None
-    if note and not (role == 'edit' and other == ss.IDEAL):
-        ui.label(note).classes("text-xs br-muted px-4 pb-2 -mt-1")
-
-
-async def _pick_pulse_file(role) -> str | None:
-    if LocalFilePicker.active() is not None:
-        return None
-    state_key = f"last_dir_pulse_{role}"
-    start = get_state(state_key) or get_state("last_dir_sequence_file") or "~"
-    if not isinstance(start, str) or (start != "~" and not os.path.isdir(start)):
-        start = "~"
-    path = await LocalFilePicker(start, title=f"Select the {ss.ROLE_NAME[role].lower()} pulse")
-    if path:
-        set_state(state_key, os.path.dirname(path))
-    return path
 
 
 # ---- value cards --------------------------------------------------------------------------------
-def _card(app, title, keys, note=None, modes=None) -> None:
+def _card(app, title, keys, note=None, modes=None, readonly=False) -> None:
     b = app.BasisREMY.backend
     mode_row = modes is not None and len(modes.modes) > 1 and b.name in _MODE_LABEL
     if not keys and not note and not mode_row:
@@ -622,6 +584,6 @@ def _card(app, title, keys, note=None, modes=None) -> None:
                 elif key in b.dropdown:
                     dropdown_field(app, key, value)
                 else:
-                    text_field(app, key, value)
+                    text_field(app, key, value, readonly=readonly)
             if note:
                 ui.label(note).classes("text-xs br-muted px-4 py-2")

@@ -831,14 +831,22 @@ class FSLMRSBackend(Backend):
         # Get or generate sequence JSON. The Custom branch is gated on the
         # mode: a stale 'Custom Sequence' pick must not override the sequence
         # configured in Simple or Template mode.
+        pulseq_variants = None
         if (self.current_mode == 'Custom'
                 and params.get('Custom Sequence')
                 and os.path.exists(params['Custom Sequence'])):
             # User provided custom sequence file
             print(f"Using custom sequence: {params['Custom Sequence']}")
+            seq_params = None
+            if params['Custom Sequence'].lower().endswith('.seq'):
+                # Pulseq: translated per acquisition (MEGA: ON / OFF) below
+                from basisremy.core.sequence_design import fsl_sequences
+                pulseq_variants = fsl_sequences(params['Custom Sequence'], params)
             try:
-                with open(params['Custom Sequence'], 'r') as f:
-                    seq_params = json.load(f)
+                if pulseq_variants is None:
+                    with open(params['Custom Sequence'], 'r') as f:
+                        seq_params = json.load(f)
+                    seq_params = seq_params.get('seq', seq_params)   # a basis JSON carries it
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise ValueError(
                     f"FSL-MRS: 'Custom Sequence' must be an FSL-MRS sequence "
@@ -847,7 +855,7 @@ class FSLMRSBackend(Backend):
                     f"({exc}). RF waveform files (.pta / .RF) belong to the FID-A "
                     f"shaped backends, not here.") from exc
             for key in ('RF', 'delays', 'CoherenceFilter'):
-                if key not in seq_params:
+                if pulseq_variants is None and key not in seq_params:
                     raise ValueError(
                         f"FSL-MRS: 'Custom Sequence' JSON has no '{key}' entry — "
                         f"it is not an FSL-MRS sequence description.")
@@ -896,7 +904,9 @@ class FSLMRSBackend(Backend):
         # Sub-experiments: one sequence per editing condition, or a single
         # unlabelled run for everything else.
         sequence = params['Sequence']
-        if seq_params is not None:
+        if pulseq_variants:
+            variants = pulseq_variants
+        elif seq_params is not None:
             variants = {None: seq_params}
         elif sequence in self._mega_sequences:
             on, off = params.get('Edit On'), params.get('Edit Off')
@@ -973,7 +983,7 @@ class FSLMRSBackend(Backend):
             else:
                 for label, fid in fids.items():
                     basis_set[f'{metab} ({label})'] = fid
-                if sequence in self._mega_sequences:
+                if set(fids) == {'ON', 'OFF'}:
                     basis_set[f'{metab} (DIFF)'] = fids['ON'] - fids['OFF']
                 else:
                     a, b, c, d = (fids[k] for k in 'ABCD')

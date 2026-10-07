@@ -113,7 +113,9 @@ def _rf_event(b, t, pp) -> RFEvent:
         role = 'exc'
     elif use in ('saturation', 'preparation'):
         role = 'sat'
-    elif use in ('refocusing', 'inversion') or swept or flip >= 120:
+    elif use == 'refocusing':
+        role = 'ref'
+    elif use == 'inversion' or swept or flip >= 120:
         # older files: an adiabatic sweep refocuses; its signed area says nothing
         role = 'ref' if selective else 'edit'
     else:

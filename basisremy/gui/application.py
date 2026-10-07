@@ -354,6 +354,9 @@ class BasisREMYApp:
         # recommended keys with their source, and the field widgets
         self._user_set: set = set()
         self._want: dict = {}
+        self._seq_files: list = []            # sequence files used in this session
+        self._design = None                   # the design of seq_file (core/sequence_design.py)
+        self._plan = None                     # how the current engine runs it
         self._rec: dict = {}
         self._fields: dict = {}
         self._tooltips: dict = {}
@@ -683,23 +686,35 @@ class BasisREMYApp:
             self._render_data_body()
 
     def _apply_sequence_file(self) -> bool:
-        # Fill the sheet from the .seq file (switches to the FID-A shaped kind it
-        # describes); the reader's own warnings are shown, a failure keeps the step.
+        # Read the sequence file (any .seq or FSL-MRS / WIN sequence JSON) into a design and
+        # hand it to the current engine; the reader's own warnings are shown, a failure or an
+        # engine that cannot run it keeps the sheet as it was.
         import warnings
+        from basisremy.core import sequence_design
+        br = self.BasisREMY
         try:
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                params = self.BasisREMY.load_sequence(self.seq_file)
+                design = sequence_design.read_design(
+                    self.seq_file, br.backend.mandatory_params.get('Bfield'))
         except Exception as exc:  # noqa: BLE001
-            ui.notify(f"Could not read the sequence file: {exc}", type="negative")
+            ui.notify(f"Could not read the sequence file: {exc}", type="negative", multi_line=True)
             return False
         for w in caught:
             if "basisremy" in str(w.filename):
                 ui.notify(str(w.message), type="warning")
-        # the file's values show as "from the file"
-        self.BasisREMY.from_file.setdefault(self.BasisREMY.backend.name, {}).update(params)
-        ui.notify(f"Sequence file: {self.BasisREMY.backend.display_name}, TE {params['TE']:g} ms — "
-                  "timing, pulse and slabs from the file.", type="positive")
+        plan = sequence_design.apply(br, design, self.seq_file)
+        if plan.status == 'no':
+            ui.notify(" ".join(plan.notes), type="warning", multi_line=True)
+            return False
+        self._design, self._plan = design, plan
+        if self.seq_file in self._seq_files:
+            self._seq_files.remove(self.seq_file)
+        self._seq_files.insert(0, self.seq_file)
+        from basisremy.core.sequence_setup import ENGINE_LABEL
+        engine = ENGINE_LABEL.get(br.backend.category, br.backend.category)
+        ui.notify(f"{Path(self.seq_file).name}: {design.kind}, TE {design.te:g} ms, on {engine}.",
+                  type="positive")
         return True
 
     async def _pick_data_file(self) -> None:
