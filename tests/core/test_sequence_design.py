@@ -198,3 +198,10 @@ def test_dual_lobe_edits_both_targets(tmp_path):
     assert peaks == pytest.approx(want, abs=10)
     no_b0 = {k: v for k, v in _SHEET.items() if k != 'Bfield'}
     assert any('field strength' in p for p in sd.problems(sd.recommend('HERMES', 80.0, no_b0)))
+
+
+def test_fsl_custom_seq_shows_field_and_linewidth(br, tmp_path):
+    path = sd.write_seq(sd.recommend('PRESS', 35.0, _SHEET), str(tmp_path / 'f.seq'))
+    sd.apply(br, sd.read_design(path), path, 'FSL-MRS')
+    shown = br.backend.get_params_for_mode()
+    assert {'TE', 'Bfield', 'Linewidth'} <= set(shown)

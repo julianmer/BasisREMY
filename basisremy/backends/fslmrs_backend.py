@@ -241,14 +241,20 @@ class FSLMRSBackend(Backend):
             }
 
         elif mode == 'Custom':
-            return {
+            params = {
                 'Custom Sequence': self.optional_params['Custom Sequence'],
                 'Samples': self.mandatory_params['Samples'],
                 'Bandwidth': self.mandatory_params['Bandwidth'],
                 'Nucleus': self.mandatory_params['Nucleus'],
                 'Center Freq': self.mandatory_params['Center Freq'],
-                **common,
             }
+            if str(self.optional_params['Custom Sequence'] or '').lower().endswith('.seq'):
+                # a Pulseq file holds no field strength or linewidth (its TE is shown as given)
+                params.update({'TE': self.mandatory_params['TE'],
+                               'Bfield': self.mandatory_params['Bfield'],
+                               'Linewidth': self.optional_params['Linewidth']})
+            params.update(common)
+            return params
 
         return dict(self.mandatory_params)
 
