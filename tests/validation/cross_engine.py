@@ -36,8 +36,13 @@ def run_engine(br, backend, sequence, te, metabs=PANEL, b0=3.0, samples=2048,
     result is keyed by the panel name again (sub-spectrum tags kept)."""
     br.set_backend(backend)
     b = br.backend
-    keys = translate_metabolites(metabs, b.metabs.keys())
-    back = {k: m for k, m in zip(keys, metabs)}
+    # one name at a time: a name the backend lacks is dropped without shifting the others
+    back = {}
+    for m in metabs:
+        k = translate_metabolites([m], b.metabs.keys())
+        if k and k[0] not in back:
+            back[k[0]] = m
+    keys = list(back)
     params = dict(b.mandatory_params)
     params.update({k: v for k, v in b.optional_params.items() if k not in params})
     params.update({'Sequence': sequence, 'TE': te, 'Bfield': b0, 'Samples': samples,
