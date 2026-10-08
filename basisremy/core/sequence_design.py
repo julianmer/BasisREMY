@@ -158,7 +158,7 @@ def recommend(kind: str, te: float, sheet: dict | None = None, header: dict | No
                 d.rec.pop(k, None)
     for role in roles(kind):
         d.pulses[role] = {'source': 'ideal', 'dur': 0.0}
-        d.rec[f'pulse:{role}'] = "Recommended: ideal wherever the engine allows"
+        d.rec[f'pulse:{role}'] = "Default: ideal. Most precise: the scanner's own pulse file"
     if _edited(kind):
         family = _family(kind)
         if family:
