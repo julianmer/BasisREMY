@@ -384,7 +384,7 @@ def _file_options(app) -> dict:
         if vendor not in _UNSET:
             opts[vendor] = f"Vendor pulse: {os.path.basename(str(vendor))}"
         return opts
-    opts = {_NONE: "Ideal pulses (recommended)"}
+    opts = {_NONE: "Ideal pulses"}
     for path in [app.seq_file, *app._seq_files, *sd.saved_designs()]:
         if path:
             opts.setdefault(path, os.path.basename(path))
