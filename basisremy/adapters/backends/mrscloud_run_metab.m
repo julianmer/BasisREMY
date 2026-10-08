@@ -1,7 +1,7 @@
 function [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = mrscloud_run_metab( ...
         metab, vendor, sequence, localization, te, field_str, ...
         edit_target, edit_on, edit_off, edit_tp, spatial_points, save_dir, ...
-        samples, bandwidth, b0)
+        samples, bandwidth, b0, ref_file, ref_tp, ref_ideal, edit_file, te1, thk)
 % MRSCLOUD_RUN_METAB  Adapter that runs the MRSCloud workflow for ONE metabolite.
 %
 %   [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = ...
@@ -28,10 +28,24 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = mrscloud_run_m
 %                             hard-coded sw = 4000)
 %     b0              double  field strength in T (overrides the per-vendor
 %                             value load_parameters hard-codes; 0 = keep it)
+%   A BasisREMY sequence design (PRESS / MEGA-PRESS); omitted or '' / 0 = MRSCloud's own
+%   pulses and timing:
+%     ref_file        char    refocusing waveform (.pta)
+%     ref_tp          double  its duration [ms]
+%     ref_ideal       double  1: ideal refocusing (a hard pulse at one spatial
+%                             point, no gradient)
+%     edit_file       char    editing waveform ('' = keep)
+%     te1             double  first echo time [ms] (0 = keep)
+%     thk             double  refocusing slab [cm] (0 = keep)
 %   The other inputs are unchanged — see file header above.
     if nargin < 13 || isempty(samples);   samples   = 0; end
     if nargin < 14 || isempty(bandwidth); bandwidth = 0; end
     if nargin < 15 || isempty(b0);        b0        = 0; end
+    design = struct();
+    if nargin >= 21 && ~isempty(ref_file)
+        design = struct('ref_file', ref_file, 'ref_tp', ref_tp, 'ref_ideal', ref_ideal, ...
+                        'edit_file', edit_file, 'te1', te1, 'thk', thk);
+    end
     sub_re = []; sub_im = [];
 % MRSCLOUD_RUN_METAB  Adapter that runs the MRSCloud workflow for ONE metabolite.
 %
@@ -170,6 +184,11 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = mrscloud_run_m
         end
     end
 
+    % ---------- a BasisREMY sequence design: its pulses and TE1 ----------
+    if ~isempty(fieldnames(design))
+        MRS_opt = apply_design(MRS_opt, design, te);
+    end
+
     % ---------- dispatch to the right simulator ----------
     switch localization
         case 'PRESS'
@@ -238,7 +257,43 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = mrscloud_run_m
 end
 
 
-
-
-
-
+function MRS_opt = apply_design(MRS_opt, design, te)
+% Replace MRSCloud's refocusing / editing pulses and TE1 by the design's and rebuild what
+% load_parameters derived from them (slice gradient, grid, refocusing propagators).
+    if isfield(design, 'te1') && design.te1 > 0
+        MRS_opt.TE1 = design.te1;
+        MRS_opt.TE2 = te - design.te1;
+    end
+    if isfield(design, 'thk') && design.thk > 0
+        MRS_opt.thkX = design.thk;
+        MRS_opt.thkY = design.thk;
+    end
+    if isfield(design, 'edit_file') && ~isempty(design.edit_file)
+        editRF = io_loadRFwaveform(design.edit_file, 'inv', 0);
+        MRS_opt.editRF1 = editRF;
+        MRS_opt.editRF2 = editRF;
+    end
+    if ~isfield(design, 'ref_file') || isempty(design.ref_file)
+        return
+    end
+    MRS_opt.refRF = io_loadRFwaveform(design.ref_file, 'ref', 0);
+    MRS_opt.refTp = design.ref_tp;
+    if isfield(design, 'ref_ideal') && design.ref_ideal
+        % a hard pulse acts on every position alike: one point, no gradient
+        MRS_opt.x = 0; MRS_opt.y = 0; MRS_opt.nX = 1; MRS_opt.nY = 1;
+        MRS_opt.Gx = 0;
+    else
+        MRS_opt.Gx = (MRS_opt.refRF.tbw / (MRS_opt.refTp / 1000)) ...
+                     / (MRS_opt.gamma * MRS_opt.thkX / 10000);            % [G/cm]
+        MRS_opt.fovX = 1.5 * MRS_opt.thkX;                                % slab + transition bands
+        MRS_opt.fovY = MRS_opt.fovX;
+        MRS_opt.x = linspace(-MRS_opt.fovX / 2, MRS_opt.fovX / 2, MRS_opt.nX);
+        MRS_opt.y = linspace(-MRS_opt.fovY / 2, MRS_opt.fovY / 2, MRS_opt.nY);
+    end
+    Qrefoc = cell(1, numel(MRS_opt.y));
+    for X = 1:numel(MRS_opt.y)
+        Qrefoc{X} = calc_shapedRF_propagator_refoc(MRS_opt.H, MRS_opt.refRF, MRS_opt.refTp, ...
+                                                   MRS_opt.flipAngle, 0, MRS_opt.y(X), MRS_opt.Gx);
+    end
+    MRS_opt.Qrefoc = Qrefoc;
+end

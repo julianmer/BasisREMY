@@ -127,11 +127,30 @@ def test_mega_special(br, tmp_path):
     assert (p['Edit On'], p['Edit Off']) == (1.9, 7.5)
 
 
+def test_mrscloud_runs_a_design(br, tmp_path):
+    d = sd.recommend('PRESS', 35.0, _SHEET)
+    d.pulses['ref'] = {'source': 'standard:sinc-ref', 'dur': 5.0}
+    path = sd.write_seq(d, str(tmp_path / 'm.seq'))
+    pl = sd.apply(br, sd.read_design(path), path, 'MRSCloud')
+    b = br.backend
+    assert pl.status == 'ok' and b.name == 'MRSCloud'
+    assert (b.mandatory_params['Sequence'], b.mandatory_params['Localization']) == ('UnEdited', 'PRESS')
+    assert b.optional_params['Sequence File'] == path
+    args = b._design_args(path, 'GE')                 # no vendor file: the bundled universal set
+    assert args['vendor'] == 'Universal_Siemens' and args['ref_ideal'] == 0.0
+    assert args['ref_tp'] == pytest.approx(5.0) and args['te1'] == pytest.approx(17.5)
+    assert args['ref_file'].endswith('.pta')
+    ideal = sd.write_seq(sd.recommend('MEGA-PRESS', 68.0, _SHEET), str(tmp_path / 'i.seq'))
+    args = b._design_args(ideal, 'Siemens')
+    assert args['ref_ideal'] == 1.0 and args['edit_tp'] == pytest.approx(15.0)
+    assert sd.plan(sd.read_design(ideal), 'MRSCloud', br).status == 'approx'   # its own editing timing
+
+
 def test_plans(br):
     ideal = sd.recommend('PRESS', 35.0, _SHEET)
     shaped_ref = sd.recommend('PRESS', 35.0, _SHEET)
     shaped_ref.pulses['ref'] = {'source': 'standard:sinc-ref', 'dur': 5.0}
-    assert sd.plan(ideal, 'MRSCloud', br).status == 'no'
+    assert sd.plan(ideal, 'MRSCloud', br).status == 'ok'
     assert sd.plan(ideal, 'FSL-MRS', br).status == 'ok'
     assert sd.plan(ideal, 'Vespa', br).status == 'ok'
     assert sd.plan(shaped_ref, 'Vespa', br).status == 'ok'

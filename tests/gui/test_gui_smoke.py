@@ -145,10 +145,10 @@ async def test_designer_saves_and_selects_the_design(user: User, tmp_path, monke
                           and str(s.value).endswith('.seq'))
     assert str(saved.value).startswith(str(tmp_path))
     await user.should_see('Runs as given.')
-    # the timings now come from the file; MRSCloud cannot run it and is greyed
+    # the timings now come from the file; MRSCloud runs a PRESS design too
     assert 'readonly' in user.find(marker='param:TE').elements.pop().props
     engine = await _select(user, lambda s: 'FID-A' in s.options and 'MRSCloud' in s.options)
-    assert 'cannot run' in engine.options['MRSCloud']
+    assert 'cannot run' not in engine.options['MRSCloud']
 
 
 async def test_echo_split_recommended_from_te(user: User) -> None:

@@ -383,6 +383,9 @@ def _file_options(app) -> dict:
         vendor = b.mandatory_params.get('Vendor Pulse File')
         if vendor not in _UNSET:
             opts[vendor] = f"Vendor pulse: {os.path.basename(str(vendor))}"
+        for path in [app.seq_file, *app._seq_files, *sd.saved_designs()]:   # designs: PRESS / MEGA
+            if path and path.lower().endswith('.seq'):
+                opts.setdefault(path, os.path.basename(path))
         return opts
     opts = {_NONE: "Ideal pulses"}
     for path in [app.seq_file, *app._seq_files, *sd.saved_designs()]:
@@ -549,6 +552,8 @@ def _drop_file(app) -> None:
         b.optional_params['Custom Sequence'] = None
         b.optional_params['Template File'] = None
         b.set_mode('Simple')
+    if b.name == 'MRSCloud':
+        b.optional_params['Sequence File'] = None
     seq, _ = ss.current(br)
     if seq:
         ss.apply(br, b.category, seq, {})

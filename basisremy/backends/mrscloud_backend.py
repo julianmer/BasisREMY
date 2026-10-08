@@ -257,6 +257,7 @@ class MRSCloudBackend(Backend):
         self.optional_params = {
             'Nucleus': None,
             'TR':      None,
+            'Sequence File': None,     # a BasisREMY design (.seq): its pulses and TE1
         }
 
     # --------------------------------------------------------------- mode/schema
@@ -357,7 +358,7 @@ class MRSCloudBackend(Backend):
         cur_loc = params.get('Localization') or loc
         self.file_selection = []
         missing = []
-        if seq and vendor and cur_loc:
+        if seq and vendor and cur_loc and not self.optional_params.get('Sequence File'):
             missing = self.missing_pulse_files(
                 self._mrscloud_vendor(vendor), seq, cur_loc)
         if missing:
@@ -667,6 +668,33 @@ class MRSCloudBackend(Backend):
         return re[:, i] + 1j * im[:, i]
 
     # --------------------------------------------------------------- main entry
+    def _design_args(self, path, vendor) -> dict:
+        """The adapter's design struct for a BasisREMY design file (PRESS / MEGA-PRESS): its
+        refocusing and editing pulses staged as .pta, their durations, TE1 and the slab; empty
+        without a file."""
+        if not path:
+            return {}
+        from basisremy.core import sequence_design as sd
+        d = sd.read_design(path)
+
+        def staged(role):
+            dest = self._stage_into_workdir(f'{path}#{role}')
+            try:
+                return os.path.relpath(dest)
+            except ValueError:
+                return dest.replace('\\', '/')
+        ref = d.pulses['ref']
+        out = {'vendor': 'Universal_Philips' if 'Philips' in str(vendor) else 'Universal_Siemens',
+               'ref_file': staged('ref'),
+               'ref_tp': float(ref['dur']) if ref['source'] != 'ideal' else sd.IDEAL_MS,
+               'ref_ideal': float(ref['source'] == 'ideal'),
+               'te1': float(d.timing.get('TE1', 0.0)), 'thk': float(d.voxel[1]),
+               'edit_file': ''}
+        if 'edit' in d.pulses:
+            out['edit_file'] = staged('edit')
+            out['edit_tp'] = float(d.pulses['edit']['dur'])
+        return out
+
     def run_simulation(self, params, progress_callback=None, stop_event=None):
         """Run MRSCloud per-metabolite and return { metab : 1-D complex FID }."""
         # Lazy Octave init
@@ -710,8 +738,14 @@ class MRSCloudBackend(Backend):
         # the bundled universal excitation waveform under the name MRSCloud
         # hard-codes (Philips_spredrex.pta) so io_loadRFwaveform can find it
         # for every vendor.
-        self._stage_user_pulse(workdir, vendor, sequence, localization,
-                               params.get(self._pulse_param_label))
+        design = self._design_args(params.get('Sequence File'), vendor)
+        if design:
+            # the design brings its own pulses: MRSCloud's bundled universal set only fills
+            # the parameter structure (no vendor file needed), then the adapter swaps them
+            vendor = design.pop('vendor')
+        else:
+            self._stage_user_pulse(workdir, vendor, sequence, localization,
+                                   params.get(self._pulse_param_label))
         self._stage_pulse_shims(workdir)
         try:
             bfield = float(params.get('Bfield'))
@@ -724,6 +758,8 @@ class MRSCloudBackend(Backend):
         edit_on      = float(params.get('Edit On',  1.9))
         edit_off     = float(params.get('Edit Off', 7.5))
         edit_tp      = float(params.get('Edit Tp',  14))
+        if design and 'edit_tp' in design:
+            edit_tp = design.pop('edit_tp')
         spatial      = int(float(params.get('Spatial Points', 41)))
         try:
             te = float(params.get('TE'))
@@ -768,6 +804,8 @@ class MRSCloudBackend(Backend):
                     te, field_str, edit_target,
                     edit_on, edit_off, edit_tp, float(spatial), save_dir,
                     float(samples), float(bandwidth), float(bfield),
+                    *([design[k] for k in ('ref_file', 'ref_tp', 'ref_ideal', 'edit_file', 'te1',
+                                           'thk')] if design else []),
                     nout=7 if multi else 5,
                 )
                 fid = np.asarray(out[0], dtype=np.float64).flatten() \

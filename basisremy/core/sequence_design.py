@@ -597,8 +597,22 @@ def plan(d: Design, category: str, br=None, whole_file: str | None = None) -> Pl
     other engines take the pulses one by one through their own routes (core/sequence_setup)."""
     eng = ss.ENGINE_LABEL.get(category, category)
     if category == 'MRSCloud':
-        return Plan('no', ["MRSCloud runs only its own pulse sets and timing; a sequence design "
-                           "cannot be given to it."])
+        if d.kind not in ('PRESS', 'MEGA-PRESS'):
+            return Plan('no', [f"MRSCloud runs a design for PRESS and MEGA-PRESS; its {d.kind} keeps "
+                               f"its own pulse set."])
+        ref = d.pulses['ref']['source']
+        if ref != 'ideal':
+            from basisremy.core.sequence_view import read_pulse
+            if read_pulse(ref, 'ref').is_gradient_modulated:
+                return Plan('no', ["MRSCloud's PRESS takes no gradient-modulated refocusing pulse."])
+        status, notes = 'ok', []
+        if d.pulses['exc']['source'] != 'ideal':
+            status = 'approx'
+            notes.append("MRSCloud's excitation is ideal: the design's excitation pulse is not used.")
+        if d.kind == 'MEGA-PRESS':
+            status = 'approx'
+            notes.append("MRSCloud places the editing pulses its own way (TE1 as designed).")
+        return Plan(status, notes, ss.ROUTES['MRSCloud'][d.kind][0])
     if category == 'FSL-MRS':
         if d.kind not in DESIGNABLE:
             return Plan('no', [f"FSL-MRS: {d.kind} cannot be described here."])
@@ -648,7 +662,16 @@ def apply(br, d: Design, path: str, category: str | None = None) -> Plan:
     pl = plan(d, cat, br, path)
     if pl.status == 'no':
         return pl
-    if cat == 'FSL-MRS':
+    if cat == 'MRSCloud':
+        if br.backend.name != 'MRSCloud':
+            br.set_backend('MRSCloud')
+        b = br.backend
+        b.mandatory_params.update(pl.route.sheet)            # Sequence, Localization
+        b.optional_params['Sequence File'] = path
+        vals = {'TE': d.te}
+        if d.kind == 'MEGA-PRESS':
+            vals.update({'Edit On': d.edit[0], 'Edit Off': d.edit[1], 'Edit Tp': d.pulses['edit']['dur']})
+    elif cat == 'FSL-MRS':
         if br.backend.name != 'FSL-MRS':
             br.set_backend('FSL-MRS')
         b = br.backend
