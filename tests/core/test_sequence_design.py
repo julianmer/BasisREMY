@@ -107,6 +107,26 @@ def test_fsl_translation_mega_on_off(tmp_path):
     assert out['ON']['CoherenceFilter'] == [-1, 1, None, -1, None]
 
 
+def test_mega_special(br, tmp_path):
+    d = sd.recommend('MEGA-SPECIAL', 68.0, _SHEET)
+    assert [(e['role'], e['centre']) for e in sd.events(d)] == [
+        ('exc', 0.0), ('edit', 17.0), ('ref', 34.0), ('edit', 51.0)]
+    params = {'TE': 68, 'Bandwidth': 4000, 'Samples': 2048, 'Bfield': 2.89}
+    path = sd.write_seq(d, str(tmp_path / 's.seq'))
+    out = sd.fsl_sequences(path, params)
+    assert set(out) == {'ON', 'OFF'}
+    assert out['ON']['CoherenceFilter'] == [1, None, -1, None]
+    # FID-A's MEGA-SPECIAL takes a refocusing waveform; with one it runs the design as it is
+    assert sd.plan(d, 'FID-A', br).status == 'no'
+    d.pulses['ref'] = {'source': 'standard:sinc-ref', 'dur': 5.0}
+    path = sd.write_seq(d, str(tmp_path / 's2.seq'))
+    pl = sd.apply(br, sd.read_design(path), path, 'FID-A')
+    assert pl.status == 'ok' and br.backend.name == 'FidaMegaSpecialShaped'
+    p = {**br.backend.optional_params, **br.backend.mandatory_params}
+    assert p['Path to Pulse'] == f'{path}#ref' and p['Edit Pulse Path'] == f'{path}#edit'
+    assert (p['Edit On'], p['Edit Off']) == (1.9, 7.5)
+
+
 def test_plans(br):
     ideal = sd.recommend('PRESS', 35.0, _SHEET)
     shaped_ref = sd.recommend('PRESS', 35.0, _SHEET)

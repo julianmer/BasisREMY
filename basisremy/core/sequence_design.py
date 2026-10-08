@@ -27,7 +27,7 @@ import numpy as np
 from basisremy.core import sequence_setup as ss
 
 DESIGNABLE = ['PRESS', 'sLASER', 'STEAM', 'Spin Echo', 'LASER', 'MEGA-PRESS', 'MEGA-sLASER',
-              'HERMES', 'HERCULES', 'HERMES (sLASER)', 'HERCULES (sLASER)']
+              'MEGA-SPECIAL', 'HERMES', 'HERCULES', 'HERMES (sLASER)', 'HERCULES (sLASER)']
 # Hadamard-edited sequences: the MEGA layout, four sub-experiments A-D
 _LAYOUT = {'HERMES': 'MEGA-PRESS', 'HERCULES': 'MEGA-PRESS',
            'HERMES (sLASER)': 'MEGA-sLASER', 'HERCULES (sLASER)': 'MEGA-sLASER'}
@@ -53,7 +53,7 @@ STANDARD_FOR = {'exc': ['sinc-exc'],
 # timing values per sequence (ms); TE itself is the scan's
 _TIMING_KEYS = {'PRESS': ('TE1', 'TE2'), 'MEGA-PRESS': ('TE1', 'TE2'),
                 'sLASER': ('TE1', 'TE2', 'TE3'), 'MEGA-sLASER': ('TE1', 'TE2', 'TE3'),
-                'STEAM': ('TM',), 'Spin Echo': (), 'LASER': ()}
+                'STEAM': ('TM',), 'Spin Echo': (), 'LASER': (), 'MEGA-SPECIAL': ()}
 TIMING_KEYS = {k: _TIMING_KEYS[_LAYOUT.get(k, k)] for k in DESIGNABLE}
 TIMING_LABEL = {'TE1': 'TE1 (first echo)', 'TE2': 'TE2 (second echo)', 'TE3': 'TE3 (last pair)',
                 'TM': 'TM (mixing time)'}
@@ -201,8 +201,12 @@ def events(d: Design) -> list[dict]:
         ev += [('ref', te1 / 2, 'y'), ('ref', te1 + te2 / 2, 'z')]
         if kind == 'MEGA-PRESS':        # symmetric about the second refocusing pulse
             ev += [('edit', te1 + te2 / 4, None), ('edit', te1 + 3 * te2 / 4, None)]
-    elif kind == 'Spin Echo':
+    elif kind in ('Spin Echo', 'MEGA-SPECIAL'):
         ev += [('ref', te / 2, 'y')]
+        # MEGA-SPECIAL: the spin echo the ISIS add / subtract leaves (the inversion itself is not
+        # part of the design), editing pulses TE/4 apart as in FID-A's run_simMegaSpecialShaped
+        if kind == 'MEGA-SPECIAL':
+            ev += [('edit', te / 4, None), ('edit', 3 * te / 4, None)]
     elif kind in ('sLASER', 'MEGA-sLASER'):
         te1, te2, te3 = t['TE1'], t['TE2'], t['TE3']
         c = [te1 / 2, te1 + te2 / 4, te1 + 3 * te2 / 4, te1 + te2 + te3 / 2]
@@ -423,7 +427,8 @@ def write_seq(d: Design, path: str) -> str:
 #                                     reading a sequence file                                      #
 #**************************************************************************************************#
 _COUNTS = {(1, 2, 0): 'PRESS', (1, 4, 0): 'sLASER', (3, 0, 0): 'STEAM', (1, 1, 0): 'Spin Echo',
-           (1, 6, 0): 'LASER', (1, 2, 2): 'MEGA-PRESS', (1, 4, 2): 'MEGA-sLASER'}
+           (1, 6, 0): 'LASER', (1, 2, 2): 'MEGA-PRESS', (1, 4, 2): 'MEGA-sLASER',
+           (1, 1, 2): 'MEGA-SPECIAL'}
 
 
 def kind_of(roles_: list[str]) -> str:
@@ -432,7 +437,7 @@ def kind_of(roles_: list[str]) -> str:
         return _COUNTS[n]
     raise ValueError(f"A sequence with {n[0]} excitation, {n[1]} refocusing and {n[2]} editing "
                      f"pulses is not one BasisREMY simulates (PRESS, sLASER, STEAM, Spin Echo, "
-                     f"LASER, MEGA-PRESS, MEGA-sLASER).")
+                     f"LASER, MEGA-PRESS, MEGA-sLASER, MEGA-SPECIAL).")
 
 
 def _timing_from(kind, centres, te):
@@ -737,7 +742,9 @@ def fsl_sequences(path: str, params: dict) -> dict:
         te = pulseq.echo_ms(info)
         blocks, cfilter, reph = [], [], []
         steam = kind == 'STEAM'
-        n_ref = 0
+        # coherence orders counted back from the readout (-1): an odd number of refocusing
+        # pulses (Spin Echo, MEGA-SPECIAL) starts the excitation at +1
+        left = sum(r.role == 'ref' for r in rf)
         for i, r in enumerate(rf):
             # at most ~_FSL_POINTS samples (block means): denmatsim's cost grows with every sample
             step = max(1, math.ceil(len(r.signal) / _FSL_POINTS))
@@ -760,10 +767,10 @@ def fsl_sequences(path: str, params: dict) -> dict:
             if r.role == 'edit':
                 cfilter.append(None)
             elif r.role == 'exc':
-                cfilter.append([1, 0, -1][i] if steam else -1)
+                cfilter.append([1, 0, -1][i] if steam else (1 if left % 2 else -1))
             else:
-                n_ref += 1
-                cfilter.append(1 if n_ref % 2 else -1)
+                cfilter.append(-1 if left % 2 else 1)
+                left -= 1
             reph.append([0.0, 0.0, 0.0])
         # excitation slabs: undo the gradient area after the centre (STEAM's second pulse: the
         # area before its centre, applied after the first pulse, as in FSL-MRS's example)
