@@ -150,7 +150,7 @@ def recommend(kind: str, te: float, sheet: dict | None = None, header: dict | No
         d.timing = {'TE1': te / 4, 'TE2': te / 2, 'TE3': te / 4}
         d.rec = dict.fromkeys(d.timing, src)
     elif kind == 'STEAM':
-        d.timing, d.rec = {'TM': 10.0}, {'TM': "Short mixing time commonly used; the data header's TM is not read"}
+        d.timing, d.rec = {'TM': 10.0}, {'TM': "Short mixing time commonly used; this data header holds no TM"}
     if all(given.get(k) is not None for k in keys) and keys:
         if kind == 'STEAM' or abs(sum(given[k] for k in keys) - te) < 1e-3:
             d.timing = {k: given[k] for k in keys}

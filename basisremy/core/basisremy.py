@@ -30,6 +30,7 @@ from basisremy.backends.spant_backend import SpantBackend
 from basisremy.backends.spinach_backend import SPINACH_BACKENDS
 from basisremy.core.metabolite_identity import metabolite_identity
 from basisremy.core.field import reconcile_field
+from basisremy.remy import design_fields
 from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
 
 
@@ -185,6 +186,8 @@ class BasisREMY:
         if reset:
             self.reset_backend_params()
         params, opt = self.backend.parseREMY(MRSinMRS)
+        for k, v in self._design_values(MRSinMRS, params, opt).items():
+            (params if k in self.backend.mandatory_params else opt)[k] = v
         given = {k: v for k, v in {**opt, **params}.items() if v is not None}
         self.backend.mandatory_params.update(
             {k: v for k, v in params.items() if v is not None})
@@ -192,6 +195,14 @@ class BasisREMY:
             {k: v for k, v in opt.items() if v is not None})
         self.from_file[self.backend.name] = given
         self._last_mrsinmrs = MRSinMRS
+
+    def _design_values(self, MRSinMRS, params, opt):
+        """The header's design values (design_fields.SHEET_KEYS) for the keys the backend has and
+        its parseREMY left unset; they go onto the sheet as values from the file."""
+        b = self.backend
+        return {k: MRSinMRS[k] for k in design_fields.SHEET_KEYS
+                if MRSinMRS.get(k) is not None and params.get(k) is None and opt.get(k) is None
+                and (k in b.mandatory_params or k in b.optional_params)}
 
     def reset_backend_params(self):
         """Restore the active backend's parameter defaults (per new file).
@@ -215,6 +226,8 @@ class BasisREMY:
         MRSinMRS = self.runREMY(import_fpath, method)
         self.reset_backend_params()
         params, opt = self.backend.parseREMY(MRSinMRS)
+        for k, v in self._design_values(MRSinMRS, params, opt).items():
+            (params if k in self.backend.mandatory_params else opt)[k] = v
         params['Output Path'] = export_fpath if export_fpath is not None else './'
 
         # update the mandatory parameters (drop None so REMY gaps don't
@@ -350,6 +363,10 @@ class BasisREMY:
         # and silently lose every extracted parameter.
         if suf in ('.nii', '.nii.gz'): dtype_selection = 'json'
 
+        # sequence-design values the header holds (mixing time, editing, RF pulses)
+        design = design_fields.extract(MRSinMRS, vendor_selection, dtype_selection)
+        MRSinMRS.pop('_ascconv', None)
+
         # check for missing MRSinMRS Values that might have different names across versions
         try:
             MRSinMRS = self.Table.table_clean(vendor_selection, dtype_selection, MRSinMRS)
@@ -375,6 +392,7 @@ class BasisREMY:
         # Protocol names that name no sequence: add what the header or the REMY
         # table knows, so the backends' sequence parsers see it.
         MRSinMRS_unif.update(self.resolve_protocol(MRSinMRS_unif, MRSinMRS, vendor_selection))
+        MRSinMRS_unif.update(design)
 
         # Cache for later backend switches
         self._last_mrsinmrs = MRSinMRS_unif

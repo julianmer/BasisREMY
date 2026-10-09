@@ -781,6 +781,8 @@ class DataReaders():
 
 		MRSinMRS['RFPulseNames']        = [str(v).strip('"') for k, v in twixPhx.items()	# RF Pulse Slot Names
 		                                   if k[:2] == ('sTXSPEC', 'aRFPULSE') and k[-1] == 'tName']
+		from basisremy.remy.design_fields import flat_twix
+		MRSinMRS['_ascconv']            = flat_twix(twixPhx) 								# Protocol (design fields)
 
 		if 'TE_Time' not in list(MRSinMRS.keys()) and 'TE' not in list(MRSinMRS.keys()):
 			try:
@@ -858,6 +860,8 @@ class DataReaders():
 		try:
 			import pydicom
 			dcm = pydicom.dcmread(fname)
+			from basisremy.remy.design_fields import ascconv_from_dicom
+			MRSinMRS['_ascconv'] = ascconv_from_dicom(dcm) 									# Protocol (design fields)
 			if dcm.SOPClassUID == '1.2.840.10008.5.1.4.1.1.4.2': 								# XA (MR Spectroscopy Storage): spec2nii's
 				MRSinMRS['SW'] = 1 / MRSinMRS['dwelltime'] 										# dwell is 1/SpectralWidth, not oversampled
 			else: 																			# VA-VE: CSA RealDwellTime, oversampled

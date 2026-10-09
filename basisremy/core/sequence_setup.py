@@ -329,7 +329,7 @@ def recommended(backend, sequence: str | None) -> dict:
         for k, frac in (('sLASER TE1', 0.25), ('sLASER TE2', 0.5), ('sLASER TE3', 0.25)):
             put(k, te * frac, "Symmetric spacing (TE/4, TE/2, TE/4): the scan's own is not in "
                               "the data header")
-    put('TM', 10.0, "Short mixing time commonly used; the data header's TM is not read")
+    put('TM', 10.0, "Short mixing time commonly used; this data header holds no TM")
     if sequence and sequence.startswith(('MEGA', 'HERMES', 'HERCULES')):
         put('Edit On', 1.9, f"GABA editing at 1.9 ppm ({_SALEH})")
         put('Edit Off', 7.5, f"OFF at 7.5 ppm ({_SALEH})")
