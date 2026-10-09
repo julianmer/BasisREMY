@@ -1,6 +1,6 @@
 """BasisREMY — study-specific MR spectroscopy basis set generation."""
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 
 def prepare_runtime():
