@@ -106,7 +106,8 @@ class TestFidaIdeal:
         b = FidaIdeal()
         assert b.parseProtocol('LASER') == 'LASER'
         assert b.parseProtocol('laser_te30') == 'LASER'
-        assert b.parseProtocol('svs_se_30') == 'Spin Echo'
+        assert b.parseProtocol('se_30') == 'Spin Echo'
+        assert b.parseProtocol('svs_se_30') == 'PRESS'      # Siemens product PRESS
         assert b.parseProtocol('PRESS') == 'PRESS'
 
     def test_steam_build_args_use_tm(self):
