@@ -116,3 +116,25 @@ def test_designer_takes_the_header_waveform(tmp_path, monkeypatch):
     header[df.PULSE_PARAMS]['VoxPul1']['waveform'] = None
     d = sd.recommend('STEAM', 20.0, {'TM': 10.0}, header)
     assert d.pulses['exc']['source'] == 'ideal' and '0.5 ms, 8400 Hz' in d.rec['pulse:exc']
+
+
+@pytest.mark.remy
+def test_designer_uses_the_header_gradient_system(tmp_path, monkeypatch):
+    """Dataset_00 (Bruker 14 T STEAM, TE 3 ms) fits only with its own gradients (992 mT/m, 0.27 ms);
+    a clinical 80 mT/m / 0.4 ms system misses by 0.06 ms. The .seq keeps them for a read-back."""
+    from basisremy.core import sequence_design as sd
+    path = 'example_data/REMY_tests/Dataset_00_Bruker_14T_STEAM_08/Dataset_00_Bruker_14T_STEAM_08_method'
+    if not os.path.exists(path):
+        pytest.skip('example file not present')
+    monkeypatch.setenv('BASISREMY_SEQUENCES_DIR', str(tmp_path))
+    from basisremy.core.basisremy import BasisREMY
+    with contextlib.redirect_stdout(io.StringIO()):
+        header = BasisREMY('FidaIdeal').runREMY(import_fpath=path)
+    g = header[df.GRADIENTS]
+    assert round(g['max_mT_m'], 1) == 992.4 and g['rise_ms'] == 0.27
+    d = sd.recommend('STEAM', header['TE'], {'TM': header['TM']}, header)
+    seq = sd.write_seq(d, str(tmp_path / 'ds00.seq'))
+    assert sd.read_design(seq).gradients == {'max_mT_m': 992.371, 'rise_ms': 0.27}
+    d.gradients = None
+    with pytest.raises(ValueError, match='0.06 ms'):
+        sd.write_seq(d, str(tmp_path / 'clinical.seq'))

@@ -45,6 +45,7 @@ _RASTER = 1e-5                     # Pulseq block / gradient raster [s]
 _KIND = {'exc': 'exc', 'ref': 'ref', 'edit': 'inv'}       # role -> how B1 is scaled
 _USE = {'exc': 'excitation', 'ref': 'refocusing', 'edit': 'inversion'}
 _FLIP = {'exc': 90.0, 'ref': 180.0, 'edit': 180.0}
+GRADIENTS = {'max_mT_m': 80.0, 'rise_ms': 0.4}        # clinical system (200 T/m/s) without header values
 _SALEH = "Saleh et al. 2019, multi-vendor universal MEGA-PRESS"
 # standard pulses offered per role
 STANDARD_FOR = {'exc': ['sinc-exc'],
@@ -86,7 +87,8 @@ class Design:
     sequence file) and dur its duration in ms; edit = (ON, OFF) ppm (MEGA); scheme = {sub-
     experiment: editing targets in ppm} (HERMES / HERCULES); voxel = (x, y, z) cm the selective
     pulses select (excitation x, first refocusing y, second z); bfield [T] for dual-lobe editing;
-    rec {key: source} the values that are recommendations."""
+    gradients {'max_mT_m', 'rise_ms'} the scanner's gradient system where the data header gives it
+    (else GRADIENTS); rec {key: source} the values that are recommendations."""
     kind: str
     te: float
     timing: dict = field(default_factory=dict)
@@ -97,6 +99,7 @@ class Design:
     bfield: float | None = None
     samples: int | None = None
     bandwidth: float | None = None
+    gradients: dict | None = None
     rec: dict = field(default_factory=dict)
 
 
@@ -195,6 +198,8 @@ def recommend(kind: str, te: float, sheet: dict | None = None, header: dict | No
         d.pulses[role] = {'source': 'ideal', 'dur': 0.0}
         d.rec[f'pulse:{role}'] = "Default: ideal. Most precise: the scanner's own pulse file"
     _header_pulses(d, kind, header)
+    from basisremy.remy.design_fields import GRADIENTS as HEADER_GRADIENTS
+    d.gradients = (header or {}).get(HEADER_GRADIENTS)
     if _edited(kind):
         family = _family(kind)
         if family:
@@ -338,7 +343,8 @@ def write_seq(d: Design, path: str) -> str:
     errs = problems(d)
     if errs:
         raise ValueError(" ".join(errs))
-    system = pp.Opts(max_grad=80, grad_unit='mT/m', max_slew=200, slew_unit='T/m/s',
+    g = d.gradients or GRADIENTS
+    system = pp.Opts(max_grad=g['max_mT_m'], grad_unit='mT/m', rise_time=g['rise_ms'] / 1e3,
                      adc_raster_time=1e-9)
     seq = pp.Sequence(system)
     ev = events(d)
@@ -453,6 +459,8 @@ def write_seq(d: Design, path: str) -> str:
     if d.bfield:
         seq.set_definition('B0', d.bfield)
     seq.set_definition('VoxelCm', ' '.join(f'{v:g}' for v in d.voxel))
+    if d.gradients:
+        seq.set_definition('GradientSystem', f"{d.gradients['max_mT_m']:g} {d.gradients['rise_ms']:g}")
     seq.set_definition('ADCFromScan', int(bool(d.samples and d.bandwidth)))
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     seq.write(path)
@@ -559,6 +567,9 @@ def _read_seq_design(path, bfield):
         slabs = [pulseq.slab_cm(r) if r is not None and r.slab_grad_hz_m else None for r in picks]
         d.voxel = tuple(round(v, 3) if v else 2.0 for v in slabs)
     d.bfield = bfield
+    grad = [_num(v) for v in np.ravel(defs.get('GradientSystem', []))]   # pypulseq: an array
+    if len(grad) == 2 and all(grad):
+        d.gradients = {'max_mT_m': grad[0], 'rise_ms': grad[1]}
     if int(_num(defs.get('ADCFromScan')) if defs.get('ADCFromScan') is not None else 1):
         d.samples, d.bandwidth = info.samples, round(1.0 / info.dwell_s, 4)
     return d

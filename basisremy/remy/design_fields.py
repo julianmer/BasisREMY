@@ -22,6 +22,8 @@ EDIT_PPM, RF_PULSES = 'Edit frequencies (header, ppm)', 'RF pulses (header)'
 # {name: {'role', 'dur_ms', 'bw_hz', 'flip', 'shape', 'waveform'}}, waveform [(amplitude %, phase deg)]
 # or None; for the sequence designer
 PULSE_PARAMS = 'RF pulse parameters (header)'
+# {'max_mT_m', 'rise_ms'}: the scanner's gradient system (strength, rise time 0 -> full); for the designer
+GRADIENTS = 'Gradient system (header)'
 
 
 def _num(v):
@@ -150,12 +152,16 @@ def _bruker_waveform(raw):
 
 
 def bruker(method: dict) -> dict:
-    """Bruker method: StTM (ms) and the PVM pulse structs (length ms, bandwidth Hz, flip angle, ...,
-    type, ..., shape), with the shape name from <name>Enum and the waveform when the method stores it."""
+    """Bruker method: StTM (ms), the gradient system (PVM_GradCalConst, PVM_RiseTime) and the PVM
+    pulse structs (length ms, bandwidth Hz, flip angle, ..., type, ..., shape), with the shape name
+    from <name>Enum and the waveform when the method stores it."""
     out = {}
     tm = _num(str(method.get('$StTM', '')).split(';')[0])
     if tm and tm > 0:
         out['TM'] = tm
+    cal, rise = _num(method.get('$PVM_GradCalConst')), _num(method.get('$PVM_RiseTime'))  # Hz/mm, ms
+    if cal and rise:
+        out[GRADIENTS] = {'max_mT_m': cal * 1e6 / 42.577e6, 'rise_ms': rise}
     pulses, params = [], {}
     for name in _BRUKER_PULSES:
         raw = method.get(f'${name}')
