@@ -204,3 +204,21 @@ class TestBasisREMYIntegration:
 
 
 
+
+
+def test_first_engine_starts_with_its_default_metabolites():
+    from basisremy.core.basisremy import BasisREMY
+    for name in ('FSL-MRS', 'MRSCloud', 'FidaIdeal'):
+        b = BasisREMY(name).backend
+        assert b.mandatory_params['Metabolites'] == [k for k, v in b.metabs.items() if v]
+        assert len(b.mandatory_params['Metabolites']) >= 15
+
+
+def test_reading_a_header_keeps_the_metabolite_selection():
+    from basisremy.core.basisremy import BasisREMY
+    br = BasisREMY('FSL-MRS')
+    before = list(br.backend.mandatory_params['Metabolites'])
+    br.apply_remy({'TE': 35, 'B0': 2.89, 'NumberOfDatapoints': 2048, 'SpectralWidth': 5000,
+                   'Protocol': 'PRESS'})
+    assert br.backend.mandatory_params['Metabolites'] == before
+    br._last_mrsinmrs = None

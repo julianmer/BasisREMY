@@ -186,3 +186,14 @@ def test_export_name_rounds_the_field() -> None:
     from basisremy.gui.export_dialog import _default_basename
     assert _default_basename({'Sequence': 'PRESS', 'TE': 35, 'Bfield': 2.894812}) == 'PRESS_TE35_2.9T'
     assert _default_basename({'Sequence': 'STEAM', 'TE': 3, 'Bfield': 14.0918}) == 'STEAM_TE3_14.1T'
+
+
+async def test_starts_on_fsl_mrs_with_default_metabolites(user: User) -> None:
+    # 0.2.1: the app opened on FSL-MRS with no metabolite ticked, so Simulate stayed disabled
+    await _open(user)
+    user.find('Skip').click()
+    engine = await _select(user, lambda s: 'FID-A' in s.options and 'MRSCloud' in s.options)
+    assert engine.value == 'FSL-MRS'
+    await user.should_see('Metabolites')
+    ticked = [c for c in user.find(ui.checkbox).elements if c.value]
+    assert len(ticked) >= 15

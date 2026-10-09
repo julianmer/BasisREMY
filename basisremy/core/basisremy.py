@@ -164,6 +164,15 @@ class BasisREMY:
                 # If no mapping (e.g. sLASER → FidaIdeal), leave whatever step 1
                 # set so the user is shown the REMY value or None.
 
+        # An engine that becomes active without a metabolite list (the first one, at start-up)
+        # takes its own on/off selection, as a switch does ('None' clicked: all off, stays empty).
+        b = self.backend
+        if 'Metabolites' in b.mandatory_params and not b.mandatory_params['Metabolites']:
+            if hasattr(b, '_refresh_metab_list'):
+                b._refresh_metab_list()
+            else:
+                b.mandatory_params['Metabolites'] = [k for k, v in b.metabs.items() if v]
+
         print(f"Backend set to: {self.backend.name}")
 
     def set_category(self, category):
@@ -186,6 +195,7 @@ class BasisREMY:
         if reset:
             self.reset_backend_params()
         params, opt = self.backend.parseREMY(MRSinMRS)
+        params.pop('Metabolites', None)           # a header holds no metabolite selection
         for k, v in self._design_values(MRSinMRS, params, opt).items():
             (params if k in self.backend.mandatory_params else opt)[k] = v
         given = {k: v for k, v in {**opt, **params}.items() if v is not None}
