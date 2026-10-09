@@ -164,3 +164,18 @@ async def test_echo_split_recommended_from_te(user: User) -> None:
     split = user.find(marker='param:TE2').elements.pop()
     assert split.value == '15' and 'br-v-rec' in split.classes
     assert 'br-v-user' in te.classes
+
+
+def test_designer_labels_header_pulse_and_steam_echo() -> None:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from basisremy.gui.sequence_dialog import _source_label, draw_timeline
+    assert _source_label('/x/pulses/header_VoxPul1_b09150d7.exc') == 'From header: VoxPul1'
+    assert _source_label('/x/my_pulse.exc') == 'From my_pulse.exc'
+    ev = [{'role': 'exc', 'centre_ms': 0.0, 'dur_ms': 0.0, 'pulse': None}]
+    for echo, te, want in [(13.0, 3.0, 'echo at 13 ms (TE 3 + TM 10)'), (35.0, 35.0, 'echo, TE 35 ms')]:
+        fig, ax = plt.subplots()
+        draw_timeline(ax, {'events': ev, 'echo_ms': echo, 'te': te})
+        assert want in [t.get_text() for t in ax.texts]
+        plt.close(fig)

@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import numpy as np
 from matplotlib.patches import Rectangle
@@ -90,7 +91,10 @@ def draw_timeline(ax, tl) -> None:
     ax.plot(t, 0.35 * np.exp(-(t - echo) / (0.12 * span)) * np.cos(2 * np.pi * (t - echo) / (0.03 * span)),
             color=_AXIS, lw=0.8)
     ax.axvline(echo, color=_AXIS, lw=0.8, ls="--")
-    ax.text(echo + span * 0.01, 1.18, f"echo, TE {echo:.4g} ms", ha="left", fontsize=7, color=_AXIS)
+    te = tl.get('te', echo)
+    label = (f"echo, TE {echo:.4g} ms" if abs(echo - te) < 1e-6 else         # STEAM: the echo after TE + TM
+             f"echo at {echo:.4g} ms (TE {te:.4g} + TM {echo - te:.4g})")
+    ax.text(echo + span * 0.01, 1.18, label, ha="left", fontsize=7, color=_AXIS)
     ax.axhline(0, color=_AXIS, lw=0.6)
     ax.set_xlim(-span * 0.04, span)
     ax.set_ylim(-0.45, 1.35)
@@ -331,7 +335,7 @@ def open_sequence_dialog(app) -> None:
             else:
                 ev = [{'role': e['role'], 'centre_ms': e['centre'], 'dur_ms': e['dur'],
                        'pulse': e['source']} for e in sd.events(d)] if not _broken(d) else []
-                draw_timeline(ax, {'events': ev, 'echo_ms': sd.echo(d) if ev else None})
+                draw_timeline(ax, {'events': ev, 'echo_ms': sd.echo(d) if ev else None, 'te': d.te})
             try:
                 plot.figure.tight_layout(pad=0.3)
             except Exception:                                # noqa: BLE001
@@ -437,6 +441,9 @@ def _source_label(src) -> str:
     if is_standard(src):
         return f"Standard: {src.split(':', 1)[1]}"
     path, _, sel = str(src).partition('#')
+    header = re.fullmatch(r'header_(.+)_[0-9a-f]{8}\.exc', os.path.basename(path))   # sd._shape_file
+    if header:
+        return f"From header: {header.group(1)}"
     return f"From {os.path.basename(path)}" + (f" ({sel})" if sel and not sel.isdigit() else "")
 
 
