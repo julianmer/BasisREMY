@@ -21,30 +21,13 @@ A tool for generating study-specific basis sets directly from raw MRS data, inte
 
 ## Prerequisites
 
-For the recommended [`uvx`](https://docs.astral.sh/uv/) quick start you do **not**
-need to install Python yourself — `uv` downloads a compatible Python automatically.
-You only need:
-
-- **[`uv`](https://docs.astral.sh/uv/)**: installs Python and all dependencies into
-  an isolated environment (one-line installer in *Quick Start* below). Nothing is
-  installed globally.
-
-- **[`git`](https://git-scm.com/)**: used the first time you run a simulation to
-  fetch the third-party simulation toolboxes (and for cloning if you develop).
-
-- **Octave Runtime** *(simulation backends only)*: Version 4.0 or higher.
-
-  **You have two options:**
-  
-  1. **Docker** (Recommended) - Automatic setup, works everywhere
-  2. **Local Octave** - Traditional installation
-  
-  **📖 See the [Octave Setup Guide](basisremy/assets/OCTAVE_SETUP.md) for detailed installation instructions.**
-  
-  > **Note**: BasisREMY automatically detects and uses Docker if available, otherwise falls back to local Octave. Data extraction and parameter configuration work without an Octave runtime; only the simulation step requires it.
-
-> **Python 3.11+** is only required if you skip `uv` and install manually with
-> `pip` (see *Setting Up the Python Environment* below).
+- **[`uv`](https://docs.astral.sh/uv/)** — installs Python and all dependencies into an
+  isolated environment (one-line installer below); nothing is installed globally.
+- **[`git`](https://git-scm.com/)** — fetches the simulation toolboxes the first time you
+  simulate (and clones the repository if you develop).
+- **Docker or Octave** *(only for simulating)* — [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+  (recommended) or a local [Octave](https://octave.org/) 4.0+; see
+  [Docker / Octave Requirements](#docker--octave-requirements).
 
 ---
 
@@ -90,10 +73,65 @@ uvx --from git+https://github.com/julianmer/BasisREMY basisremy
 isolated environment — nothing is installed globally and your data never leaves
 your machine.
 
-> **Note on simulation backends**: The simulation backends
-> rely on third-party toolboxes that cannot be redistributed inside the wheel. The first time you run a
-> simulation, BasisREMY fetches the toolbox it needs (at a pinned version) into a
-> per-user data directory (`~/.basisremy`, overridable via `$BASISREMY_HOME`).
+> **First run:** the first simulation with an engine on a new machine sets that engine up
+> (its toolbox at a pinned version into `~/.basisremy` or `$BASISREMY_HOME`, and its Docker
+> image if needed) and can take a few minutes; after that it starts in seconds.
+> **Ran BasisREMY before?** `uvx basisremy@latest` gets the newest release.
+
+---
+
+## Usage Overview
+
+BasisREMY guides you through a simple **three-step workflow**, shown as a numbered
+stepper at the top of the window (**Data → Parameters → Simulate**). You can click
+any completed step to go back and make changes. A light/dark theme toggle sits in
+the top-right corner and follows your system setting by default.
+
+1. **Data** — Drop your MRS data file onto the upload area (or click it to browse).
+   Click **Continue** to automatically read the file and pre-fill the acquisition
+   parameters, or **Skip** to configure everything manually.
+2. **Parameters** — One layout for every engine: pick the **Engine** and the
+   **Sequence**, optionally a **Sequence file** (any pulse or whole-sequence file),
+   then check the **timings**, the **acquisition** values and the **metabolites**
+   to include. Each value is marked by where it comes from: *from the data file*,
+   *recommended / default* (for design values no header holds, such as the echo
+   split; hover for the source), *set by you*, or *missing* (Simulate stays
+   blocked until you fill it). When the required fields are set, click
+   **Simulate basis set**.
+3. **Simulate** — A progress bar shows the simulation status. When it finishes,
+   an interactive spectrum plot appears and you can click **Export basis…** to
+   save the basis set in LCModel (.basis or .RAW), jMRUI, FSL-MRS, Osprey, FID-A,
+   INSPECTOR, ProFit, MARSS, MRSCloud, or SpinWizard/JET format. Format
+   writing is handled by the bundled
+   [MRS Basis Set Conversion Toolbox](https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox).
+
+> Every input has a small **(?)** help icon — hover it for a short explanation of
+> that parameter.
+
+**Sequence designer** *(new, in testing)* — the wand next to the sequence file
+opens the designer: choose the sequence, its timings and a pulse per role (ideal,
+a standard shape, or a pulse file in any format; the scan's own pulse where the data
+header stores it), see the timeline, and save the design as a Pulseq `.seq`
+(in `~/BasisREMY/sequences/`). The saved file is selected right away; the engine
+chips show which engines run the design as is, with differences, or not at all.
+
+
+## Examples (No GUI)
+
+Want to use BasisREMY programmatically? Check out the **[examples/](examples/)** folder!
+
+**Quick start:**
+```bash
+python examples/basic_usage.py
+```
+
+The example shows how to:
+- Load MRS data and extract parameters automatically
+- Configure and run simulations without the GUI
+- Customize metabolite lists and output settings
+
+In your own scripts, call `basisremy.prepare_runtime()` first and give file paths as absolute
+paths: the simulation engines run from BasisREMY's runtime folder, as in the GUI.
 
 ---
 
@@ -112,6 +150,8 @@ uv run basisremy   # launches the GUI
 and installs everything into `.venv`. You do **not** need to activate the
 environment — `uv run` handles that automatically. To include development tools
 (pytest, coverage), run `uv sync --extra dev`.
+
+Prefer pip? `pip install basisremy` for the Python API, or `pip install -e .` in a clone.
 
 ---
 
@@ -148,12 +188,6 @@ Three environment variables tune the runtimes:
 
 ## Troubleshooting
 
-- **GUI doesn't open / `ModuleNotFoundError: No module named 'nicegui'`** — the
-  front-end is [NiceGUI](https://nicegui.io) shown in a native desktop window via
-  [pywebview](https://pywebview.flowrl.com). They install automatically with the
-  project (`uv sync` / `uvx --from . basisremy`); if you installed manually, run
-  `pip install nicegui pywebview`. These are pure-pip packages, so no system
-  `tcl/tk` is required.
 - **Window stays blank or pywebview errors** — without `pywebview` the UI falls
   back to opening in your browser; install it (`pip install pywebview`) for the
   native window. On Linux a system WebKitGTK package may be needed.
@@ -165,103 +199,6 @@ Three environment variables tune the runtimes:
   on first use into `~/.basisremy` (or `$BASISREMY_HOME`); make sure `git` is
   installed and you have network access the first time you run a simulation. In a
   cloned repository the existing submodules under `externals/` are used as-is.
-
----
-
-## Setting Up the Python Environment (manual / pip)
-
-> The `uv` quick start above is the recommended path. The steps below remain
-> available if you prefer a manual `venv` + `pip` workflow.
-
-It is recommended to use a virtual environment to isolate project dependencies. Start by cloning the repository.
-```bash
-git clone --recurse-submodules https://github.com/julianmer/BasisREMY.git
-cd BasisREMY
-```
-
-### Create and Activate the Virtual Environment
-
-**Windows:**
-```bash
-python -m venv --prompt basisREMY .venv
-.venv\Scripts\activate
-```
-
-**macOS/Linux:**
-```bash
-python3 -m venv --prompt basisREMY .venv
-source .venv/bin/activate
-```
-
-### Install Required Python Packages
-Upgrade pip and install the required packages by running:
-
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
----
-
-## Running BasisREMY
-With all dependencies installed and your basisREMY environment activated, run the application:
-```bash
-python -m basisremy
-```
-This will launch the BasisREMY GUI. (Inside the repo you can equivalently use `uv run basisremy`.)
-
-### Usage Overview
-
-BasisREMY guides you through a simple **three-step workflow**, shown as a numbered
-stepper at the top of the window (**Data → Parameters → Simulate**). You can click
-any completed step to go back and make changes. A light/dark theme toggle sits in
-the top-right corner and follows your system setting by default.
-
-1. **Data** — Drop your MRS data file onto the upload area (or click it to browse).
-   Click **Continue** to automatically read the file and pre-fill the acquisition
-   parameters, or **Skip** to configure everything manually.
-2. **Parameters** — One layout for every engine: pick the **Engine** and the
-   **Sequence**, optionally a **Sequence file** (any pulse or whole-sequence file),
-   then check the **timings**, the **acquisition** values and the **metabolites**
-   to include. Each value is marked by where it comes from: *from the data file*,
-   *recommended / default* (for design values no header holds, such as the echo
-   split; hover for the source), *set by you*, or *missing* (Simulate stays
-   blocked until you fill it). When the required fields are set, click
-   **Simulate basis set**.
-3. **Simulate** — A progress bar shows the simulation status. When it finishes,
-   an interactive spectrum plot appears and you can click **Export basis…** to
-   save the basis set in LCModel (.basis or .RAW), jMRUI, FSL-MRS, Osprey, FID-A,
-   INSPECTOR, ProFit, MARSS, MRSCloud, or SpinWizard/JET format. Format
-   writing is handled by the bundled
-   [MRS Basis Set Conversion Toolbox](https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox).
-
-> Every input has a small **(?)** help icon — hover it for a short explanation of
-> that parameter.
-
-**Sequence designer** *(new, in testing)* — the wand next to the sequence file
-opens the designer: choose the sequence, its timings and a pulse per role (ideal,
-a standard shape, or a pulse file in any format; the scan's own pulse where the data
-header stores it), see the timeline, and save the design as a Pulseq `.seq`
-(in `~/BasisREMY/sequences/`). The saved file is selected right away; the engine
-chips show which engines run the design as is, with differences, or not at all.
-
-
-### Examples (No GUI)
-
-Want to use BasisREMY programmatically? Check out the **[examples/](examples/)** folder!
-
-**Quick start:**
-```bash
-python examples/basic_usage.py
-```
-
-The example shows how to:
-- Load MRS data and extract parameters automatically
-- Configure and run simulations without the GUI
-- Customize metabolite lists and output settings
-
-In your own scripts, call `basisremy.prepare_runtime()` first and give file paths as absolute
-paths: the simulation engines run from BasisREMY's runtime folder, as in the GUI.
 
 ---
 
