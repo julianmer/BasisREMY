@@ -220,19 +220,30 @@ the top-right corner and follows your system setting by default.
 1. **Data** — Drop your MRS data file onto the upload area (or click it to browse).
    Click **Continue** to automatically read the file and pre-fill the acquisition
    parameters, or **Skip** to configure everything manually.
-2. **Parameters** — Choose a simulation **backend** (grouped by category), review
-   the auto-filled parameters, and tick the **metabolites** to include (**Select
-   all** toggles the whole list). When the required fields are set, click
+2. **Parameters** — One layout for every engine: pick the **Engine** and the
+   **Sequence**, optionally a **Sequence file** (any pulse or whole-sequence file),
+   then check the **timings**, the **acquisition** values and the **metabolites**
+   to include. Each value is marked by where it comes from: *from the data file*,
+   *recommended / default* (for design values no header holds, such as the echo
+   split; hover for the source), *set by you*, or *missing* (Simulate stays
+   blocked until you fill it). When the required fields are set, click
    **Simulate basis set**.
 3. **Simulate** — A progress bar shows the simulation status. When it finishes,
    an interactive spectrum plot appears and you can click **Export basis…** to
-   save the basis set in LCModel, jMRUI, FSL-MRS, Osprey, FID-A, INSPECTOR,
-   ProFit, MARSS, MRSCloud, or SpinWizard/JET format. Format
+   save the basis set in LCModel (.basis or .RAW), jMRUI, FSL-MRS, Osprey, FID-A,
+   INSPECTOR, ProFit, MARSS, MRSCloud, or SpinWizard/JET format. Format
    writing is handled by the bundled
    [MRS Basis Set Conversion Toolbox](https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox).
 
 > Every input has a small **(?)** help icon — hover it for a short explanation of
 > that parameter.
+
+**Sequence designer** *(new, in testing)* — the wand next to the sequence file
+opens the designer: choose the sequence, its timings and a pulse per role (ideal,
+a standard shape, or a pulse file in any format; the scan's own pulse where the data
+header stores it), see the timeline, and save the design as a Pulseq `.seq`
+(in `~/BasisREMY/sequences/`). The saved file is selected right away; the engine
+chips show which engines run the design as is, with differences, or not at all.
 
 
 ### Examples (No GUI)

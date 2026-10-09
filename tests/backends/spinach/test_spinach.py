@@ -100,7 +100,8 @@ class TestSpinachSchema:
         b = SpinachBackend()
         mand, opt = b.parseREMY({'NumberOfDatapoints': 4096, 'SpectralWidth': 4000, 'B0': 2.89,
                                  'TE': 30, 'Protocol': 'svs_se_30', 'Nucleus': '1H'})
-        assert mand == {'Samples': 4096, 'Bandwidth': 4000, 'Bfield': 2.89, 'TE': 30, 'Sequence': 'Spin Echo'}
+        # svs_se: Siemens product PRESS
+        assert mand == {'Samples': 4096, 'Bandwidth': 4000, 'Bfield': 2.89, 'TE': 30, 'Sequence': 'PRESS'}
         assert opt['Nucleus'] == '1H'
         assert b.parseProtocol('PRESS_35') == 'PRESS'
         assert b.parseProtocol('steam_te20') == 'STEAM'
