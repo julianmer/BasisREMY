@@ -32,13 +32,14 @@ import traceback
 from basisremy.core.basisremy import BasisREMY
 from basisremy.core.metabolite_identity import translate_metabolites
 
-ROOT = 'example_data/REMY_tests'
+ROOT = 'example_data/BasisREMY_testDatasets'      # Julian's test datasets (Datasets_BasisREMY_Oct2026.xlsx)
+OLD_ROOT = 'example_data/REMY_tests'              # the earlier set: only what ROOT lacks (NIfTI-MRS, Dataset_99)
 BLANK = (None, '', 'missing input', 'select option')
 
 # ---- datasets -------------------------------------------------------------------------------------
 FORMATS = [   # (format label, vendor, glob under a dataset folder)
     ('GE P-file',      'GE',      '**/*.7'),
-    ('Philips SPAR',   'Philips', '**/*Act.SPAR'),
+    ('Philips SPAR',   'Philips', '**/*[Aa]ct.SPAR'),
     ('Siemens twix',   'Siemens', '**/*.dat'),
     ('Siemens DICOM',  'Siemens', '**/*.IMA'),
     ('Siemens RDA',    'Siemens', '**/*.rda'),
@@ -49,14 +50,18 @@ FORMATS = [   # (format label, vendor, glob under a dataset folder)
 def discover():
     """One representative file per dataset folder (+ each NIfTI-MRS file)."""
     rows = []
-    for d in sorted(glob.glob(f'{ROOT}/Dataset_*')):
+    names = {os.path.basename(d) for d in glob.glob(f'{ROOT}/Dataset_*')}
+    folders = sorted(glob.glob(f'{ROOT}/Dataset_*')) + \
+        sorted(d for d in glob.glob(f'{OLD_ROOT}/Dataset_*') if os.path.basename(d) not in names)
+    for d in folders:
         for fmt, vendor, pat in FORMATS:
             files = [f for f in sorted(glob.glob(os.path.join(d, pat), recursive=True))
                      if '_ecc' not in f and '_quant' not in f and not f.endswith(('.pdf', '.tex', '.log', '.csv'))]
             if files:
                 rows.append({'dataset': os.path.basename(d), 'format': fmt, 'vendor': vendor, 'file': files[0]})
                 break
-    for f in sorted(glob.glob(f'{ROOT}/Datasets_nifti/*.nii.gz')):
+    nifti = f'{ROOT}/Datasets_nifti' if os.path.isdir(f'{ROOT}/Datasets_nifti') else f'{OLD_ROOT}/Datasets_nifti'
+    for f in sorted(glob.glob(f'{nifti}/*.nii.gz')):
         if '_ecc' in f or '_quant' in f:            # companions of the same dataset
             continue
         rows.append({'dataset': os.path.basename(f), 'format': 'NIfTI-MRS', 'vendor': 'NIfTI-MRS', 'file': f})
@@ -194,6 +199,26 @@ _SEQ = [
 ]
 
 
+def _spar_mrsi(path):
+    """A Philips SPAR with more than one spatial point (dim2 / dim3; spec_num_row counts averages) is MRSI,
+    whatever its protocol name says (Dataset_39: '2D_sLASER_TE36', 16 x 16 spectra)."""
+    try:
+        with open(path, errors='ignore') as f:
+            hdr = {k.strip(): v for k, v in (line.split(':', 1) for line in f
+                                              if ':' in line and not line.startswith('!'))}
+        return any(float(hdr.get(k, '1').strip() or 1) > 1 for k in ('dim2_pnts', 'dim3_pnts'))
+    except (OSError, ValueError):
+        return False
+
+
+def sequence_of(ds, m):
+    """The scan's sequence: from its protocol name (or REMY's Sequence field); a Philips SPAR
+    with several spatial points is CSI whatever its name says."""
+    if ds['format'] == 'Philips SPAR' and _spar_mrsi(ds['file']):
+        return 'CSI'
+    return recognise(m.get('Protocol'), m.get('Sequence'))
+
+
 def recognise(*texts):
     """Canonical sequence from the protocol name (or REMY's own Sequence field)."""
     for text in texts:
@@ -290,7 +315,7 @@ def evaluate(ds, entry, simulate=True):
         row['protocol'] = str(m.get('Protocol') or '')
         br.set_backend(backend)
         b = br.backend
-        row['sequence'] = recognise(row['protocol'], m.get('Sequence'))
+        row['sequence'] = sequence_of(ds, m)
     except Exception as exc:                        # noqa: BLE001
         row.update(level='read-fail', error=f'{type(exc).__name__}: {str(exc)[:160]}', seconds=time.time() - t0)
         return row

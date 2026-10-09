@@ -97,7 +97,7 @@ def _build_folder_to_sequence_map(example_data_dir, sequence_map):
     folder_to_sequence = {}
     vendor_counters = {'B': 0, 'G': 0, 'P': 0, 'S': 0}
 
-    remy_dir = os.path.join(example_data_dir, 'REMY_tests')
+    remy_dir = os.path.join(example_data_dir, 'BasisREMY_testDatasets')
     if not os.path.exists(remy_dir):
         return folder_to_sequence
 
@@ -139,8 +139,8 @@ def _get_sequence_for_file(filepath, example_data_dir, folder_to_sequence):
     """
     rel_path = os.path.relpath(filepath, example_data_dir)
 
-    # Check if in REMY_tests - use folder mapping
-    if 'REMY_tests' in rel_path:
+    # Check if in the REMY test datasets - use folder mapping
+    if 'BasisREMY_testDatasets' in rel_path or 'REMY_tests' in rel_path:
         parts = rel_path.split(os.sep)
         for part in parts:
             if part.startswith('Dataset_'):

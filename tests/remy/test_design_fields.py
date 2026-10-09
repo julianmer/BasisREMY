@@ -74,7 +74,7 @@ def test_zero_mixing_time_is_not_a_value():
 FILES = {
     'example_data/spec2nii_tests/ge/pFiles/big_gaba/S01_GABA_68.7':
         {'Edit On': 1.89, 'Edit Off': 7.47, 'Edit Tp': 15.0},
-    'example_data/REMY_tests/Dataset_00_Bruker_14T_STEAM_08/Dataset_00_Bruker_14T_STEAM_08_method':
+    'example_data/BasisREMY_testDatasets/Dataset_00_Bruker_14T_STEAM_08/Dataset_00_Bruker_14T_STEAM_08_method':
         {'TM': 10.0},
     'example_data/spec2nii_tests/siemens/HERCULES/TIEMO/Siemens_TIEMO_HERC.dat':
         {df.EDIT_PPM: [4.58, 1.9, 3.67, 4.18]},
@@ -123,7 +123,7 @@ def test_designer_uses_the_header_gradient_system(tmp_path, monkeypatch):
     """Dataset_00 (Bruker 14 T STEAM, TE 3 ms) fits only with its own gradients (992 mT/m, 0.27 ms);
     a clinical 80 mT/m / 0.4 ms system misses by 0.06 ms. The .seq keeps them for a read-back."""
     from basisremy.core import sequence_design as sd
-    path = 'example_data/REMY_tests/Dataset_00_Bruker_14T_STEAM_08/Dataset_00_Bruker_14T_STEAM_08_method'
+    path = 'example_data/BasisREMY_testDatasets/Dataset_00_Bruker_14T_STEAM_08/Dataset_00_Bruker_14T_STEAM_08_method'
     if not os.path.exists(path):
         pytest.skip('example file not present')
     monkeypatch.setenv('BASISREMY_SEQUENCES_DIR', str(tmp_path))

@@ -105,7 +105,7 @@ class TestBasisREMYIntegration:
         """spec2nii has no data mapper for some GE sequences (press hbcd, research/oslaser);
         the P-file header still fills the sheet."""
         import glob
-        files = glob.glob(os.path.join(example_data_dir, 'REMY_tests', 'Dataset_11_GE_P32256', '*.7'))
+        files = glob.glob(os.path.join(example_data_dir, 'BasisREMY_testDatasets', 'Dataset_11_GE_P32256', '*.7'))
         if not files:
             pytest.skip("REMY GE test file not found")
         params = BasisREMY().runREMY(import_fpath=files[0])
@@ -161,7 +161,7 @@ class TestBasisREMYIntegration:
     def test_remy_rda_vendor_and_ima_averages(self, example_data_dir):
         """RDA (a Siemens-only format) reports the vendor; IMA averages come from the CSA header."""
         import glob
-        tests = os.path.join(example_data_dir, 'REMY_tests')
+        tests = os.path.join(example_data_dir, 'BasisREMY_testDatasets')
         rda = sorted(glob.glob(os.path.join(tests, 'Dataset_32_Siemens_RDA_PreOn', '*.rda')))
         ima = sorted(glob.glob(os.path.join(tests, 'Dataset_22_Siemens_Dicom_7T', '*.IMA')))
         if not rda or not ima:
@@ -174,7 +174,7 @@ class TestBasisREMYIntegration:
         rows as averages; a scanner-averaged one (averages 64, rows 2) keeps its 64."""
         herc = os.path.join(example_data_dir, 'spec2nii_tests', 'philips', 'HERCULES_spar_sdat',
                             'HERCULES_Example_noID.spar')
-        press = os.path.join(example_data_dir, 'REMY_tests', 'Dataset_13_Philips_SPAR_3T_PRESS_45_Act',
+        press = os.path.join(example_data_dir, 'BasisREMY_testDatasets', 'Dataset_13_Philips_SPAR_3T_PRESS_45_Act',
                              'Dataset_13_Philips_SPAR_3T_PRESS_45_Act.SPAR')
         if not (os.path.exists(herc) and os.path.exists(press)):
             pytest.skip("Philips SPAR examples not found")

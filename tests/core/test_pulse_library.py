@@ -117,7 +117,7 @@ def test_cmrr_semilaser_twix_fills_a_hyperbolic_secant_pulse(backend, example_da
     """The CMRR sLASER twix names 'hsn_sl'/'hsn_ph' slots: the sheet takes HS4 instead of GOIA."""
     import glob
     from basisremy.core.basisremy import BasisREMY
-    f = glob.glob(os.path.join(example_data_dir, 'REMY_tests', 'Dataset_27_Siemens_sLASER', '*.dat'))
+    f = glob.glob(os.path.join(example_data_dir, 'BasisREMY_testDatasets', 'Dataset_27_Siemens_sLASER', '*.dat'))
     if not f or os.path.getsize(f[0]) < 4096:
         pytest.skip("Siemens sLASER twix not available")
     br = BasisREMY(backend)
