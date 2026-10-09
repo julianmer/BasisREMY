@@ -212,9 +212,10 @@ def _spar_mrsi(path):
 
 
 def sequence_of(ds, m):
-    """The scan's sequence: from its protocol name (or REMY's Sequence field); a Philips SPAR
-    with several spatial points is CSI whatever its name says."""
-    if ds['format'] == 'Philips SPAR' and _spar_mrsi(ds['file']):
+    """The scan's sequence: from its protocol name (or REMY's Sequence field); MRSI is CSI whatever
+    its name says - a path naming MRSI / CSI (as discover_all groups scans) or a Philips SPAR with
+    several spatial points (Dataset_02: 'research/oslaser', Dataset_39: '2D_sLASER_TE36')."""
+    if re.search(r'mrsi|csi', ds['file'], re.I) or (ds['format'] == 'Philips SPAR' and _spar_mrsi(ds['file'])):
         return 'CSI'
     return recognise(m.get('Protocol'), m.get('Sequence'))
 
