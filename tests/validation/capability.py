@@ -206,7 +206,9 @@ def recognise(*texts):
 
 
 # ---- engine entries ----------------------------------------------------------------------------------
-# label, pulse model, backend, {canonical sequence: params to set on the sheet}
+# label, pulse model, backend, {canonical sequence: params to set on the sheet}; 'design': the
+# sequence designer's recommended design of that kind (core/sequence_design), saved as .seq and
+# given to the engine - always when it is the only entry, else when a blank no rule fills is left
 ENTRIES = [
     ('FID-A',    'ideal', 'FidaIdeal',           {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'LASER': {'Sequence': 'LASER'}, 'SPECIAL': {'Sequence': 'Spin Echo'}}),
     ('FID-A',    'ideal', 'FidaMegaPressIdeal',  {'MEGA-PRESS': {}}),
@@ -214,10 +216,11 @@ ENTRIES = [
     ('FID-A',    'real',  'FidaSteamShaped',     {'STEAM': {}}),
     ('FID-A',    'real',  'FidaSemiLaserShaped', {'sLASER': {}}),
     ('FID-A',    'real',  'FidaMegaPressShaped', {'MEGA-PRESS': {}}),
-    ('FSL-MRS',  'ideal', 'FSL-MRS',             {s: {'Sequence': s} for s in ('PRESS', 'STEAM', 'LASER', 'sLASER', 'MEGA-PRESS', 'HERMES', 'HERCULES', 'MEGA-sLASER')}),
-    ('MRSCloud', 'real',  'MRSCloud',            {'PRESS': {'Sequence': 'UnEdited', 'Localization': 'PRESS'},
+    ('FSL-MRS',  'ideal', 'FSL-MRS',             {**{s: {'Sequence': s} for s in ('PRESS', 'STEAM', 'LASER', 'sLASER', 'MEGA-PRESS', 'HERMES', 'HERCULES', 'MEGA-sLASER')},
+                                                  'SPECIAL': {'design': 'Spin Echo'}}),
+    ('MRSCloud', 'real',  'MRSCloud',            {'PRESS': {'Sequence': 'UnEdited', 'Localization': 'PRESS', 'design': 'PRESS'},
                                                   'sLASER': {'Sequence': 'UnEdited', 'Localization': 'sLASER'},
-                                                  'MEGA-PRESS': {'Sequence': 'MEGA', 'Localization': 'PRESS'},
+                                                  'MEGA-PRESS': {'Sequence': 'MEGA', 'Localization': 'PRESS', 'design': 'MEGA-PRESS'},
                                                   'MEGA-sLASER': {'Sequence': 'MEGA', 'Localization': 'sLASER'},
                                                   'HERMES': {'Sequence': 'HERMES', 'Localization': 'PRESS'}}),
     ('Vespa',    'ideal', 'Vespa',               {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}}),
@@ -295,7 +298,8 @@ def evaluate(ds, entry, simulate=True):
         row.update(level='unsupported', seconds=time.time() - t0)
         return row
     row['supported'] = True
-    seq_params = seqs[row['sequence']]
+    seq_params = dict(seqs[row['sequence']])
+    design = seq_params.pop('design', None)
     # the sequence counts as extracted when the backend's mapped value names the same
     # sequence (choosing the pulse model / backend variant is not a blank)
     mapped = f"{b.mandatory_params.get('Sequence') or ''} {b.mandatory_params.get('Localization') or ''}"
@@ -315,6 +319,17 @@ def evaluate(ds, entry, simulate=True):
     params, filled = complete(params, blanks, row['sequence'], ds['vendor'])
     row['filled'] = ';'.join(filled)
     left = [k for k in blanks if k not in filled]
+    if design and (left or not seq_params):         # the wand: the recommended design as a .seq
+        try:
+            params, filled, left, shown, blanks = _apply_design(br, design, params, m, row['sequence'],
+                                                                ds['vendor'], filled)
+        except Exception as exc:                    # noqa: BLE001
+            row.update(level='failed', error=f'{type(exc).__name__}: {str(exc)[:160]}', seconds=time.time() - t0)
+            return row
+        b = br.backend
+        if not seq_params:                          # the sheet before was another sequence's
+            row['shown'], row['blanks'] = ';'.join(shown), ';'.join(blanks)
+        row['filled'] = ';'.join(filled)
     if left:                                        # the GUI blocks Simulate here too
         row.update(level='needs-input', error=f"no fill for {';'.join(left)}", seconds=time.time() - t0)
         return row
@@ -333,6 +348,28 @@ def evaluate(ds, entry, simulate=True):
         traceback.print_exc(limit=1)
     row['seconds'] = time.time() - t0
     return row
+
+
+def _apply_design(br, kind, params, header, sequence, vendor, filled):
+    """The designer's recommended ``kind`` design at the sheet's TE (ideal excitation and
+    refocusing, shaped editing pulse), saved as .seq and applied to the engine as the GUI does;
+    then the blanks are completed again. Returns (params, filled, left, shown, blanks); filled
+    keeps a completed TE (the design is made at it)."""
+    import tempfile
+    from basisremy.core import sequence_design as sd
+    d = sd.recommend(kind, float(params['TE']), params, header)
+    path = sd.write_seq(d, os.path.join(tempfile.mkdtemp(prefix='capability_design_'),
+                                        sd.default_name(d) + '.seq'))
+    pl = sd.apply(br, sd.read_design(path), path, br.backend.category)
+    if pl.status == 'no':
+        raise ValueError('design: ' + ' '.join(pl.notes))
+    b = br.backend
+    visible = b.get_params_for_mode()
+    blanks = sorted(k for k, v in visible.items() if k != 'Metabolites' and _blank(v))
+    params, more = complete({**b.optional_params, **b.mandatory_params}, blanks, sequence, vendor)
+    filled = sorted(set(more) | ({'TE'} & set(filled))) + [f'design ({kind})']
+    shown = sorted(k for k in visible if k != 'Metabolites')
+    return params, filled, [k for k in blanks if k not in more], shown, blanks
 
 
 FIELDS = ['dataset', 'format', 'vendor', 'engine', 'pulse_model', 'backend', 'read', 'sequence',
