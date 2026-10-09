@@ -151,6 +151,7 @@ async def test_designer_saves_and_selects_the_design(user: User, tmp_path, monke
     assert 'cannot run' not in engine.options['MRSCloud']
 
 
+@pytest.mark.requires_octave_runtime       # FID-A: without an Octave runtime the engine does not switch
 async def test_echo_split_recommended_from_te(user: User) -> None:
     # FID-A ideal PRESS: typing TE fills the echo split (TE/2) as a recommendation
     await _open(user)
