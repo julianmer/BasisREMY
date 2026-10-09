@@ -125,6 +125,41 @@ def default_duration(source: str, role: str) -> tuple[float, str]:
 _VOXEL_KEYS = ('LeftRightSize', 'AnteriorPosteriorSize', 'CranioCaudalSize')   # mm, from REMY
 
 
+def _header_pulses(d: Design, kind: str, header: dict | None):
+    """The scan's own pulse per role where the data header stores it (design_fields.PULSE_PARAMS,
+    Bruker method): its waveform, written as a Bruker shape file, at its duration; without a
+    waveform the pulse stays ideal and the note gives the header's values."""
+    from basisremy.remy.design_fields import PULSE_PARAMS
+    found = {}
+    for name, p in ((header or {}).get(PULSE_PARAMS) or {}).items():
+        if p.get('role') in roles(kind) and p['role'] not in found:
+            found[p['role']] = (name, p)
+    for role, (name, p) in found.items():
+        info = f"{p['dur_ms']:g} ms, {p['bw_hz']:g} Hz, {p['flip']:g} deg, shape '{p['shape']}'"
+        if p.get('waveform'):
+            d.pulses[role] = {'source': _shape_file(name, p['waveform']), 'dur': p['dur_ms']}
+            d.rec.pop(f'pulse:{role}', None)
+        else:
+            d.rec[f'pulse:{role}'] = (f"Default: ideal. The data header gives {name}: {info}, but not its "
+                                      "waveform. Most precise: the scanner's own pulse file")
+
+
+def _shape_file(name: str, waveform) -> str:
+    """A header waveform [(amplitude %, phase deg)] as a Bruker JCAMP shape in designs_dir()/pulses
+    (named by its content, so the same pulse is written once)."""
+    import hashlib
+    text = ''.join(f'{a:.6e}, {ph:.6e}\n' for a, ph in waveform)
+    folder = os.path.join(designs_dir(), 'pulses')
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"header_{name}_{hashlib.sha1(text.encode()).hexdigest()[:8]}.exc")
+    if not os.path.exists(path):
+        with open(path, 'w') as f:
+            f.write(f'##TITLE= {name} from the data header\n##JCAMP-DX= 5.00 Bruker JCAMP library\n'
+                    f'##DATA TYPE= Shape Data\n##NPOINTS= {len(waveform)}\n##XYPOINTS= (XY..XY)\n'
+                    f'{text}##END=\n')
+    return path
+
+
 def recommend(kind: str, te: float, sheet: dict | None = None, header: dict | None = None) -> Design:
     """The recommended design for ``kind`` at ``te``: ideal excitation and refocusing, a shaped
     editing pulse (Saleh 2019), symmetric timing; sheet values (TE1/TE2, sLASER TE1-3, TM) that
@@ -159,6 +194,7 @@ def recommend(kind: str, te: float, sheet: dict | None = None, header: dict | No
     for role in roles(kind):
         d.pulses[role] = {'source': 'ideal', 'dur': 0.0}
         d.rec[f'pulse:{role}'] = "Default: ideal. Most precise: the scanner's own pulse file"
+    _header_pulses(d, kind, header)
     if _edited(kind):
         family = _family(kind)
         if family:

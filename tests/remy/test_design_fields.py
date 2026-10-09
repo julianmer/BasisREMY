@@ -3,7 +3,10 @@ small header dicts, and the values REMY reads from the local example files."""
 
 import contextlib
 import io
+import math
 import os
+
+import numpy as np
 
 import pytest
 
@@ -87,3 +90,29 @@ def test_remy_reads_design_values_from_example_files(path):
     with contextlib.redirect_stdout(io.StringIO()):
         m = BasisREMY('FidaIdeal').runREMY(import_fpath=path)
     assert {k: m.get(k) for k in FILES[path]} == FILES[path]
+
+
+def test_bruker_inline_waveform_and_role():
+    method = {'$VoxPul1': '(0.5, 8400, 90, No, 3, 4200, 0.2, 0.2, ; 0, 50, 2.7, <$VoxPul1Shape>); ',
+              '$VoxPul1Shape': '( 6 ); 0 0 100 0 ; 50 180; '}
+    p = df.bruker(method)[df.PULSE_PARAMS]['VoxPul1']
+    assert p['role'] == 'exc' and p['dur_ms'] == 0.5 and p['bw_hz'] == 8400
+    assert p['waveform'] == [(0.0, 0.0), (100.0, 0.0), (50.0, 180.0)]
+
+
+def test_designer_takes_the_header_waveform(tmp_path, monkeypatch):
+    from basisremy.core import sequence_design as sd
+    from basisremy.core.rf_pulses import read_waveform
+    monkeypatch.setenv('BASISREMY_SEQUENCES_DIR', str(tmp_path))
+    wf = [(100.0 * math.sin(math.pi * (i + 0.5) / 64), 180.0 * (i % 2)) for i in range(64)]
+    header = {df.PULSE_PARAMS: {'VoxPul1': {'role': 'exc', 'dur_ms': 0.5, 'bw_hz': 8400, 'flip': 90,
+                                            'shape': 'Calculated', 'waveform': wf}}}
+    d = sd.recommend('STEAM', 20.0, {'TM': 10.0}, header)
+    assert d.pulses['exc']['dur'] == 0.5 and 'pulse:exc' not in d.rec
+    w = read_waveform(d.pulses['exc']['source'])
+    assert np.allclose(w[:, 1], [a for a, _ in wf], atol=1e-4)
+    assert np.allclose(w[:, 0], [ph for _, ph in wf])
+    # parameters without a waveform: the pulse stays ideal, the note gives the header's values
+    header[df.PULSE_PARAMS]['VoxPul1']['waveform'] = None
+    d = sd.recommend('STEAM', 20.0, {'TM': 10.0}, header)
+    assert d.pulses['exc']['source'] == 'ideal' and '0.5 ms, 8400 Hz' in d.rec['pulse:exc']

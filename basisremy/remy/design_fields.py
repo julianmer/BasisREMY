@@ -19,6 +19,9 @@ import re
 SHEET_KEYS = ('TM', 'Edit On', 'Edit Off', 'Edit Tp')
 # information keys (not sheet values)
 EDIT_PPM, RF_PULSES = 'Edit frequencies (header, ppm)', 'RF pulses (header)'
+# {name: {'role', 'dur_ms', 'bw_hz', 'flip', 'shape', 'waveform'}}, waveform [(amplitude %, phase deg)]
+# or None; for the sequence designer
+PULSE_PARAMS = 'RF pulse parameters (header)'
 
 
 def _num(v):
@@ -129,28 +132,48 @@ def ge(hdr: dict) -> dict:
 
 
 _BRUKER_PULSES = ('VoxPul1', 'VoxPul2', 'VoxPul3', 'ExcPulse1', 'RefPulse1')
+_BRUKER_ROLE = {0: 'exc', 1: 'ref', 2: 'inv'}             # PVM_RF_PULSE Type
+
+
+def _bruker_waveform(raw):
+    """A method's inline shape '( 2N ) a1 p1 a2 p2 ...' as N (amplitude %, phase deg) pairs; checked
+    on Dataset_00: the integral factor of the pairs equals the struct's Sint (0.236152) and the
+    Bloch bandwidth 8840 Hz the struct's 8400 Hz."""
+    m = re.match(r'\s*\(\s*(\d+)\s*\)', str(raw or ''))
+    if not m:
+        return None
+    vals = [float(v) for v in re.findall(r'[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?', str(raw)[m.end():])]
+    n = int(m.group(1))
+    if n < 4 or n % 2 or len(vals) < n:
+        return None
+    return [(vals[i], vals[i + 1]) for i in range(0, n, 2)]
 
 
 def bruker(method: dict) -> dict:
-    """Bruker method: StTM (ms) and the PVM pulse structs (length ms, bandwidth Hz, flip angle,
-    ... shape), with the shape name from <name>Enum."""
+    """Bruker method: StTM (ms) and the PVM pulse structs (length ms, bandwidth Hz, flip angle, ...,
+    type, ..., shape), with the shape name from <name>Enum and the waveform when the method stores it."""
     out = {}
     tm = _num(str(method.get('$StTM', '')).split(';')[0])
     if tm and tm > 0:
         out['TM'] = tm
-    pulses = []
+    pulses, params = [], {}
     for name in _BRUKER_PULSES:
         raw = method.get(f'${name}')
         if not raw:
             continue
         fields = [s.strip() for s in str(raw).replace('; ', ' ').strip('(); ').split(',')]
         length, bw, flip = (_num(v) for v in fields[:3])
+        kind = _num(fields[8]) if len(fields) > 8 else None
         shape = str(method.get(f'${name}Enum', '')).split(';')[0].strip('<> ')
-        if length and bw:
-            pulses.append(f'{name}: {length:g} ms, {bw:g} Hz, {flip:g} deg'
-                          + (f', {shape}' if shape else ''))
+        if not (length and bw):
+            continue
+        pulses.append(f'{name}: {length:g} ms, {bw:g} Hz, {flip:g} deg' + (f', {shape}' if shape else ''))
+        params[name] = {'role': _BRUKER_ROLE.get(int(kind)) if kind is not None else None,
+                        'dur_ms': length, 'bw_hz': bw, 'flip': flip, 'shape': shape,
+                        'waveform': _bruker_waveform(method.get(f'${name}Shape'))}
     if pulses:
         out[RF_PULSES] = pulses
+        out[PULSE_PARAMS] = params
     return out
 
 
