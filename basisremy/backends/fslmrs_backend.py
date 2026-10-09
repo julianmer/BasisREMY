@@ -171,6 +171,8 @@ class FSLMRSBackend(Backend):
             if opt.lower() == s:
                 return opt
         # Cross-backend synonyms
+        if 'special' in s:              # runs only as a design (.seq), not from the sheet
+            return None
         if 'steam' in s:
             return 'STEAM'
         if 'hercules' in s:

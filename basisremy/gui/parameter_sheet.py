@@ -306,6 +306,7 @@ async def _on_engine(app, cat, select) -> None:
     br = app.BasisREMY
     if cat == br.backend.category or getattr(app, "_switching", False):
         return
+    app._engine_chosen = True
     seq, _ = ss.current(br)
     design = app._design if app.seq_file else None
     if design is not None:

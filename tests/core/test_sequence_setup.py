@@ -121,3 +121,20 @@ def test_apply_remy_records_the_file_values(br):
     got = br.from_file['Vespa']
     assert got['TE'] == 30 and got['Sequence'] == 'PRESS' and 'TM' not in got
     br._last_mrsinmrs = None
+
+
+@pytest.mark.parametrize('protocol, engine, sequence', [
+    ('PRESS_ACC_TE35', 'FSL-MRS', 'PRESS'),
+    ('HERMES_GABA_GSH', 'FSL-MRS', 'HERMES'),
+    ('IR_Semi_adi_SPECIAL_trigger', 'FID-A', 'Spin Echo'),        # FSL-MRS: SPECIAL only as a design
+    ('TE74_corALF_orig_frontal', None, None),                     # names no sequence: stays blank
+])
+def test_best_engine_is_the_fastest_that_runs_the_file(protocol, engine, sequence):
+    br = BasisREMY('FSL-MRS')
+    m = {'TE': 30, 'B0': 2.89, 'NumberOfDatapoints': 2048, 'SpectralWidth': 4000, 'Protocol': protocol}
+    br.apply_remy(m)
+    assert ss.best_engine(br, m) == engine
+    assert ss.current(br)[0] == sequence
+    if engine is None:
+        assert br.backend.name == 'FSL-MRS'
+    br._last_mrsinmrs = None

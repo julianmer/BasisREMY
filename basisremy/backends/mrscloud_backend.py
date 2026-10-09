@@ -444,13 +444,22 @@ class MRSCloudBackend(Backend):
         if protocol is None:
             return None
         p = str(protocol).lower()
+        if 'special' in p:                      # not an MRSCloud sequence
+            return None
         if 'hercules' in p:
             return 'HERCULES'
         if 'hermes' in p:
             return 'HERMES'
         if 'mega' in p:
             return 'MEGA'
-        return 'UnEdited'
+        return 'UnEdited' if self._names_sequence(p) else None   # a name with no sequence: blank
+
+    # words that make a protocol name a sequence (anything else leaves the sheet blank)
+    _SEQUENCE_WORDS = ('press', 'laser', 'semi', 'steam', 'svs_se', 'svs_edit', 'mega', 'hermes',
+                       'herc', 'unedited')
+
+    def _names_sequence(self, p: str) -> bool:
+        return any(w in p for w in self._SEQUENCE_WORDS)
 
     def parseLocalization(self, protocol):
         """Return the MRSCloud localisation label from a raw protocol string.
@@ -460,6 +469,8 @@ class MRSCloudBackend(Backend):
         if protocol is None:
             return None
         p = str(protocol).lower()
+        if 'special' in p or not self._names_sequence(p):
+            return None
         if 'steam' in p:
             return 'STEAM_7T'
         if ('slaser' in p or 'semi_laser' in p

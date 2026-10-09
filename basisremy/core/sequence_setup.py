@@ -217,6 +217,27 @@ def _matches(route: Route, backend) -> bool:
     return all(p.get(k) == v for k, v in route.sheet.items())
 
 
+# engines by speed (FSL-MRS: seconds, pure Python; MRSCloud and Custom: minutes per metabolite)
+PREFERENCE = ['FSL-MRS', 'FID-A', 'Spant', 'Vespa', 'Spinach', 'MRSCloud', 'Custom']
+
+
+def best_engine(br, MRSinMRS) -> str | None:
+    """Switch ``br`` to the fastest engine that runs the file's sequence: each engine in
+    PREFERENCE reads the header; the first whose sheet then names a sequence the file gave (not
+    an engine default) wins. None (and the starting engine kept) when no engine recognises it."""
+    start = br.backend.name
+    for cat in PREFERENCE:
+        if not br.categories.get(cat):
+            continue
+        br.set_category(cat)
+        br.apply_remy(MRSinMRS)
+        if current(br)[0] and br.from_file.get(br.backend.name, {}).get('Sequence'):
+            return cat
+    br.set_backend(start)
+    br.apply_remy(MRSinMRS)
+    return None
+
+
 def current(br) -> tuple[str | None, Route | None]:
     """(sequence, route) of the active backend, (None, None) when its sheet names no sequence."""
     b = br.backend

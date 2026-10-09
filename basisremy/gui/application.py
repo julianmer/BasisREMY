@@ -329,7 +329,8 @@ class BasisREMYApp:
     def __init__(self) -> None:
         # data backend (imported here: the engines load behind the start-up splash)
         from basisremy.core.basisremy import BasisREMY
-        self.BasisREMY = BasisREMY()
+        self.BasisREMY = BasisREMY('FSL-MRS')      # the fastest engine; a data file picks its own
+        self._engine_chosen = False                  # set once the user picks an engine
 
         # selection / simulation state
         self.selected_file: str | None = None
@@ -756,6 +757,9 @@ class BasisREMYApp:
                 # A new file starts from clean defaults — values from the
                 # previous file must not masquerade as this file's metadata.
                 self.BasisREMY.apply_remy(MRSinMRS)
+                if not self._engine_chosen:
+                    from basisremy.core.sequence_setup import best_engine
+                    best_engine(self.BasisREMY, MRSinMRS)
                 self._user_set, self._want = set(), {}
             if self.seq_file and not self._apply_sequence_file():
                 return
