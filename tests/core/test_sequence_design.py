@@ -47,9 +47,11 @@ def test_round_trip(kind, shaped, tmp_path):
     te = (100.0 if shaped and edited and 'LASER' in kind else 80.0 if shaped and 'LASER' in kind
           else 80.0 if edited else 35.0)
     d = _shaped(kind, te) if shaped else sd.recommend(kind, te, _SHEET)
+    d.voxel = (3.0, 2.5, 4.0)                    # not the 2 cm default: the .seq must keep it
     assert sd.problems(d) == []
     back = sd.read_design(sd.write_seq(d, str(tmp_path / 'd.seq')))
     assert back.kind == kind
+    assert back.voxel == pytest.approx(d.voxel)
     assert back.te == pytest.approx(te, abs=1e-3)
     for k, v in d.timing.items():
         assert back.timing[k] == pytest.approx(v, abs=1e-3)

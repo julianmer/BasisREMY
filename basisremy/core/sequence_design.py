@@ -555,7 +555,7 @@ def _read_seq_design(path, bfield):
                                                        if ev.freq_offset_hz else 0.0), 3))
         if len(ppm) == 2:
             d.edit = tuple(ppm) if ppm[0] < WATER_PPM else (ppm[1], ppm[0])
-    voxel = [_num(v) for v in str(defs.get('VoxelCm', '')).split()]
+    voxel = [_num(v) for v in np.ravel(defs.get('VoxelCm', []))]       # pypulseq: an array
     if len(voxel) == 3 and all(voxel):
         d.voxel = tuple(voxel)
     else:              # from the slice gradients: excitation, first and last refocusing slab
