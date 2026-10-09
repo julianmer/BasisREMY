@@ -154,10 +154,14 @@ class TestSiemensIMA:
             "no file yielded 'Bandwidth' - are the example files real data (git lfs pull)?"
 
 
+XA20_DCM = os.path.join('example_data', 'spec2nii_tests', 'siemens', 'XAData', 'XA20', 'DICOM', '26516628.dcm')
 
 
-
-
-
-
-
+@pytest.mark.remy
+@pytest.mark.skipif(not os.path.exists(XA20_DCM), reason='spec2nii XA20 test file not present')
+def test_xa_dicom_spectral_width_and_averages():
+    """XA enhanced DICOM: spec2nii's dwell is 1/SpectralWidth (no oversampling to undo) and the
+    averages sit in the standard tag, not a CSA header. The file says 2000 Hz, 128 averages."""
+    params = BasisREMY().runREMY(import_fpath=XA20_DCM)
+    assert float(params['SpectralWidth']) == pytest.approx(2000.0)
+    assert float(params['NumberOfAverages']) == 128

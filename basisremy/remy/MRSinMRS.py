@@ -856,16 +856,25 @@ class DataReaders():
 
 
 		try:
-			write_log(log, 'Data Read: Assuming oversampled by a factor of 2.. doubling SpectralWidth') # Log - Note Spectral Width
-			MRSinMRS['SW'] = (1 / (MRSinMRS['dwelltime'] / 2)) 								# Spectral Width
+			import pydicom
+			dcm = pydicom.dcmread(fname)
+			if dcm.SOPClassUID == '1.2.840.10008.5.1.4.1.1.4.2': 								# XA (MR Spectroscopy Storage): spec2nii's
+				MRSinMRS['SW'] = 1 / MRSinMRS['dwelltime'] 										# dwell is 1/SpectralWidth, not oversampled
+			else: 																			# VA-VE: CSA RealDwellTime, oversampled
+				write_log(log, 'Data Read: Assuming oversampled by a factor of 2.. doubling SpectralWidth') # Log - Note Spectral Width
+				MRSinMRS['SW'] = (1 / (MRSinMRS['dwelltime'] / 2)) 							# Spectral Width
 		except:
 			write_log(log, 'Data Read: Siemens Dicom - Could not get Spectral Width') 		# Log - Note Success
 
 		try: 																				# Averages: Siemens CSA image header
-			import pydicom 																	# (no standard DICOM tag in spectroscopy)
+			import pydicom 																	# (VA-VE: no standard DICOM tag in spectroscopy)
 			from nibabel.nicom import csareader
-			csa = csareader.get_csa_header(pydicom.dcmread(fname), 'image')
-			MRSinMRS['NumberOfAverages'] = float(csa['tags']['NumberOfAverages']['items'][0])
+			dcm = pydicom.dcmread(fname)
+			csa = csareader.get_csa_header(dcm, 'image')
+			if csa is not None:
+				MRSinMRS['NumberOfAverages'] = float(csa['tags']['NumberOfAverages']['items'][0])
+			else: 																			# XA: no CSA header; the standard tag
+				MRSinMRS['NumberOfAverages'] = float(next(e.value for e in dcm.iterall() if e.tag == 0x00180083))
 		except Exception:
 			write_log(log, 'Data Read: Siemens Dicom - Number of Averages Not Found') 		# Log - averages not included
 
