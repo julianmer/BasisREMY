@@ -31,7 +31,7 @@ SEQUENCES = ['PRESS', 'sLASER', 'STEAM', 'Spin Echo', 'LASER', 'MEGA-PRESS', 'ME
 
 # BasisREMY category -> engine name shown in the picker
 ENGINE_LABEL = {'MRSCloud': 'MRSCloud', 'FID-A': 'FID-A', 'FSL-MRS': 'FSL-MRS', 'Vespa': 'Vespa',
-                'Spant': 'spant', 'Spinach': 'Spinach', 'Custom': 'jbss (custom sLASER)'}
+                'Spant': 'spant', 'Spinach': 'Spinach', 'Custom': 'Custom'}
 
 
 @dataclass(frozen=True)
@@ -138,7 +138,7 @@ ENGINE_SCOPE = {
              "PRESS only.",
     'Spinach': "Spinach runs ideal Spin Echo / PRESS / STEAM / LASER and shaped PRESS / sLASER here; "
                "the others are not wired yet (Spinach itself could).",
-    'Custom': "jbss is a dedicated semi-LASER simulation with a refocusing waveform.",
+    'Custom': "Custom is a dedicated semi-LASER simulation with a refocusing waveform.",
 }
 
 # Timings an engine sets itself (no field for them in the sheet)
