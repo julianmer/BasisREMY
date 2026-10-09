@@ -20,6 +20,7 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import basisremy
 from basisremy.core.basisremy import BasisREMY
 from basisremy.core.exporters import export
 
@@ -28,6 +29,12 @@ if __name__ == "__main__":
     # =============================================================================================
     # Initialize BasisREMY
     # =============================================================================================
+    # The simulation engines run from BasisREMY's runtime folder: resolve your file paths first,
+    # then make that folder the working directory (the basisremy command does the same).
+
+    import_fpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'example_data',
+                                                'BigGABA_P1P_S01', 'S01_PRESS_35_act.SPAR'))
+    print(f"Runtime folder: {basisremy.prepare_runtime()}")
 
     br = BasisREMY()
     print(f"Available backends: {br.available_backends}")
@@ -38,8 +45,6 @@ if __name__ == "__main__":
     # =============================================================================================
     # Supported formats: .spar (Philips), .7 (GE), .dat/.rda/.ima (Siemens),
     #                    method (Bruker), .nii/.nii.gz (NIfTI)
-
-    import_fpath = './example_data/BigGABA_P1P_S01/S01_PRESS_35_act.SPAR'
 
     print(f"Processing file: {import_fpath}")
     br.runREMY(import_fpath=import_fpath)
@@ -91,5 +96,5 @@ if __name__ == "__main__":
     #          inspector_mat, profit_mat, marss_mat, mrscloud_mat, spinwizard
     # A *_sidecar.json with the parameters and provenance is written next to every export.
 
-    out = export(basis, './output/PRESS_TE35_3T', 'lcmodel_basis', params)
+    out = export(basis, './output/PRESS_TE35_3T', 'lcmodel_basis', params)   # in the runtime folder
     print(f"Exported to: {out}")

@@ -260,6 +260,9 @@ The example shows how to:
 - Configure and run simulations without the GUI
 - Customize metabolite lists and output settings
 
+In your own scripts, call `basisremy.prepare_runtime()` first and give file paths as absolute
+paths: the simulation engines run from BasisREMY's runtime folder, as in the GUI.
+
 ---
 
 ## Related References

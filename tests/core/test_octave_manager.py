@@ -97,3 +97,21 @@ class TestOctaveManager:
         assert "Octave Runtime Not Available" in str(exc_info.value)
 
 
+
+
+def test_engines_need_the_runtime_folder(tmp_path, monkeypatch):
+    """A script started elsewhere gets a clear message instead of a missing ./externals; with
+    prepare_runtime() (or an externals/ folder in the working directory) Octave may start."""
+    import basisremy
+    from basisremy.core.octave_manager import _check_working_directory
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(RuntimeError, match='prepare_runtime'):
+        _check_working_directory()
+    (tmp_path / 'externals').mkdir()
+    _check_working_directory()
+    home = tmp_path / 'home'
+    monkeypatch.setenv('BASISREMY_HOME', str(home))
+    monkeypatch.chdir(tmp_path / 'externals')
+    assert basisremy.prepare_runtime() == home.resolve()
+    assert os.getcwd() == str(home.resolve())
+    _check_working_directory()

@@ -26,6 +26,19 @@ _PROBE_TTL_S = 120.0
 _probe_cache: dict[str, tuple[float, bool]] = {}
 
 
+def _check_working_directory() -> None:
+    """The engines reach their code as ./externals and Docker mounts the working directory: a
+    script run from elsewhere must call basisremy.prepare_runtime() first (the GUI does)."""
+    from pathlib import Path
+    from basisremy.core.paths import runtime_root
+    cwd = Path.cwd().resolve()
+    if cwd != runtime_root().resolve() and not (cwd / 'externals').is_dir():
+        raise RuntimeError(
+            f"BasisREMY's simulation engines run from its runtime folder ({runtime_root()}), not "
+            f"from {cwd}: call basisremy.prepare_runtime() at the start of the script and give "
+            f"file paths as absolute paths.")
+
+
 def docker_disabled() -> bool:
     """True when ``BASISREMY_NO_DOCKER`` is set: never use (or probe) Docker,
     even if a daemon is running — a local Octave is the only runtime then.
@@ -184,6 +197,7 @@ class OctaveManager:
         # Allow per-call verbose override
         if verbose is not None:
             self.verbose = bool(verbose)
+        _check_working_directory()
 
         if prefer_docker:
             # Try Docker first
