@@ -180,3 +180,9 @@ def test_designer_labels_header_pulse_and_steam_echo() -> None:
         draw_timeline(ax, {'events': ev, 'echo_ms': echo, 'te': te})
         assert want in [t.get_text() for t in ax.texts]
         plt.close(fig)
+
+
+def test_export_name_rounds_the_field() -> None:
+    from basisremy.gui.export_dialog import _default_basename
+    assert _default_basename({'Sequence': 'PRESS', 'TE': 35, 'Bfield': 2.894812}) == 'PRESS_TE35_2.9T'
+    assert _default_basename({'Sequence': 'STEAM', 'TE': 3, 'Bfield': 14.0918}) == 'STEAM_TE3_14.1T'

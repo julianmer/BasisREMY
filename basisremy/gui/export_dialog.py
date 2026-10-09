@@ -51,7 +51,7 @@ def _default_basename(params: dict) -> str:
         pass
     b0 = params.get("Bfield") or str(params.get("Field Strength") or "").replace("T", "")
     try:
-        parts.append(f"{float(b0):g}T")
+        parts.append(f"{round(float(b0), 1):g}T")     # 2.894812 T -> 2.9T
     except (TypeError, ValueError):
         pass
     name = "_".join(parts) or "basis"
