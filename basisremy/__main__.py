@@ -10,7 +10,8 @@
 #          as before.                                                                              #
 #                                                                                                  #
 #          The front-end is NiceGUI: a pure-web UI shown in a native desktop window (pywebview),   #
-#          which installs cleanly under uvx with no system tcl/tk dependency.                      #
+#          which installs cleanly under uvx with no system tcl/tk dependency. Without a display    #
+#          (headless server, SSH login) or with ``--browser`` the UI is served for a web browser.  #
 #                                                                                                  #
 ####################################################################################################
 
@@ -69,11 +70,38 @@ def _load_application():
     return BasisREMYApp
 
 
-def _start_gui() -> None:
-    """Launch the NiceGUI application in a native desktop window."""
+def _has_display() -> bool:
+    """Return True when a desktop window can be opened on this machine.
+
+    macOS and Windows always have a display; on Linux/BSD a window needs an
+    X11 or Wayland session, which headless servers and SSH logins lack.
+    """
+    if sys.platform in ("darwin", "win32"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _start_gui(*, browser: bool = False, port: int = 8080) -> None:
+    """Launch the NiceGUI application.
+
+    By default a native desktop window is opened via pywebview. With
+    ``browser=True``, or when no display is available (headless server, plain
+    SSH login), the UI is served on ``http://localhost:<port>`` instead and the
+    URL is printed so it can be opened locally or through SSH port forwarding.
+    """
     from basisremy.gui.application import run_app
 
-    run_app(native=True)
+    if browser or not _has_display():
+        if not browser:
+            print("No display found: serving the UI in the browser instead of a window.")
+        print(f"BasisREMY is running at http://localhost:{port}")
+        print("  Remote server? On your own machine run:  "
+              f"ssh -L {port}:localhost:{port} <user>@<server>  "
+              f"then open http://localhost:{port}")
+        run_app(native=False, show=False, port=port, host="127.0.0.1")
+        return
+
+    run_app(native=True, port=port)
 
 
 def _run_environment_check() -> int:
@@ -151,6 +179,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Report the environment (Python, NiceGUI, Docker/Octave) and exit, "
              "without launching the GUI.",
     )
+    parser.add_argument(
+        "--browser", action="store_true",
+        help="Serve the UI at http://localhost:PORT for a web browser instead of "
+             "opening a desktop window (automatic when no display is available, "
+             "e.g. on a server; use SSH port forwarding to reach it).",
+    )
+    parser.add_argument(
+        "--port", type=int, default=8080, metavar="PORT",
+        help="Port for the UI server (default: 8080).",
+    )
     return parser
 
 
@@ -164,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run_environment_check()
 
     try:
-        _start_gui()
+        _start_gui(browser=args.browser, port=args.port)
     except ModuleNotFoundError as exc:  # most commonly missing nicegui / pywebview
         missing = getattr(exc, "name", "") or str(exc)
         if missing in ("nicegui",) or "nicegui" in str(exc).lower():

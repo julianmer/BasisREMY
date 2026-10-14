@@ -80,3 +80,28 @@ def test_version_is_single_sourced():
         pyproject = f.read()
     assert 'dynamic = ["version"]' in pyproject
     assert re.search(r'^version\s*=\s*"', pyproject, re.M) is None
+
+
+def test_headless_falls_back_to_browser(monkeypatch):
+    """Without a display (server, SSH login) or with ``--browser`` the launcher
+    serves the UI for a browser instead of asking pywebview for a window."""
+    import sys
+    launcher = importlib.import_module("basisremy.__main__")
+    pytest.importorskip("nicegui")
+    import basisremy.gui.application as application
+
+    calls = []
+    monkeypatch.setattr(application, "run_app", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+    launcher._start_gui()
+    assert calls[-1] == {"native": False, "show": False, "port": 8080, "host": "127.0.0.1"}
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    launcher._start_gui()
+    assert calls[-1] == {"native": True, "port": 8080}
+
+    launcher._start_gui(browser=True, port=9000)
+    assert calls[-1] == {"native": False, "show": False, "port": 9000, "host": "127.0.0.1"}

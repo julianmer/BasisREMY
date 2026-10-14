@@ -188,9 +188,14 @@ Three environment variables tune the runtimes:
 
 ## Troubleshooting
 
-- **Window stays blank or pywebview errors** — without `pywebview` the UI falls
-  back to opening in your browser; install it (`pip install pywebview`) for the
-  native window. On Linux a system WebKitGTK package may be needed.
+- **Window stays blank or pywebview errors** (`You must have either QT or GTK`)
+  — the desktop window needs a display and, on Linux, a system WebKitGTK package.
+  Run `basisremy --browser` (or `uvx basisremy --browser`) to use the UI in your
+  web browser at `http://localhost:8080` instead; without a display this happens
+  automatically.
+- **Running on a server (SSH)** — start `uvx basisremy` on the server, then on
+  your own machine run `ssh -L 8080:localhost:8080 user@server` and open
+  `http://localhost:8080` in a browser. Use `--port` if 8080 is taken.
 - **Simulation fails / "Octave not found"** — start Docker Desktop/Engine, or
   install local Octave. See the [Octave Setup Guide](basisremy/assets/OCTAVE_SETUP.md).
 - **`uv: command not found`** — re-open your terminal after installing `uv`, or

@@ -1324,11 +1324,13 @@ def _import_core() -> None:
     import basisremy.core.basisremy  # noqa: F401  (the slow part of start-up)
 
 
-def run_app(*, native: bool = True, show: bool = True, port: int = 8080) -> None:
+def run_app(*, native: bool = True, show: bool = True, port: int = 8080,
+            host: str | None = None) -> None:
     """Configure routes and start the NiceGUI server.
 
     In native mode a desktop window is opened via pywebview; otherwise the UI
-    is served in the default browser.
+    is served in the default browser. ``host`` limits which interfaces the
+    server listens on (NiceGUI's default is all of them).
     """
     app.add_static_files("/assets", str(ASSETS))
     ui.page("/")(build_page)
@@ -1336,6 +1338,7 @@ def run_app(*, native: bool = True, show: bool = True, port: int = 8080) -> None
         native=native,
         title="BasisREMY",
         window_size=(1100, 820) if native else None,
+        host=host,
         port=port,
         show=show,
         reload=False,
