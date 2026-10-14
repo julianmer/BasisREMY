@@ -97,11 +97,14 @@ def test_headless_falls_back_to_browser(monkeypatch):
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
 
     launcher._start_gui()
-    assert calls[-1] == {"native": False, "show": False, "port": 8080, "host": "127.0.0.1"}
+    assert calls[-1]["native"] is False and calls[-1]["host"] == "127.0.0.1"
+    banner = launcher._browser_banner(8080, auto=True)
+    assert "No display found" in banner and "ssh -L 8080:localhost:8080" in banner
 
     monkeypatch.setenv("DISPLAY", ":0")
     launcher._start_gui()
     assert calls[-1] == {"native": True, "port": 8080}
 
     launcher._start_gui(browser=True, port=9000)
-    assert calls[-1] == {"native": False, "show": False, "port": 9000, "host": "127.0.0.1"}
+    assert calls[-1]["native"] is False and calls[-1]["port"] == 9000
+    assert "No display" not in launcher._browser_banner(9000, auto=False)

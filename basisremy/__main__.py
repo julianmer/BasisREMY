@@ -81,6 +81,26 @@ def _has_display() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
+def _browser_banner(port: int, *, auto: bool) -> str:
+    """The notice shown once the browser-mode server is up."""
+    import getpass
+    import socket
+
+    user = getpass.getuser()
+    host = socket.gethostname().split(".")[0]
+    why = ("No display found, so BasisREMY runs in your web browser instead of a window."
+           if auto else "BasisREMY runs in your web browser (--browser).")
+    return (
+        "\n"
+        f"{why}\n"
+        "\n"
+        f"  On this machine:    open  http://localhost:{port}\n"
+        f"  From your own PC:   ssh -L {port}:localhost:{port} {user}@{host}\n"
+        f"                      then open  http://localhost:{port}  there\n"
+        "  Stop the server:    Ctrl+C\n"
+    )
+
+
 def _start_gui(*, browser: bool = False, port: int = 8080) -> None:
     """Launch the NiceGUI application.
 
@@ -92,13 +112,8 @@ def _start_gui(*, browser: bool = False, port: int = 8080) -> None:
     from basisremy.gui.application import run_app
 
     if browser or not _has_display():
-        if not browser:
-            print("No display found: serving the UI in the browser instead of a window.")
-        print(f"BasisREMY is running at http://localhost:{port}")
-        print("  Remote server? On your own machine run:  "
-              f"ssh -L {port}:localhost:{port} <user>@<server>  "
-              f"then open http://localhost:{port}")
-        run_app(native=False, show=False, port=port, host="127.0.0.1")
+        run_app(native=False, show=False, port=port, host="127.0.0.1",
+                on_ready=lambda: print(_browser_banner(port, auto=not browser), flush=True))
         return
 
     run_app(native=True, port=port)
