@@ -64,12 +64,20 @@ REGISTRY: dict[str, tuple[str, str]] = {
     ),
 }
 
-# Externals that are too big to clone whole: only these top-level directories
-# are checked out (git sparse checkout, blobs fetched on demand). Spinach's
-# repository is ~520 MB; its kernel is all the backend needs.
+# Externals that are too big to clone whole: only these directories are
+# checked out (git sparse checkout, blobs fetched on demand). Spinach's
+# repository is ~520 MB; its kernel is all the backend needs. FID-A, FSL-MRS
+# and the conversion toolbox carry hundreds of MB of example data and tests
+# that no backend reads: FID-A's code folders (fida_backends, fida_run.m),
+# FSL-MRS's denmatsim (fslmrs_backend, vespa_backend), MRSCloud's functions /
+# pulses (mrscloud_backend) and basic's converter (exporters) are enough.
 SPARSE: dict[str, list[str]] = {
     "spinach": ["kernel"],
     "win_mrs_basis": ["sequences"],
+    "fidA": ["inputOutput", "processingTools", "simulationTools", "rfPulseTools"],
+    "fsl_mrs": ["fsl_mrs/denmatsim"],
+    "mrscloud": ["functions", "pulses_universal", "run"],
+    "basic": ["basis_converter"],
 }
 
 # Patches applied on top of the pinned commit (idempotent: skipped when the
