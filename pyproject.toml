@@ -75,6 +75,8 @@ basisremy = [
     "assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_sky_blue.png",
     "assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_charcoal.png",
     "assets/imgs/basisremy_mouse_all_colors/png/basisremy_mouse_light_gray.png",
+    # App icon (window, Dock/taskbar and the --install-shortcut launcher).
+    "assets/imgs/basisremy_icon.png",
     "assets/*.md",
     # First-party Octave adapter scripts (run inside Octave/Docker at runtime).
     "adapters/backends/spinach_octave.patch",

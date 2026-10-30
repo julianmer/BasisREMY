@@ -204,12 +204,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--port", type=int, default=8080, metavar="PORT",
         help="Port for the UI server (default: 8080).",
     )
+    parser.add_argument(
+        "--install-shortcut", action="store_true",
+        help="Add a BasisREMY app icon to the desktop menus (macOS Applications, "
+             "Linux app menu, Windows Start Menu and Desktop) and exit.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     """Console-script entry point for the ``basisremy`` command."""
     args = _build_parser().parse_args(argv)
+
+    if args.install_shortcut:
+        from basisremy.shortcut import install_shortcut
+
+        return install_shortcut()
 
     _prepare_runtime()
 

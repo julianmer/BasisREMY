@@ -59,6 +59,15 @@ uv tool install basisremy
 basisremy
 ```
 
+To open it with a click like any other app, add an app icon once:
+
+```bash
+uvx basisremy --install-shortcut      # or: basisremy --install-shortcut
+```
+
+This puts BasisREMY with its logo in Applications (macOS), the app menu (Linux), or the
+Start Menu and on the Desktop (Windows).
+
 To run the latest development state instead of the release:
 
 ```bash

@@ -1337,9 +1337,12 @@ def run_app(*, native: bool = True, show: bool = True, port: int = 8080,
     ui.page("/")(build_page)
     if on_ready is not None:
         app.on_startup(on_ready)
+    # Dock / window icon on macOS and Linux (pywebview); NiceGUI's favicon covers Windows.
+    app.native.start_args["icon"] = str(ASSETS / "basisremy_icon.png")
     ui.run(
         native=native,
         title="BasisREMY",
+        favicon=ASSETS / "basisremy_icon.png",
         window_size=(1100, 820) if native else None,
         host=host,
         port=port,
