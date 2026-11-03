@@ -1,0 +1,26 @@
+name: publish
+
+# Uploads a release to PyPI through Trusted Publishing (OpenID Connect): no API token is stored
+# anywhere. PyPI must list this repository + workflow as a trusted publisher of "basisremy"
+# (project settings -> Publishing), and the "pypi" environment must exist in the GitHub repo.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build
+        run: uv build
+      - name: Check the tag matches the package version
+        run: |
+          v=$(uv run --no-project python -c "import re,pathlib;print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('basisremy/__init__.py').read_text()).group(1))")
+          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != version $v"; exit 1; }
+      - uses: pypa/gh-action-pypi-publish@release/v1
