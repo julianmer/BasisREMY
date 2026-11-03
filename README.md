@@ -110,8 +110,8 @@ the top-right corner and follows your system setting by default.
 3. **Simulate** — A progress bar shows the simulation status. When it finishes,
    an interactive spectrum plot appears and you can click **Export basis…** to
    save the basis set in LCModel (.basis or .RAW), jMRUI, FSL-MRS, Osprey, FID-A,
-   INSPECTOR, ProFit, MARSS, MRSCloud, or SpinWizard/JET format. Format
-   writing is handled by the bundled
+   INSPECTOR, ProFit, MARSS, MRSCloud, or SpinWizard/JET format (by default
+   into `~/BasisREMY/output/`). Format writing is handled by the bundled
    [MRS Basis Set Conversion Toolbox](https://github.com/igweckay/MRS-Basis-Set-Conversion-Toolbox).
 
 > Every input has a small **(?)** help icon — hover it for a short explanation of

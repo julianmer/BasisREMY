@@ -188,6 +188,12 @@ def test_export_name_rounds_the_field() -> None:
     assert _default_basename({'Sequence': 'STEAM', 'TE': 3, 'Bfield': 14.0918}) == 'STEAM_TE3_14.1T'
 
 
+def test_default_export_dir_is_visible() -> None:
+    # exports used to land in ./output under the hidden ~/.basisremy the GUI runs in
+    from basisremy.gui.export_dialog import default_export_dir
+    assert default_export_dir() == os.path.join(os.path.expanduser('~'), 'BasisREMY', 'output')
+
+
 async def test_starts_on_fsl_mrs_with_default_metabolites(user: User) -> None:
     # 0.2.1: the app opened on FSL-MRS with no metabolite ticked, so Simulate stayed disabled
     await _open(user)

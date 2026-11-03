@@ -58,6 +58,12 @@ def _default_basename(params: dict) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
 
 
+def default_export_dir() -> str:
+    """Where exports go unless the user picked a folder: ~/BasisREMY/output (next to the saved
+    designs in ~/BasisREMY/sequences), not the hidden runtime root the GUI runs in."""
+    return os.path.join(os.path.expanduser('~'), 'BasisREMY', 'output')
+
+
 def open_export_dialog(basis: dict, params: dict) -> None:
     """Open the unified export dialog (LCModel / jMRUI / FSL-MRS / Osprey)."""
     if not basis:
@@ -68,7 +74,7 @@ def open_export_dialog(basis: dict, params: dict) -> None:
     remembered = get_state("last_export_dir")
     default_dir = (remembered
                    if isinstance(remembered, str) and os.path.isdir(remembered)
-                   else os.path.abspath("./output"))
+                   else default_export_dir())
 
     dialog = ui.dialog()
     with dialog, ui.card().classes("w-[600px] max-w-full gap-3"):
