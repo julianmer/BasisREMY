@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import os
+import json
 
 import numpy as np
 
@@ -582,6 +583,22 @@ class MRSCloudBackend(Backend):
         except Exception as e:
             print(f"  ⚠️  Could not stage user pulse {user_path}: {e}")
 
+    def _stage_design_placeholders(self, workdir: str, vendor: str, sequence: str,
+                                   localization: str, design: dict) -> None:
+        """load_parameters still loads MRSCloud's own waveforms before apply_design swaps in
+        the design's: stand in whatever is missing (the generated GOIA-WURST for the sLASER
+        .mat, the design's editing pulse for an editing .pta)."""
+        import shutil
+        for rel in self.missing_pulse_files(vendor, sequence, localization):
+            name = os.path.basename(rel)
+            dst = os.path.join(workdir, name)
+            if os.path.exists(dst):
+                continue
+            if name in self._GOIA_VARS:
+                self._stage_standard_pulse('standard:goia-wurst', dst)
+            elif design.get('edit_file'):
+                shutil.copyfile(design['edit_file'], dst)
+
     def _stage_standard_pulse(self, spec: str, dst: str) -> None:
         """Stand a generated standard pulse in for a missing vendor waveform.
 
@@ -680,31 +697,71 @@ class MRSCloudBackend(Backend):
 
     # --------------------------------------------------------------- main entry
     def _design_args(self, path, vendor) -> dict:
-        """The adapter's design struct for a BasisREMY design file (PRESS / MEGA-PRESS): its
-        refocusing and editing pulses staged as .pta, their durations, TE1 and the slab; empty
-        without a file."""
+        """The adapter's design struct (JSON) for a BasisREMY design file: PRESS / sLASER and
+        their MEGA / HERMES / HERCULES variants. Refocusing and editing pulses staged as .pta
+        (.txt with the gradient for GOIA / FOCI), a dual-lobe editing waveform generated per
+        sub-experiment with two targets, the editing centres (editON), the slab, TE1 (PRESS) or
+        MRSCloud's pulse-to-pulse gaps (taus, core.sequence_design.mrscloud_taus); empty without
+        a file."""
         if not path:
             return {}
         from basisremy.core import sequence_design as sd
+        from basisremy.core.sequence_view import read_pulse
         d = sd.read_design(path)
 
-        def staged(role):
-            dest = self._stage_into_workdir(f'{path}#{role}')
+        def rel(dest):
             try:
                 return os.path.relpath(dest)
             except ValueError:
                 return dest.replace('\\', '/')
+
+        def staged(role):
+            return rel(self._stage_into_workdir(f'{path}#{role}'))
         ref = d.pulses['ref']
+        ideal = ref['source'] == 'ideal'
+        taus, _ = sd.mrscloud_taus(d)
         out = {'vendor': 'Universal_Philips' if 'Philips' in str(vendor) else 'Universal_Siemens',
+               'layout': 'sLASER' if 'sLASER' in sd.layout(d.kind) else 'PRESS',
                'ref_file': staged('ref'),
-               'ref_tp': float(ref['dur']) if ref['source'] != 'ideal' else sd.IDEAL_MS,
-               'ref_ideal': float(ref['source'] == 'ideal'),
-               'te1': float(d.timing.get('TE1', 0.0)), 'thk': float(d.voxel[1]),
-               'edit_file': ''}
+               'ref_tp': float(ref['dur']) if not ideal else sd.IDEAL_MS,
+               'ref_ideal': float(ideal),
+               'ref_gm': float(not ideal and read_pulse(ref['source'], 'ref').is_gradient_modulated),
+               'te1': float(d.timing.get('TE1', 0.0)) if taus is None else 0.0,
+               'taus': taus or [],
+               'thk': float(d.voxel[1]),
+               'edit_file': '', 'edit_tp': 0.0, 'edit_files': [], 'edit_dual': [], 'edit_on': []}
         if 'edit' in d.pulses:
             out['edit_file'] = staged('edit')
             out['edit_tp'] = float(d.pulses['edit']['dur'])
+            for label, targets in sd.acquisitions(d):
+                out['edit_on'].append(float(np.mean(targets)))
+                out['edit_dual'].append(float(len(targets) > 1))
+                out['edit_files'].append(
+                    self._dual_lobe_file(d, targets, label) if len(targets) > 1 else out['edit_file'])
         return out
+
+    def _dual_lobe_file(self, d, targets, label) -> str:
+        """The design's editing pulse with one lobe per target (cosine modulation about their
+        mean, as MRSCloud's dl_* waveforms), written as .pta into the workdir."""
+        from basisremy.core.pulse_library import Pulse
+        from basisremy.core.sequence_view import read_pulse
+        if not d.bfield:
+            raise ValueError("MRSCloud: a dual-lobe editing pulse needs the field strength (Bfield).")
+        pulse = read_pulse(d.pulses['edit']['source'], 'inv')
+        dur = float(d.pulses['edit']['dur'])
+        b1, dt = pulse.to_array(dur)[:2]
+        t = np.cumsum(dt) - dt / 2 - np.sum(dt) / 2
+        hz = [(p - float(np.mean(targets))) * float(d.bfield) * 42.577 for p in targets]
+        sig = b1 * sum(np.exp(2j * np.pi * f * t) for f in hz)
+        wave = np.column_stack([np.rad2deg(np.angle(sig)), np.abs(sig) / np.max(np.abs(sig)),
+                                pulse.waveform[:, 2]])
+        name = f"design_edit_dual_{label}_{'_'.join(f'{p:g}' for p in targets)}"
+        dest = os.path.join(self.ensure_workdir(), name + '.pta')
+        Pulse(name, wave, 'inv', dur).to_pta(dest)
+        try:
+            return os.path.relpath(dest)
+        except ValueError:
+            return dest.replace('\\', '/')
 
     def run_simulation(self, params, progress_callback=None, stop_event=None):
         """Run MRSCloud per-metabolite and return { metab : 1-D complex FID }."""
@@ -754,6 +811,7 @@ class MRSCloudBackend(Backend):
             # the design brings its own pulses: MRSCloud's bundled universal set only fills
             # the parameter structure (no vendor file needed), then the adapter swaps them
             vendor = design.pop('vendor')
+            self._stage_design_placeholders(workdir, vendor, sequence, localization, design)
         else:
             self._stage_user_pulse(workdir, vendor, sequence, localization,
                                    params.get(self._pulse_param_label))
@@ -769,8 +827,8 @@ class MRSCloudBackend(Backend):
         edit_on      = float(params.get('Edit On',  1.9))
         edit_off     = float(params.get('Edit Off', 7.5))
         edit_tp      = float(params.get('Edit Tp',  14))
-        if design and 'edit_tp' in design:
-            edit_tp = design.pop('edit_tp')
+        if design and design.get('edit_tp'):
+            edit_tp = design['edit_tp']
         spatial      = int(float(params.get('Spatial Points', 41)))
         try:
             te = float(params.get('TE'))
@@ -815,8 +873,7 @@ class MRSCloudBackend(Backend):
                     te, field_str, edit_target,
                     edit_on, edit_off, edit_tp, float(spatial), save_dir,
                     float(samples), float(bandwidth), float(bfield),
-                    *([design[k] for k in ('ref_file', 'ref_tp', 'ref_ideal', 'edit_file', 'te1',
-                                           'thk')] if design else []),
+                    *([json.dumps(design)] if design else []),
                     nout=7 if multi else 5,
                 )
                 fid = np.asarray(out[0], dtype=np.float64).flatten() \

@@ -1,7 +1,7 @@
 function [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = mrscloud_run_metab( ...
         metab, vendor, sequence, localization, te, field_str, ...
         edit_target, edit_on, edit_off, edit_tp, spatial_points, save_dir, ...
-        samples, bandwidth, b0, ref_file, ref_tp, ref_ideal, edit_file, te1, thk)
+        samples, bandwidth, b0, design_json)
 % MRSCLOUD_RUN_METAB  Adapter that runs the MRSCloud workflow for ONE metabolite.
 %
 %   [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = ...
@@ -28,23 +28,31 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = mrscloud_run_m
 %                             hard-coded sw = 4000)
 %     b0              double  field strength in T (overrides the per-vendor
 %                             value load_parameters hard-codes; 0 = keep it)
-%   A BasisREMY sequence design (PRESS / MEGA-PRESS); omitted or '' / 0 = MRSCloud's own
-%   pulses and timing:
-%     ref_file        char    refocusing waveform (.pta)
-%     ref_tp          double  its duration [ms]
-%     ref_ideal       double  1: ideal refocusing (a hard pulse at one spatial
-%                             point, no gradient)
-%     edit_file       char    editing waveform ('' = keep)
-%     te1             double  first echo time [ms] (0 = keep)
-%     thk             double  refocusing slab [cm] (0 = keep)
+%   A BasisREMY sequence design (PRESS / sLASER and their MEGA / HERMES / HERCULES
+%   variants) as one JSON string (basisremy/backends/mrscloud_backend.py _design_args);
+%   omitted or '' = MRSCloud's own pulses and timing:
+%     layout      'PRESS' | 'sLASER'
+%     ref_file    refocusing waveform (.pta; .txt with the gradient column for GOIA / FOCI)
+%     ref_tp      its duration [ms];  ref_ideal 1: a hard pulse at one spatial point, no
+%                 gradient;  ref_gm 1: gradient-modulated (the waveform's own gradient)
+%     thk         refocusing slab [cm]
+%     te1         first echo time [ms] (unedited PRESS; 0 = not set)
+%     taus        pulse-to-pulse gaps [ms] in MRSCloud's order (edited PRESS, sLASER);
+%                 empty = MRSCloud's own (needs the BasisREMY patch of sim_signals*.m)
+%     edit_file   single-lobe editing waveform; edit_tp its duration [ms]
+%     edit_files  one waveform per sub-experiment (dual-lobe ones generated), edit_dual
+%                 1 where dual-lobe, edit_on the editing centres [ppm] (MRSCloud's editON)
 %   The other inputs are unchanged — see file header above.
     if nargin < 13 || isempty(samples);   samples   = 0; end
     if nargin < 14 || isempty(bandwidth); bandwidth = 0; end
     if nargin < 15 || isempty(b0);        b0        = 0; end
     design = struct();
-    if nargin >= 21 && ~isempty(ref_file)
-        design = struct('ref_file', ref_file, 'ref_tp', ref_tp, 'ref_ideal', ref_ideal, ...
-                        'edit_file', edit_file, 'te1', te1, 'thk', thk);
+    if nargin >= 16 && ~isempty(design_json)
+        if exist('jsondecode', 'builtin') || exist('jsondecode', 'file')
+            design = jsondecode(design_json);
+        else
+            design = loadjson(design_json);          % jsonlab, bundled with MRSCloud
+        end
     end
     sub_re = []; sub_im = [];
 % MRSCLOUD_RUN_METAB  Adapter that runs the MRSCloud workflow for ONE metabolite.
@@ -114,6 +122,11 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = mrscloud_run_m
     %   "structure has no member 'editON'"
     % from load_parameters.m line ~206. The values are ignored for UnEdited.
     MRS_temp.editTp = edit_tp;
+    if isfield(design, 'edit_on') && ~isempty(design.edit_on)
+        sequence_editON = num2cell(double(design.edit_on(:))');   % the design's editing centres
+    else
+        sequence_editON = {};
+    end
     switch sequence
         case 'MEGA'
             MRS_temp.editON = num2cell([edit_on edit_off]);
@@ -129,6 +142,10 @@ function [fid_re, fid_im, npts, sw_out, cf_mhz, sub_re, sub_im] = mrscloud_run_m
             % UnEdited (or anything unrecognised). Provide a benign stub so
             % load_parameters cannot crash if it ever inspects the field.
             MRS_temp.editON = num2cell([1.90 7.50 4.56 4.18]);
+    end
+
+    if ~isempty(sequence_editON)
+        MRS_temp.editON = sequence_editON;
     end
 
     % Hard guard: only the four sequences below are supported by MRSCloud.
@@ -258,33 +275,57 @@ end
 
 
 function MRS_opt = apply_design(MRS_opt, design, te)
-% Replace MRSCloud's refocusing / editing pulses and TE1 by the design's and rebuild what
+% Replace MRSCloud's refocusing / editing pulses and timing by the design's and rebuild what
 % load_parameters derived from them (slice gradient, grid, refocusing propagators).
     if isfield(design, 'te1') && design.te1 > 0
         MRS_opt.TE1 = design.te1;
         MRS_opt.TE2 = te - design.te1;
+    end
+    if isfield(design, 'taus') && ~isempty(design.taus)
+        MRS_opt.taus_design = double(design.taus(:))';   % read by the patched sim_signals*.m
     end
     if isfield(design, 'thk') && design.thk > 0
         MRS_opt.thkX = design.thk;
         MRS_opt.thkY = design.thk;
     end
     if isfield(design, 'edit_file') && ~isempty(design.edit_file)
-        editRF = io_loadRFwaveform(design.edit_file, 'inv', 0);
-        MRS_opt.editRF1 = editRF;
-        MRS_opt.editRF2 = editRF;
+        single = load_rf_headless(design.edit_file, 'inv');
+        files = {design.edit_file, design.edit_file};
+        dual = [0 0];
+        if isfield(design, 'edit_files') && ~isempty(design.edit_files)
+            files = cellstr(design.edit_files);
+            dual = double(design.edit_dual(:))';
+        end
+        for k = 1:numel(files)
+            if dual(k)
+                rf = load_rf_headless(files{k}, 'inv');
+                rf.tw1 = single.tw1 * 2;              % two lobes: MRSCloud's dual-lobe scaling
+            else
+                rf = single;
+            end
+            MRS_opt.(sprintf('editRF%d', k)) = rf;
+        end
     end
     if ~isfield(design, 'ref_file') || isempty(design.ref_file)
         return
     end
-    MRS_opt.refRF = io_loadRFwaveform(design.ref_file, 'ref', 0);
+    MRS_opt.refRF = load_rf_headless(design.ref_file, 'ref');
     MRS_opt.refTp = design.ref_tp;
+    gm = isfield(design, 'ref_gm') && design.ref_gm;
     if isfield(design, 'ref_ideal') && design.ref_ideal
         % a hard pulse acts on every position alike: one point, no gradient
         MRS_opt.x = 0; MRS_opt.y = 0; MRS_opt.nX = 1; MRS_opt.nY = 1;
         MRS_opt.Gx = 0;
     else
-        MRS_opt.Gx = (MRS_opt.refRF.tbw / (MRS_opt.refTp / 1000)) ...
-                     / (MRS_opt.gamma * MRS_opt.thkX / 10000);            % [G/cm]
+        if gm
+            % gradient-modulated: the waveform's own gradient column (G/cm at the design slab)
+            MRS_opt.refRF.f0 = 0;
+            MRS_opt.refRF.tthk = MRS_opt.thkX * (MRS_opt.refTp / 1000);
+            MRS_opt.Gx = 0;
+        else
+            MRS_opt.Gx = (MRS_opt.refRF.tbw / (MRS_opt.refTp / 1000)) ...
+                         / (MRS_opt.gamma * MRS_opt.thkX / 10000);        % [G/cm]
+        end
         MRS_opt.fovX = 1.5 * MRS_opt.thkX;                                % slab + transition bands
         MRS_opt.fovY = MRS_opt.fovX;
         MRS_opt.x = linspace(-MRS_opt.fovX / 2, MRS_opt.fovX / 2, MRS_opt.nX);
@@ -296,4 +337,21 @@ function MRS_opt = apply_design(MRS_opt, design, te)
                                                    MRS_opt.flipAngle, 0, MRS_opt.y(X), MRS_opt.Gx);
     end
     MRS_opt.Qrefoc = Qrefoc;
+end
+
+
+function rf = load_rf_headless(file, type)
+% BasisREMY's io_loadRFwaveform (this folder): reads .pta / .RF / .txt (with a gradient
+% column) without the interactive w1max prompt MRSCloud's copy makes for phase-modulated
+% pulses.
+    here = fileparts(mfilename('fullpath'));
+    p = path();
+    addpath(here, '-begin');
+    try
+        rf = io_loadRFwaveform(file, type, 0);
+    catch err
+        path(p);
+        rethrow(err);
+    end
+    path(p);
 end

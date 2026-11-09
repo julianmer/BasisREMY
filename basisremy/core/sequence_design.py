@@ -281,6 +281,35 @@ def echo(d: Design) -> float:
     return d.te + (d.timing.get('TM', 0.0) if d.kind == 'STEAM' else 0.0)
 
 
+_MRSC_EDIT2 = ("MRSCloud puts the second editing pulse after the last refocusing pulse (TE/2 "
+               "after the first), not between the last pair.")
+
+
+def mrscloud_taus(d: Design) -> tuple:
+    """(taus, note) for MRSCloud: the centre-to-centre gaps [ms] its simulators step through
+    (excitation -> pulses -> readout), in its pulse order. None for an unedited PRESS (TE1 / TE2
+    are its own fields). MRSCloud's MEGA-sLASER layout differs from the design's (second editing
+    pulse after the fourth refocusing pulse): the note says so, and a design whose pulses do
+    not fit that order raises ValueError."""
+    kind = layout(d.kind)
+    if kind == 'PRESS':
+        return None, None
+    ev = events(d)[1:]                                   # sorted by centre; drop the excitation
+    centres, note = [e['centre'] for e in ev], None
+    if kind == 'MEGA-sLASER':
+        refs = [e['centre'] for e in ev if e['role'] == 'ref']
+        edits = [e['centre'] for e in ev if e['role'] == 'edit']
+        e2 = edits[0] + d.te / 2
+        ref_dur = ev[0]['dur']
+        edit_dur = next(e['dur'] for e in ev if e['role'] == 'edit')
+        if e2 < refs[3] + (ref_dur + edit_dur) / 2 or e2 > d.te - edit_dur / 2:
+            raise ValueError("the second editing pulse does not fit after the last refocusing "
+                             "pulse in MRSCloud's MEGA-sLASER order")
+        centres, note = [refs[0], edits[0], refs[1], refs[2], refs[3], e2], _MRSC_EDIT2
+    taus = [centres[0]] + [b - a for a, b in zip(centres, centres[1:])] + [d.te - centres[-1]]
+    return [round(t, 6) for t in taus], note
+
+
 def problems(d: Design) -> list[str]:
     """What keeps the design from being saved: timings that do not add up, overlapping pulses."""
     out = []
@@ -644,11 +673,12 @@ def plan(d: Design, category: str, br=None, whole_file: str | None = None) -> Pl
     other engines take the pulses one by one through their own routes (core/sequence_setup)."""
     eng = ss.ENGINE_LABEL.get(category, category)
     if category == 'MRSCloud':
-        if d.kind not in ('PRESS', 'MEGA-PRESS'):
-            return Plan('no', [f"MRSCloud runs a design for PRESS and MEGA-PRESS; its {d.kind} keeps "
-                               f"its own pulse set."])
+        if d.kind not in ss.ROUTES['MRSCloud'] or layout(d.kind) not in ('PRESS', 'MEGA-PRESS',
+                                                                          'sLASER', 'MEGA-sLASER'):
+            return Plan('no', [f"MRSCloud runs a design for PRESS and sLASER and their MEGA / "
+                               f"HERMES / HERCULES variants, not {d.kind}."])
         ref = d.pulses['ref']['source']
-        if ref != 'ideal':
+        if ref != 'ideal' and layout(d.kind) in ('PRESS', 'MEGA-PRESS'):
             from basisremy.core.sequence_view import read_pulse
             if read_pulse(ref, 'ref').is_gradient_modulated:
                 return Plan('no', ["MRSCloud's PRESS takes no gradient-modulated refocusing pulse."])
@@ -656,9 +686,13 @@ def plan(d: Design, category: str, br=None, whole_file: str | None = None) -> Pl
         if d.pulses['exc']['source'] != 'ideal':
             status = 'approx'
             notes.append("MRSCloud's excitation is ideal: the design's excitation pulse is not used.")
-        if d.kind == 'MEGA-PRESS':
+        try:
+            _, note = mrscloud_taus(d)
+        except ValueError as exc:
+            return Plan('no', [f"MRSCloud: {exc}."])
+        if note:
             status = 'approx'
-            notes.append("MRSCloud places the editing pulses its own way (TE1 as designed).")
+            notes.append(note)
         return Plan(status, notes, ss.ROUTES['MRSCloud'][d.kind][0])
     if category == 'FSL-MRS':
         if d.kind not in DESIGNABLE:
@@ -716,8 +750,10 @@ def apply(br, d: Design, path: str, category: str | None = None) -> Plan:
         b.mandatory_params.update(pl.route.sheet)            # Sequence, Localization
         b.optional_params['Sequence File'] = path
         vals = {'TE': d.te}
-        if d.kind == 'MEGA-PRESS':
-            vals.update({'Edit On': d.edit[0], 'Edit Off': d.edit[1], 'Edit Tp': d.pulses['edit']['dur']})
+        if _edited(d.kind):
+            vals['Edit Tp'] = d.pulses['edit']['dur']
+            if not d.scheme:
+                vals.update({'Edit On': d.edit[0], 'Edit Off': d.edit[1]})
     elif cat == 'FSL-MRS':
         if br.backend.name != 'FSL-MRS':
             br.set_backend('FSL-MRS')

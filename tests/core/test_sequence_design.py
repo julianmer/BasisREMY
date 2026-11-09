@@ -145,7 +145,45 @@ def test_mrscloud_runs_a_design(br, tmp_path):
     ideal = sd.write_seq(sd.recommend('MEGA-PRESS', 68.0, _SHEET), str(tmp_path / 'i.seq'))
     args = b._design_args(ideal, 'Siemens')
     assert args['ref_ideal'] == 1.0 and args['edit_tp'] == pytest.approx(15.0)
-    assert sd.plan(sd.read_design(ideal), 'MRSCloud', br).status == 'approx'   # its own editing timing
+    # MRSCloud steps through the design's own gaps (sim_signals.m patched to read them)
+    assert sd.plan(sd.read_design(ideal), 'MRSCloud', br).status == 'ok'
+    assert len(args['taus']) == 5 and sum(args['taus']) == pytest.approx(68.0)
+    assert args['edit_on'] == [1.9, 7.5] and args['edit_dual'] == [0.0, 0.0]
+    assert args['edit_files'] == [args['edit_file']] * 2 and args['te1'] == 0.0
+
+
+def test_mrscloud_slaser_and_hadamard_designs(br, tmp_path):
+    import os
+    d = sd.recommend('sLASER', 35.0, _SHEET)
+    d.pulses['ref'] = {'source': 'standard:goia-wurst', 'dur': 4.5}
+    path = sd.write_seq(d, str(tmp_path / 'sl.seq'))
+    back = sd.read_design(path)
+    assert sd.plan(back, 'MRSCloud', br).status == 'ok'
+    pl = sd.apply(br, back, path, 'MRSCloud')
+    b = br.backend
+    assert pl.status == 'ok' and b.mandatory_params['Localization'] == 'sLASER'
+    args = b._design_args(path, 'Siemens')
+    assert args['layout'] == 'sLASER' and args['ref_gm'] == 1.0 and args['ref_file'].endswith('.txt')
+    assert args['te1'] == 0.0 and len(args['taus']) == 5 and sum(args['taus']) == pytest.approx(35.0)
+    assert args['taus'][0] == pytest.approx(back.timing['TE1'] / 2)
+    # HERMES on PRESS: four editing centres, dual-lobe waveforms for C and D
+    sheet = {**_SHEET, 'Bfield': 2.89}
+    h = sd.write_seq(sd.recommend('HERMES', 80.0, sheet), str(tmp_path / 'h.seq'))
+    hb = sd.read_design(h)
+    assert sd.plan(hb, 'MRSCloud', br).status == 'ok'
+    args = b._design_args(h, 'Philips')
+    assert args['vendor'] == 'Universal_Philips' and args['layout'] == 'PRESS'
+    assert args['edit_on'] == pytest.approx([4.56, 1.9, (4.56 + 1.9) / 2, 7.5])
+    assert args['edit_dual'] == [0.0, 0.0, 1.0, 0.0] and len(args['edit_files']) == 4   # C dual-lobe
+    assert args['edit_files'][0] == args['edit_file'] and args['edit_files'][2] != args['edit_file']
+    assert all(os.path.exists(f) for f in args['edit_files'])
+    assert len(args['taus']) == 5 and sum(args['taus']) == pytest.approx(80.0)
+    # HERMES on sLASER: MRSCloud puts the second editing pulse after the last refocusing pulse;
+    # with the design's symmetric pairs (last pulse at 70 ms of 80) a 20 ms pulse does not fit
+    hs = sd.write_seq(sd.recommend('HERMES (sLASER)', 80.0, sheet), str(tmp_path / 'hs.seq'))
+    pl = sd.plan(sd.read_design(hs), 'MRSCloud', br)
+    assert pl.status == 'no' and 'second editing pulse' in pl.notes[0]
+    b.cleanup_workdir()
 
 
 def test_plans(br):
@@ -220,7 +258,7 @@ def test_hadamard_designs(kind, br, tmp_path):
     assert list(out) == ['A', 'B', 'C', 'D']
     assert sd.plan(back, 'FSL-MRS', br).status == 'ok'
     assert sd.plan(back, 'FID-A', br).status == 'no'
-    assert sd.plan(back, 'MRSCloud', br).status == 'no'
+    assert sd.plan(back, 'MRSCloud', br).status == ('no' if 'sLASER' in kind else 'ok')
 
 
 def test_dual_lobe_edits_both_targets(tmp_path):

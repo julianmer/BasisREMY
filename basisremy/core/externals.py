@@ -78,9 +78,13 @@ SPARSE: dict[str, list[str]] = {
 # Patches applied on top of the pinned commit (idempotent: skipped when the
 # tree already carries them). Spinach is written for MATLAB R2024b; the patch
 # is the small set of source edits Octave 7 needs (see spinach_octave.patch).
+# MRSCloud: sim_signals.m / sim_signals_sLASER.m take their pulse-to-pulse gaps from
+# MRS_opt.taus_design when set (a BasisREMY design's timing; see mrscloud_run_metab.m).
 PATCHES: dict[str, str] = {
     "spinach": os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
                             "adapters", "backends", "spinach_octave.patch"),
+    "mrscloud": os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                             "adapters", "backends", "mrscloud_taus.patch"),
 }
 
 
