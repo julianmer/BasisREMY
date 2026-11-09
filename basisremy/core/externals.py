@@ -32,10 +32,6 @@ REGISTRY: dict[str, tuple[str, str]] = {
         "https://github.com/arcj-hub/BasisSetSimulation.git",
         "ad9535eddff9eb2066e1fcdf9e34c5b60d6ae42d",
     ),
-    "fsl_mrs": (
-        "https://git.fmrib.ox.ac.uk/fsl/fsl_mrs.git",
-        "b67e9235c758072c2fbfd36d6dab21d6aac31fc6",
-    ),
     "mrscloud": (
         "https://github.com/shui5/MRSCloud.git",
         "8877e3fdc2bf31e85256de25d85ef659d8272cfc",
@@ -66,16 +62,15 @@ REGISTRY: dict[str, tuple[str, str]] = {
 
 # Externals that are too big to clone whole: only these directories are
 # checked out (git sparse checkout, blobs fetched on demand). Spinach's
-# repository is ~520 MB; its kernel is all the backend needs. FID-A, FSL-MRS
+# repository is ~520 MB; its kernel is all the backend needs. FID-A, MRSCloud
 # and the conversion toolbox carry hundreds of MB of example data and tests
 # that no backend reads: FID-A's code folders (fida_backends, fida_run.m),
-# FSL-MRS's denmatsim (fslmrs_backend, vespa_backend), MRSCloud's functions /
-# pulses (mrscloud_backend) and basic's converter (exporters) are enough.
+# MRSCloud's functions / pulses (mrscloud_backend) and basic's converter
+# (exporters) are enough.
 SPARSE: dict[str, list[str]] = {
     "spinach": ["kernel"],
     "win_mrs_basis": ["sequences"],
     "fidA": ["inputOutput", "processingTools", "simulationTools", "rfPulseTools"],
-    "fsl_mrs": ["fsl_mrs/denmatsim"],
     "mrscloud": ["functions", "pulses_universal", "run"],
     "basic": ["basis_converter"],
 }
@@ -117,9 +112,9 @@ def ensure(name: str) -> str:
     env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"}
 
     if is_present(name):
-        # Self-heal fetches made before nested-submodule support: e.g.
-        # fsl_mrs nests denmatsim as a submodule, which a plain clone leaves
-        # as an empty directory. A no-op (~ms) when already complete.
+        # Self-heal fetches made before nested-submodule support: an
+        # external's own submodules are left as empty directories by a plain
+        # clone. A no-op (~ms) when already complete.
         _init_nested_submodules(dest, env)
         _apply_patch(name, dest, env)
         return str(dest)
@@ -185,14 +180,14 @@ def ensure(name: str) -> str:
             f"Failed to fetch '{name}' from {url} (commit {commit[:10]}): {exc}"
         ) from exc
 
-    # Some externals nest submodules of their own (fsl_mrs -> denmatsim);
-    # without this their directories stay empty after the clone.
+    # Externals may nest submodules of their own; without this their
+    # directories stay empty after the clone.
     _init_nested_submodules(dest, env)
     _apply_patch(name, dest, env)
 
     # A sys.path entry that pointed at this (then-missing) directory has been
     # negatively cached by the import system (sys.path_importer_cache), so
-    # Python-package externals (e.g. fsl_mrs's denmatsim) would stay
+    # Python-package externals would stay
     # unimportable until the app restarts. Drop the stale caches.
     importlib.invalidate_caches()
 

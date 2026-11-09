@@ -87,6 +87,10 @@ basisremy = [
     # Vendored third-party MRSinMRS data + license (BSD-3, see remy/LICENSE).
     "remy/*.csv",
     "remy/LICENSE",
+    # Vendored FSL-MRS denmatsim (BSD-3, see vendor/fsl_denmatsim/LICENSE): spin systems + examples.
+    "vendor/fsl_denmatsim/*.json",
+    "vendor/fsl_denmatsim/sequence_examples/*.json",
+    "vendor/fsl_denmatsim/LICENSE",
     # Docker image build context (used to build the Octave runtime on first use).
     "docker/dockerfile",
 ]

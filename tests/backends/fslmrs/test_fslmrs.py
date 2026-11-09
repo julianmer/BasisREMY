@@ -152,9 +152,8 @@ class TestFSLMRSBackend:
     #  denmatsim import
     # ------------------------------------------------------------------
     def test_denmatsim_importable(self):
-        """Test that denmatsim can be imported from the submodule"""
-        # The import happens at module level in fslmrs_backend.py
-        from denmatsim import simseq, utils as simutils  # noqa: F401
+        """Test that the vendored denmatsim can be imported"""
+        from basisremy.vendor.fsl_denmatsim import simseq, utils as simutils  # noqa: F401
         spins = simutils.readBuiltInSpins()
         assert len(spins) > 20  # should have 30+ metabolites
 
@@ -440,22 +439,20 @@ class TestFSLMRSModeErrors:
         return b, p
 
     def test_template_with_other_field_strength_is_refused(self):
-        pytest.importorskip('denmatsim')
         b, p = self._backend()
         b.current_mode = 'Template'
-        p['Template File'] = 'PRESS at 7T with real pulse shapes'
-        with pytest.raises(ValueError, match='7.0 T'):
+        p['Template File'] = '11ms STEAM at 7T with real pulse shapes'
+        with pytest.raises(ValueError, match='6.98 T'):
             b.run_simulation(p)
 
     def test_template_with_other_te_is_refused(self):
-        pytest.importorskip('denmatsim')
         b, p = self._backend()
         b.current_mode = 'Template'
-        p['Template File'] = 'PRESS at 7T with real pulse shapes'
+        p['Template File'] = '11ms STEAM at 7T with real pulse shapes'
         p['Bfield'], p['Center Freq'] = 7.0, 298.0
         import json
-        from basisremy.core.paths import externals_root
-        seq = json.load(open(externals_root() / 'fsl_mrs' / 'fsl_mrs' / 'denmatsim' / 'examplePRESS.json'))
+        from basisremy.backends.fslmrs_backend import _DENMATSIM_DIR
+        seq = json.load(open(os.path.join(_DENMATSIM_DIR, 'sequence_examples', 'example.json')))
         p['TE'] = b._template_te_ms(seq) + 10.0
         with pytest.raises(ValueError, match='fixed TE'):
             b.run_simulation(p)
@@ -466,7 +463,6 @@ class TestFSLMRSModeErrors:
         assert not hasattr(b, 'sequence_to_predefined')
 
     def test_custom_sequence_must_be_json(self, tmp_path):
-        pytest.importorskip('denmatsim')
         b, p = self._backend()
         b.current_mode = 'Custom'
         pta = tmp_path / 'pulse.pta'

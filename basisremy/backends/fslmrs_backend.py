@@ -16,17 +16,13 @@
 #   imports   #
 #*************#
 import os
-import sys
 import json
 import numpy as np
 from basisremy.backends.base import Backend
-from basisremy.core.paths import externals_root
 
-# denmatsim lives at <externals>/fsl_mrs/fsl_mrs/denmatsim/
-# add its parent to sys.path so 'from denmatsim import ...' works
-_denmatsim_parent = str(externals_root() / 'fsl_mrs' / 'fsl_mrs')
-if _denmatsim_parent not in sys.path:
-    sys.path.insert(0, _denmatsim_parent)
+# denmatsim ships with BasisREMY (basisremy/vendor/fsl_denmatsim, BSD-3): no download needed.
+_DENMATSIM_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              '..', 'vendor', 'fsl_denmatsim')
 
 
 #**************************************************************************************************#
@@ -64,21 +60,12 @@ class FSLMRSBackend(Backend):
             'Custom'
         ]
 
-        # Predefined sequence files available in externals/fsl_mrs
+        # Predefined sequence files shipped with denmatsim (sequence_examples/)
         # These contain REAL pulse shapes for specific parameters!
         # Using them with different parameters may be inaccurate
         self.predefined_sequences = {
-            'PRESS_7T': {
-                'path': 'examplePRESS.json',
-                'description': 'PRESS at 7T with real pulse shapes',
-                'B0': 7.0,
-                'TE': None,
-                'Rx_Points': 4096,
-                'Rx_SW': 6000,
-                'notes': 'Real Siemens 7T PRESS pulse shapes'
-            },
             'STEAM_7T_11ms': {
-                'path': 'example.json',
+                'path': 'sequence_examples/example.json',
                 'description': '11ms STEAM at 7T with real pulse shapes',
                 'B0': 6.98,
                 'TE': 11,
@@ -427,14 +414,9 @@ class FSLMRSBackend(Backend):
         overrides (Rx points / bandwidth — never the pulse shapes)."""
         seq_rel_path = predefined_info['path']
         # JSON example files live inside denmatsim itself
-        denmatsim_path = str(externals_root() / 'fsl_mrs' / 'fsl_mrs' / 'denmatsim')
-        seq_file_path = os.path.join(denmatsim_path, seq_rel_path)
+        seq_file_path = os.path.join(_DENMATSIM_DIR, seq_rel_path)
         if not os.path.exists(seq_file_path):
-            raise RuntimeError(
-                f"Predefined sequence file not found: {seq_file_path}\n"
-                f"Make sure FSL-MRS submodule is initialized:\n"
-                f"  git submodule update --init --recursive"
-            )
+            raise RuntimeError(f"Predefined sequence file not found: {seq_file_path}")
         print(f"  File: {seq_rel_path}")
         print(f"  Parameters: B0={predefined_info['B0']}T, TE={predefined_info['TE']}ms, "
               f"Points={predefined_info['Rx_Points']}, BW={predefined_info['Rx_SW']}Hz")
@@ -772,31 +754,7 @@ class FSLMRSBackend(Backend):
         Returns:
             dict: {metabolite_name: FID_array}
         """
-        # Import denmatsim (path already set up at module level)
-        # Fetch FSL-MRS on first use (no-op in a source checkout).
-        from basisremy.core.externals import ensure
-        ensure('fsl_mrs')
-        try:
-            from denmatsim import simseq, utils as simutils
-        except ImportError:
-            # An import attempted during/before the one-time fetch leaves a
-            # stale namespace module in sys.modules ("unknown location") that
-            # importlib.invalidate_caches() cannot clear — purge and retry.
-            import importlib
-            for _name in [m for m in sys.modules
-                          if m == 'denmatsim' or m.startswith('denmatsim.')]:
-                del sys.modules[_name]
-            importlib.invalidate_caches()
-            try:
-                from denmatsim import simseq, utils as simutils
-            except ImportError as e:
-                raise RuntimeError(
-                    f"denmatsim not found at {_denmatsim_parent}/denmatsim/\n"
-                    f"Error: {e}\n\n"
-                    f"If the one-time FSL-MRS download just finished, restart "
-                    f"BasisREMY. In a source checkout, run:\n"
-                    f"  git submodule update --init --recursive"
-                )
+        from basisremy.vendor.fsl_denmatsim import simseq, utils as simutils
 
         # Coerce all numeric fields from string (GUI entries) to float/int
         # before any arithmetic — prevents "unsupported operand type 'str'" crashes.
@@ -858,7 +816,7 @@ class FSLMRSBackend(Backend):
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise ValueError(
                     f"FSL-MRS: 'Custom Sequence' must be an FSL-MRS sequence "
-                    f"description (JSON, like fsl_mrs/denmatsim/examplePRESS.json); "
+                    f"description (JSON, like denmatsim's sequence_examples/example.json); "
                     f"'{os.path.basename(params['Custom Sequence'])}' is not JSON "
                     f"({exc}). RF waveform files (.pta / .RF) belong to the FID-A "
                     f"shaped backends, not here.") from exc

@@ -17,7 +17,7 @@ from basisremy.backends.base import Backend
 
 
 # Metabolites the future PyGAMMA simulation will support (names follow the
-# denmatsim spin-system library that ships with the fsl_mrs external, which
+# denmatsim spin-system library vendored in basisremy/vendor/fsl_denmatsim, which
 # will provide the chemical shifts / J-couplings).
 _DEFAULT_METABS = [
     'Ala', 'Asc', 'Asp', 'Cr', 'GABA', 'GPC', 'GSH', 'Glc', 'Gln', 'Glu',
@@ -140,11 +140,9 @@ class VespaBackend(Backend):
     def _load_spin_systems():
         """denmatsim's spin-system library: {name: [sub-system, ...]}."""
         import json
-        from basisremy.core.externals import ensure
-        from basisremy.core.paths import externals_root
-        ensure('fsl_mrs')
-        spins_path = (externals_root() / 'fsl_mrs' / 'fsl_mrs'
-                      / 'denmatsim' / 'spinSystems.json')
+        import os
+        spins_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  '..', 'vendor', 'fsl_denmatsim', 'spinSystems.json')
         with open(spins_path, 'r') as f:
             raw = json.load(f)
         def _as_list(v):
