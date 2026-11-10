@@ -858,7 +858,10 @@ def fsl_sequences(path: str, params: dict) -> dict:
             signal = r.signal[:n * step].reshape(n, step).mean(axis=1)
             t = (np.arange(n) + 0.5) / n * r.dur_ms / 1e3
             off = r.freq_offset_hz + r.freq_ppm * hz_per_ppm
-            wave = signal * np.exp(1j * (r.phase_rad + 2 * np.pi * off * (t - r.dur_ms / 2e3)))
+            # STEAM's second 90 at phase pi, as FSL-MRS's own STEAM (and its example): the
+            # stimulated echo then has the sign FID-A / spant / Spinach give it
+            phase = r.phase_rad + (np.pi if steam and i == 1 else 0.0)
+            wave = signal * np.exp(1j * (phase + 2 * np.pi * off * (t - r.dur_ms / 2e3)))
             if r.grad_hz_m is not None:
                 grad = np.asarray(r.grad_hz_m)[:n * step].reshape(n, step).mean(axis=1)
                 g = [[0.0] * n for _ in range(3)]

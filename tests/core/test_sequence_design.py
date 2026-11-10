@@ -13,6 +13,7 @@
 #                                                                                                  #
 ####################################################################################################
 
+import numpy as np
 import pytest
 
 pytest.importorskip('pypulseq')
@@ -99,6 +100,21 @@ def test_fsl_translation_matches_fsl_ideal_press(tmp_path):
         flip = lambda r: sum(r['amp']) * r['time'] / len(r['amp'])   # noqa: E731
         assert flip(c) == pytest.approx(flip(a), rel=1e-6)
         assert c['phase'][0] == pytest.approx(a['phase'][0], abs=1e-4)
+
+
+def test_fsl_translation_matches_fsl_ideal_steam(tmp_path):
+    from basisremy.backends.fslmrs_backend import FSLMRSBackend
+    d = sd.recommend('STEAM', 20.0, _SHEET)
+    params = {'Sequence': 'STEAM', 'TE': 20, 'TM': d.timing['TM'], 'Bandwidth': 4000,
+              'Samples': 2048, 'Bfield': 2.89, 'Linewidth': 1}
+    b = FSLMRSBackend()
+    own = b._generate_sequence_json(b._coerce_params(dict(params)))
+    tr = sd.fsl_sequences(sd.write_seq(d, str(tmp_path / 's.seq')), params)[None]
+    assert tr['CoherenceFilter'] == own['CoherenceFilter']
+    assert tr['delays'] == pytest.approx(own['delays'], abs=2e-5)
+    # the second 90 at phase pi: with phase 0 the stimulated echo came out sign-flipped (r = -1)
+    for a, c in zip(own['RF'], tr['RF']):
+        assert (c['phase'][0] - a['phase'][0] + np.pi) % (2 * np.pi) - np.pi == pytest.approx(0, abs=1e-4)
 
 
 def test_fsl_translation_mega_on_off(tmp_path):
