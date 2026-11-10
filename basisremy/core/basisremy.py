@@ -32,6 +32,7 @@ from basisremy.core.metabolite_identity import metabolite_identity
 from basisremy.core.field import reconcile_field
 from basisremy.remy import design_fields
 from basisremy.remy.MRSinMRS import DataReaders, Table, write_log
+from basisremy.core import miox_reader
 
 
 #**************************************************************************************************#
@@ -287,7 +288,10 @@ class BasisREMY:
         self.Table = Table()
 
         log = None
-        if suf == '.dat':   # Siemens Twix file
+        header = miox_reader.read(import_fpath, suf)     # MIOX opens the file; else REMY's reader
+        if header is not None:
+            MRSinMRS, vendor_selection, suf = header
+        elif suf == '.dat':   # Siemens Twix file
             write_log(log, 'Data Read: Siemens Twix uses pyMapVBVD ')  # log - pyMapVBVD
             MRSinMRS, log = self.DRead.siemens_twix(import_fpath, log)
             vendor_selection = 'Siemens'
