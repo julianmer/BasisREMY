@@ -19,7 +19,7 @@ keywords = ["MRS", "spectroscopy", "basis set", "simulation", "FID-A", "FSL-MRS"
 # standard library and cannot be installed from PyPI. See the README
 # "Troubleshooting" section for platform-specific Tk install notes.
 dependencies = [
-    "brukerapi==0.1.8",
+    "brukerapi>=0.2.5",
     "docker>=6.0.0",
     "matplotlib==3.10.7",
     "numpy==2.3.3",
@@ -29,7 +29,7 @@ dependencies = [
     "pyMapVBVD==0.6.1",
     "pypulseq>=1.4.2",
     "scipy>=1.10.0",
-    "spec2nii==0.8.7",
+    "spec2nii>=0.8.15",
     "nicegui>=2.0.0",
     "pywebview>=6.2",  # 6.2: Dock icon on macOS
 ]
