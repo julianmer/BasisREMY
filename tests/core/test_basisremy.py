@@ -137,6 +137,7 @@ class TestBasisREMYIntegration:
         assert r({'Protocol': '3D_csi_fid_1000TR'}, {}, 'Siemens')['Protocol'] == '3D_csi_fid_1000TR (Pulse-acquire)'
         assert r({'Protocol': '3D CSI FID FA 11p4'}, {}, 'Philips')['Protocol'] == '3D CSI FID FA 11p4 (Pulse-acquire)'
         assert r({'Protocol': 'uzay_csi_slaser_metab'}, {}, 'Siemens') == {}      # spells sLASER already
+        assert r({'Protocol': 'TE31_CSI'}, {}, 'Philips')['Protocol'] == 'TE31_CSI (sLASER)'   # Dataset_38, from the sheet
         assert r({'Protocol': 'Bruker:CSI'}, {'$LocalizationMode': 'Voxel_PRESS; '}, 'Bruker') == {
             'Protocol': 'Bruker:CSI (PRESS)', 'Protocol (header)': 'Bruker:CSI'}
         assert r({'Protocol': 'Bruker:CSI'}, {'$LocalizationMode': 'Voxel_STEAM; '}, 'Bruker')['Protocol'] == 'Bruker:CSI (STEAM)'

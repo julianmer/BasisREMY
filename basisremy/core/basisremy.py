@@ -418,6 +418,7 @@ class BasisREMY:
     _PROTOCOL_ALIASES = {
         'herc': 'HERCULES', 'herc_acc': 'HERCULES',          # GE / Siemens / Philips HERCULES
         'mrs_dacc': 'sLASER', 'mrs_hippo': 'sLASER',          # Philips 7 T customised sLASER
+        'te31_csi': 'sLASER',                                 # Philips 7 T sLASER-localised MRSI (Dataset_38)
     }
     _GE_PSD_ALIASES = {'gaba': 'MEGA-PRESS'}                  # GE MEGA-PRESS psd (Big GABA)
     # canonical sequence from a protocol name (first match wins); the product-name
