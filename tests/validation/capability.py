@@ -426,7 +426,7 @@ def main(argv=None):
     ap.add_argument('--out', default='tests/validation/out/capability.csv')
     ap.add_argument('--no-sim', action='store_true', help='extraction levels only (fast)')
     ap.add_argument('--engines', default='', help='comma list of engine labels to run')
-    ap.add_argument('--datasets', default='', help='substring filter on the dataset name')
+    ap.add_argument('--datasets', default='', help='comma list of substrings; a dataset name must hold one')
     ap.add_argument('--fresh', action='store_true', help='ignore rows already in the CSV')
     ap.add_argument('--all-data', action='store_true', help='every scan under example_data')
     ap.add_argument('--shard', default='', help='i/N: run every N-th dataset, starting at i')
@@ -449,7 +449,7 @@ def main(argv=None):
             i, n = (int(x) for x in a.shard.split('/'))
             datasets = datasets[i::n]
         for ds in datasets:
-            if a.datasets and a.datasets not in ds['dataset']:
+            if a.datasets and not any(sub in ds['dataset'] for sub in a.datasets.split(',')):
                 continue
             for entry in ENTRIES:
                 if engines and entry[0] not in engines:
