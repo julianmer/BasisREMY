@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import numpy as np
 
@@ -341,7 +342,7 @@ class FidaIdeal(FidaBackend):
         if 'laser' in p:      return 'LASER'
         # SPECIAL: the add/subtract of the adiabatic inversion leaves a spin echo at TE
         if 'special' in p:    return 'Spin Echo'
-        if 'spin' in p or 'se' in p: return 'Spin Echo'
+        if 'spin' in p or re.search(r'(^|[^a-z])se([^a-z]|$)', p): return 'Spin Echo'
         # 'UnEdited' is MRSCloud / BigGABA convention for a plain (non-edited)
         # acquisition — default to PRESS, which is by far the most common.
         if 'unedited' in p:   return 'PRESS'

@@ -422,12 +422,15 @@ class BasisREMY:
     _GE_PSD_ALIASES = {'gaba': 'MEGA-PRESS'}                  # GE MEGA-PRESS psd (Big GABA)
     # canonical sequence from a protocol name (first match wins); the product-name
     # patterns are the vendors' own: Siemens svs_se / svs_edit / eja_svs_mpress /
-    # mslaser, GE oslaser. (A fuller recogniser belongs to the loader project.)
+    # mslaser / csi_se, GE oslaser. (A fuller recogniser belongs to the loader project.)
+    # CSI names its localisation (csi_slaser, csi_se, csi_fid): the basis of a CSI is that
+    # of its localising sequence, phase encoding does not change the spin response.
     _SEQUENCE_PATTERNS = (
         ('MEGA-sLASER', r'mega.?s?laser|mslaser'), ('MEGA-PRESS', r'mega|mpress|meshcher|svs_edit'),
         ('HERMES', r'hermes'), ('HERCULES', r'hercules'), ('sLASER', r'slaser|semi.?laser'),
-        ('LASER', r'(?<!s)laser'), ('SPECIAL', r'special'), ('ISIS', r'isis'), ('CSI', r'csi'),
-        ('STEAM', r'steam'), ('PRESS', r'press|svs_se'), ('Spin Echo', r'spin.?echo|unedited'),
+        ('LASER', r'(?<!s)laser'), ('SPECIAL', r'special'), ('ISIS', r'isis'),
+        ('STEAM', r'steam'), ('PRESS', r'press|svs_se'),
+        ('Spin Echo', r'spin.?echo|unedited|csi_se'), ('Pulse-acquire', r'csi.?fid'),
     )
 
     @classmethod
@@ -442,9 +445,11 @@ class BasisREMY:
         Vendor product names (Siemens svs_se, eja_svs_mpress, GE oslaser ...) get
         their canonical sequence appended so every backend's parser sees it. GE
         P-files whose psd name says nothing ('hbcd') use the series description
-        (rhs_se_desc: 'PRESS HBCD', 'HERCULES HBCD'); then the alias tables from
-        the REMY table. The header's own name is kept in 'Protocol (header)'.
-        PROBE-P is left alone: GE runs MEGA under it too.
+        (rhs_se_desc: 'PRESS HBCD', 'HERCULES HBCD'); Bruker methods that name no
+        sequence (Bruker:CSI) use the method's LocalizationMode (Voxel_PRESS,
+        Voxel_STEAM, Slice_FID); then the alias tables from the REMY table. The
+        header's own name is kept in 'Protocol (header)'. PROBE-P is left alone:
+        GE runs MEGA under it too.
         """
         proto = unif.get('Protocol')
         if proto in (None, '') or str(proto).lower() == 'nan':
@@ -461,6 +466,9 @@ class BasisREMY:
                 hint = desc.strip()
             elif low in cls._GE_PSD_ALIASES:
                 hint = cls._GE_PSD_ALIASES[low]
+        elif vendor == 'Bruker':
+            loc = str(raw.get('$LocalizationMode') or '').strip('; ').lower()
+            hint = cls._canonical(loc) or ('Pulse-acquire' if 'fid' in loc else None)
         if hint is None:
             hint = cls._PROTOCOL_ALIASES.get(low)
         if hint is None:

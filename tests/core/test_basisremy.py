@@ -129,6 +129,29 @@ class TestBasisREMYIntegration:
         assert r({'Protocol': 'Dataset_28 PRESS TE35'}, {}, 'Siemens') == {}       # names itself
         assert r({'Protocol': ''}, {}, 'Siemens') == {}
 
+    def test_resolve_protocol_maps_csi_to_its_localisation(self):
+        """A CSI basis is the basis of the localising sequence: the name after 'csi', or the
+        Bruker method's LocalizationMode. GE PROBE-P stays unmapped, whatever its description."""
+        r = BasisREMY.resolve_protocol
+        assert r({'Protocol': 'csi_se_Tra_sat'}, {}, 'Siemens')['Protocol'] == 'csi_se_Tra_sat (Spin Echo)'
+        assert r({'Protocol': '3D_csi_fid_1000TR'}, {}, 'Siemens')['Protocol'] == '3D_csi_fid_1000TR (Pulse-acquire)'
+        assert r({'Protocol': '3D CSI FID FA 11p4'}, {}, 'Philips')['Protocol'] == '3D CSI FID FA 11p4 (Pulse-acquire)'
+        assert r({'Protocol': 'uzay_csi_slaser_metab'}, {}, 'Siemens') == {}      # spells sLASER already
+        assert r({'Protocol': 'Bruker:CSI'}, {'$LocalizationMode': 'Voxel_PRESS; '}, 'Bruker') == {
+            'Protocol': 'Bruker:CSI (PRESS)', 'Protocol (header)': 'Bruker:CSI'}
+        assert r({'Protocol': 'Bruker:CSI'}, {'$LocalizationMode': 'Voxel_STEAM; '}, 'Bruker')['Protocol'] == 'Bruker:CSI (STEAM)'
+        assert r({'Protocol': 'Bruker:CSI'}, {'$LocalizationMode': 'Slice_FID; '}, 'Bruker')['Protocol'] == 'Bruker:CSI (Pulse-acquire)'
+        assert r({'Protocol': 'Bruker:CSI'}, {}, 'Bruker') == {}
+        assert r({'Protocol': 'PROBE-P (PROBE 3D CSI-no rotation)'}, {'rhs_se_desc': b''}, 'GE') == {}
+
+    @pytest.mark.parametrize('dataset, hint', [('Dataset_42_Bruker_14T_PRESS', 'Bruker:CSI (PRESS)'),
+                                               ('Dataset_40_Bruker_9T_CSI', 'Bruker:CSI (Pulse-acquire)')])
+    def test_remy_bruker_csi_names_its_localisation(self, example_data_dir, dataset, hint):
+        f = os.path.join(example_data_dir, 'BasisREMY_testDatasets', dataset, 'method')
+        if not os.path.exists(f):
+            pytest.skip("Bruker CSI method file not found")
+        assert BasisREMY().runREMY(import_fpath=f)['Protocol'] == hint
+
     def test_remy_siemens_dcm_reads_like_ima(self, example_data_dir):
         f = os.path.join(example_data_dir, 'spec2nii_tests', 'siemens', 'XAData', 'XA20', 'DICOM', '26516628.dcm')
         if not os.path.exists(f):

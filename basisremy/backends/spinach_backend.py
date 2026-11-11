@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import numpy as np
 
@@ -168,7 +169,7 @@ class SpinachBackend(_SpinachRuntime):
             return 'LASER'
         if 'special' in p:                  # SPECIAL: a spin echo at TE after the add/subtract
             return 'Spin Echo'
-        if 'spin' in p or 'se' in p:
+        if 'spin' in p or re.search(r'(^|[^a-z])se([^a-z]|$)', p):
             return 'Spin Echo'
         return None
 

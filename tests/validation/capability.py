@@ -135,8 +135,7 @@ def _scan_type(br, row):
     its header (SVS / MRSI from its path); the protocol name stands in for a sequence the
     recogniser does not know. Files that do not read group per source, format and SVS / MRSI;
     a header that tells none of these keeps its folder."""
-    mrsi = 'MRSI' if re.search(r'mrsi|csi', row['file'], re.I) else 'SVS'
-    base = (row['source'], row['vendor'], row['format'], mrsi)
+    base = (row['source'], row['vendor'], row['format'], 'MRSI' if is_mrsi(row) else 'SVS')
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             m = br.runREMY(import_fpath=row['file'])
@@ -193,9 +192,10 @@ _SEQ = [
     ('LASER',       r'(?<!s)laser'),
     ('SPECIAL',     r'special'),
     ('ISIS',        r'isis'),
-    ('CSI',         r'csi'),
     ('STEAM',       r'steam'),
     ('PRESS',       r'press|svs_se|svs_edit'),
+    ('Spin Echo',   r'spin.?echo'),
+    ('Pulse-acquire', r'pulse.?acquire'),
 ]
 
 
@@ -212,12 +212,29 @@ def _spar_mrsi(path):
 
 
 def sequence_of(ds, m):
-    """The scan's sequence: from its protocol name (or REMY's Sequence field); MRSI is CSI whatever
-    its name says - a path naming MRSI / CSI (as discover_all groups scans) or a Philips SPAR with
-    several spatial points (Dataset_02: 'research/oslaser', Dataset_39: '2D_sLASER_TE36')."""
-    if re.search(r'mrsi|csi', ds['file'], re.I) or (ds['format'] == 'Philips SPAR' and _spar_mrsi(ds['file'])):
-        return 'CSI'
+    """The scan's sequence: from its protocol name (or REMY's Sequence field). An MRSI scan is its
+    localising sequence (a CSI basis is that sequence's basis): BasisREMY appends it to a name
+    that does not spell it out (csi_se -> Spin Echo, csi_fid -> Pulse-acquire, Bruker:CSI from
+    the method's LocalizationMode); is_mrsi keeps SVS and MRSI apart."""
     return recognise(m.get('Protocol'), m.get('Sequence'))
+
+
+def _bruker_mrsi(path):
+    """A Bruker method file of the CSI method (Dataset_42: folder says PRESS, method Bruker:CSI)."""
+    try:
+        with open(path, errors='ignore') as f:
+            return '<Bruker:CSI>' in f.read()
+    except OSError:
+        return False
+
+
+def is_mrsi(ds):
+    """A path naming MRSI / CSI (as discover_all groups scans), a Philips SPAR with several
+    spatial points (Dataset_02: 'research/oslaser', Dataset_39: '2D_sLASER_TE36') or a Bruker
+    CSI method."""
+    return bool(re.search(r'mrsi|csi', ds['file'], re.I)) or \
+        (ds['format'] == 'Philips SPAR' and _spar_mrsi(ds['file'])) or \
+        (ds['format'] == 'Bruker method' and _bruker_mrsi(ds['file']))
 
 
 def recognise(*texts):
@@ -236,24 +253,25 @@ def recognise(*texts):
 # sequence designer's recommended design of that kind (core/sequence_design), saved as .seq and
 # given to the engine - always when it is the only entry, else when a blank no rule fills is left
 ENTRIES = [
-    ('FID-A',    'ideal', 'FidaIdeal',           {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'LASER': {'Sequence': 'LASER'}, 'SPECIAL': {'Sequence': 'Spin Echo'}}),
+    ('FID-A',    'ideal', 'FidaIdeal',           {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'LASER': {'Sequence': 'LASER'}, 'SPECIAL': {'Sequence': 'Spin Echo'}, 'Spin Echo': {'Sequence': 'Spin Echo'}}),
+    ('FID-A',    'ideal', 'FidaOnePulse',        {'Pulse-acquire': {}}),
     ('FID-A',    'ideal', 'FidaMegaPressIdeal',  {'MEGA-PRESS': {}}),
     ('FID-A',    'real',  'FidaPressShaped',     {'PRESS': {}}),
     ('FID-A',    'real',  'FidaSteamShaped',     {'STEAM': {}}),
     ('FID-A',    'real',  'FidaSemiLaserShaped', {'sLASER': {}}),
     ('FID-A',    'real',  'FidaMegaPressShaped', {'MEGA-PRESS': {}}),
     ('FSL-MRS',  'ideal', 'FSL-MRS',             {**{s: {'Sequence': s} for s in ('PRESS', 'STEAM', 'LASER', 'sLASER', 'MEGA-PRESS', 'HERMES', 'HERCULES', 'MEGA-sLASER')},
-                                                  'SPECIAL': {'design': 'Spin Echo'}}),
+                                                  'SPECIAL': {'design': 'Spin Echo'}, 'Spin Echo': {'design': 'Spin Echo'}}),
     ('MRSCloud', 'real',  'MRSCloud',            {'PRESS': {'Sequence': 'UnEdited', 'Localization': 'PRESS', 'design': 'PRESS'},
                                                   'sLASER': {'Sequence': 'UnEdited', 'Localization': 'sLASER'},
                                                   'MEGA-PRESS': {'Sequence': 'MEGA', 'Localization': 'PRESS', 'design': 'MEGA-PRESS'},
                                                   'MEGA-sLASER': {'Sequence': 'MEGA', 'Localization': 'sLASER'},
                                                   'HERMES': {'Sequence': 'HERMES', 'Localization': 'PRESS'}}),
-    ('Vespa',    'ideal', 'Vespa',               {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}}),
+    ('Vespa',    'ideal', 'Vespa',               {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'Spin Echo': {'Sequence': 'Spin Echo'}}),
     ('Vespa',    'real',  'Vespa',               {'PRESS': {'Sequence': 'PRESS shaped'}}),
-    ('spant',    'ideal', 'Spant',               {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'sLASER': {'Sequence': 'sLASER'}, 'MEGA-PRESS': {'Sequence': 'MEGA-PRESS'}}),
+    ('spant',    'ideal', 'Spant',               {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'sLASER': {'Sequence': 'sLASER'}, 'MEGA-PRESS': {'Sequence': 'MEGA-PRESS'}, 'Spin Echo': {'Sequence': 'Spin Echo'}}),
     ('spant',    'real',  'Spant',               {'PRESS': {'Sequence': 'PRESS shaped'}}),
-    ('Spinach',  'ideal', 'Spinach',             {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'LASER': {'Sequence': 'LASER'}, 'SPECIAL': {'Sequence': 'Spin Echo'}}),
+    ('Spinach',  'ideal', 'Spinach',             {'PRESS': {'Sequence': 'PRESS'}, 'STEAM': {'Sequence': 'STEAM'}, 'LASER': {'Sequence': 'LASER'}, 'SPECIAL': {'Sequence': 'Spin Echo'}, 'Spin Echo': {'Sequence': 'Spin Echo'}}),
     ('Spinach',  'real',  'SpinachPressShaped',  {'PRESS': {}}),
     ('Spinach',  'real',  'SpinachSemiLaserShaped', {'sLASER': {}}),
     ('jbss',     'real',  'CustomSLaser',        {'sLASER': {}}),
@@ -304,6 +322,7 @@ def complete(params, blanks, sequence, vendor):
 def evaluate(ds, entry, simulate=True):
     label, model, backend, seqs = entry
     row = {'dataset': ds['dataset'], 'format': ds['format'], 'vendor': ds['vendor'],
+           'mrsi': 'MRSI' if is_mrsi(ds) else 'SVS',
            'engine': label, 'pulse_model': model, 'backend': backend, 'read': False,
            'sequence': '', 'protocol': '', 'supported': False, 'shown': '', 'blanks': '', 'filled': '',
            'level': '', 'error': '', 'seconds': 0.0}
@@ -398,7 +417,7 @@ def _apply_design(br, kind, params, header, sequence, vendor, filled):
     return params, filled, [k for k in blanks if k not in more], shown, blanks
 
 
-FIELDS = ['dataset', 'format', 'vendor', 'engine', 'pulse_model', 'backend', 'read', 'sequence',
+FIELDS = ['dataset', 'format', 'vendor', 'mrsi', 'engine', 'pulse_model', 'backend', 'read', 'sequence',
           'protocol', 'supported', 'shown', 'blanks', 'filled', 'level', 'error', 'seconds']
 
 
